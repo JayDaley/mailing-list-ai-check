@@ -166,12 +166,20 @@ _MIGRATION_005 = """
 ALTER TABLE lists ADD COLUMN last_message_at TEXT;
 """
 
+# get_parent_body and thread lookups filter by bare message_id;
+# UNIQUE(list_id, message_id) cannot serve that predicate, so give
+# message_id its own index.
+_MIGRATION_006 = """
+CREATE INDEX idx_messages_message_id ON messages(message_id);
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
     (3, _MIGRATION_003),
     (4, _MIGRATION_004),
     (5, _MIGRATION_005),
+    (6, _MIGRATION_006),
 ]
 
 
