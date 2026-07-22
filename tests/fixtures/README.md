@@ -1,10 +1,10 @@
 # Extraction test fixtures
 
-Hand-labeled corpus for the Phase 3 new-text extraction quality tests
-(`PLAN.md` task 3.3). Each fixture is a raw RFC 5322 message from the **public**
-IETF mail archive (<https://mailarchive.ietf.org>), promoted from the Phase 0
-extraction spike (`docs/findings/extraction.md`). Including these verbatim is
-fine — they are public-archive list mail (established in `PLAN.md`).
+Hand-labeled corpus for the new-text extraction quality tests. Each fixture is
+a raw RFC 5322 message from the **public** IETF mail archive
+(<https://mailarchive.ietf.org>), promoted from the Phase 0 extraction spike
+(`docs/findings/extraction.md`). Including these verbatim is fine — they are
+public-archive list mail.
 
 ## Layout
 

@@ -172,11 +172,9 @@ Layout:
   real public-archive messages with expected extractions, used to grade the
   extractor).
 - `docs/findings/` — the Phase 0 spike findings (IMAP, extraction, Pangram) that
-  the design is built on.
-
-See `PLAN.md` for the full build history and the **Decisions** section for why
-things are the way they are (email-reply-parser over Talon, stdlib `sqlite3`
-over an ORM, the Pangram contract, anonymous IMAP).
+  the design is built on, including why things are the way they are
+  (email-reply-parser over Talon, stdlib `sqlite3` over an ORM, the Pangram
+  contract).
 
 ### Secret-scanning guardrail
 
