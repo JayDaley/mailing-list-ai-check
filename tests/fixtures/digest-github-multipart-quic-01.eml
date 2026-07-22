@@ -1,0 +1,328 @@
+Return-Path: <do_not_reply@mnot.net>
+X-Original-To: quic@mail2.ietf.org
+Delivered-To: quic@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 42D2B11956484
+	for <quic@mail2.ietf.org>; Sun, 19 Jul 2026 02:28:21 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784453301; bh=jFQZ1lRCiajBvQzdp4BHeEeFPkeRjuouFfMxQ0F7CsA=;
+	h=From:To:Subject:Date;
+	b=lOhzlqpnl6PTHajz2drq9lVNtb5GJvWNu0N5IABdrJQtB8t+cZdDpwVn3HOHSZ72M
+	 QfiBW7GHEJEq7fLSitxP4jnLetMtdUovKnQgSY+tQuNBgYtGU8M5A+pOD9TVfADg6o
+	 9f9ONyDZYwoUYtQqikpNVrhWdmBh5FDJr4TU8cHs=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.397
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.397 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_INVALID=0.1, DKIM_SIGNED=0.1,
+	HTML_MESSAGE=0.001, MSGID_FROM_MTA_HEADER=0.001,
+	RCVD_IN_DNSWL_LOW=-0.7, RCVD_IN_VALIDITY_CERTIFIED_BLOCKED=0.001,
+	RCVD_IN_VALIDITY_RPBL_BLOCKED=0.001, SPF_PASS=-0.001]
+	autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=fail (2048-bit key)
+	reason="fail (message has been altered)" header.d=mnot.net
+	header.b="cy13vu6/"; dkim=fail (2048-bit key)
+	reason="fail (message has been altered)" header.d=messagingengine.com
+	header.b="qE2K+JnF"
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id 8aQLrXQIzjgm for <quic@mail2.ietf.org>;
+	Sun, 19 Jul 2026 02:28:20 -0700 (PDT)
+Received: from fhigh-a5-smtp.messagingengine.com
+ (fhigh-a5-smtp.messagingengine.com [103.168.172.156])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id AB5211195647D
+	for <quic@ietf.org>; Sun, 19 Jul 2026 02:28:20 -0700 (PDT)
+Received: from phl-compute-06.internal (phl-compute-06.internal [10.202.2.46])
+	by mailfhigh.phl.internal (Postfix) with ESMTP id BBCD114000EE
+	for <quic@ietf.org>; Sun, 19 Jul 2026 05:28:14 -0400 (EDT)
+Received: from phl-frontend-03 ([10.202.2.162])
+  by phl-compute-06.internal (MEProxy); Sun, 19 Jul 2026 05:28:14 -0400
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=mnot.net; h=cc
+	:content-type:content-type:date:from:from:in-reply-to:message-id
+	:mime-version:reply-to:subject:subject:to:to; s=fm3; t=
+	1784453294; x=1784539694; bh=dO8beHhOKA/bohbSWy59HuOAwW+oCPk9dTB
+	tdi4Qhtc=; b=cy13vu6/BCBrgsdk8sodkuqLKUGeq1vJPrzZhqGK7bip9wOUZr+
+	Sd5JnWayY3F5CPngBI70F2r28sp+8eJPQDg1NRIZdZtaD33k666WPLccuh5M5Ch/
+	5TvgCqSPioRIRQxgO0yz7rs3wQfyn0PmwUsfhBYjOlr+wmPnCogfIreJZVBVLyYX
+	x+9INH6HvAvJizp66EkI3ISGn8jJZqCMDNU0aY3y02EpSM7rSGqx86aFHn+LS1P9
+	NxQ92BUB2B9jHc64rpkbsuoZVWyS9mejDRJsRey+a18526xSYMpYulmuzazwKLkx
+	zkC2UwdGenGMXUkw4kh7J1lqcDUsu9FN4Ew==
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=
+	messagingengine.com; h=cc:content-type:content-type:date
+	:feedback-id:feedback-id:from:from:in-reply-to:message-id
+	:mime-version:reply-to:subject:subject:to:to:x-me-proxy
+	:x-me-sender:x-me-sender:x-sasl-enc; s=fm2; t=1784453294; x=
+	1784539694; bh=dO8beHhOKA/bohbSWy59HuOAwW+oCPk9dTBtdi4Qhtc=; b=q
+	E2K+JnFCjXDlz6at31afZY/ue8p+0IV2dpZOCePv228Y9kh5pVhTHxDF84bwapF8
+	m4wAbUm88IhublxafBaiyDAt5zmViAuVzl94M4798XwNCU/cunX7c0Z1/cLU3mi4
+	3wm7pn9S2uaNrjMSdu1OgFArnsXU39OXh3WjYzWnHvWA7RVIvFNP2q5q1akKMIzm
+	Hr0X7x9i+9KAaOArtYVXYYcfLuZe+Oo3PUnWRsZPtXuWWNqGyi3BRE1TLVq8S+6/
+	IQwKGO/pLnbV4Xn+kpdlx1alFgw4QZ3AMxql67CX71zLn2APw4o8fAW7geohRV2V
+	bs2gKvrmHpTFeWY+cw1LQ==
+X-ME-Sender: <xms:rphcavXR0uKfFKBy8UTu3E_OWU95t9KdD6c00jr1XXuSUSBWAe1oeQ>
+    <xme:rphcatcU33Jz6T-e9VEI407rxHjDURvxc-80p3GxiM1-W9_NDu4Hg4IK8_wQ5JtLZ
+    ePBLBn1cG6TFO_qY5Zzi_yzO-OHXc5waWCHV4TMgDUr4vhDheUm-w>
+X-ME-Received: 
+ <xmr:rphcamfWmQZp6ezqfzPQ4_F5X9vngGaNuxbP3mngNQuzV3Y6Je_zn-OZ9Wm6pMopk2ulbmbX_MPaA1CrIF8gbZIAPu-lV_ypr9ejzcmszgD9VfZCR0QveXRu74IWAYK-ZtBO>
+X-ME-Proxy-Cause: 
+ dmFkZTGFKW/poY0M7acAnV2AGVOLxpNY9AQ1QlmEsC4H9Syu+N45Wt62afBFB1nyx1hXmZ
+    g39sK4WU4gUwMLD7xqDE5PjONLTrNyeBHgk6J4/kzfD8MEQnHjE/or2NVtjQgI9Ies0xsb
+    r05lQG/o58y8QkqlIyCuqab1NBaR/zQ3KFsgSsmrmYF+9I0m6gdqUpwPv9Ai/1a/dajyvh
+    7sn8hk6dI8p0v7Y14UH4EDIrzDPEWGDJlzrT7QFKTytBjNjiDsvKBpAj1PpE0YZFOb7THj
+    0OHPth9Wkk1QZaLwZ+v2diUhV7NVqF1pwf4sakiyqFii/sAyjR+p2gyAtGTeUxIf1OTJKM
+    pt+3tGGskpANC06u8YKl4zD3KzU3opYdpZgBwdxEuwh119pGeYRUhin1A1HhTeF3ZyBnp7
+    oP2lh/ZskVMmaaVE0LhqviaO8unqJK+X/LdEGUKwtGjrnvRMVCFgPasJzyQz5Txp3GE149
+    clKzVG1YJNsgLynLc8eoQMrBsUc7Q5fRKS7JI5ao5r0GFkbPDqu8nh/z40UnH1DWBnm0hX
+    HRK63YZR2lHTDDTJIofQsDRt0enbV3GtkXNsX5bEJN/2zyfBiXnDPjgzZvUJYopI4hVhJ/
+    fk9u20NkrNR7F1Av8/znPeOQMCMPUV9z9Z14YhmI01iOo2bbB/yU1m9CVXQA
+X-ME-Proxy: <xmx:rphcanLotKWrzIB_EoStb0uecrj5S0T-9wXg1jN2cOqgsrZBo2bGkQ>
+    <xmx:rphcatLPF7hj4tF74_flinc6nymhuj1cZmBJ81YYKpZc9UW9BlcIhg>
+    <xmx:rphcapGp5-CcA5w_Gz9BDnah06iHhGRIS43KC_i0lnaIuJhv7HgyQw>
+    <xmx:rphcailuzJX_dLKS6g2pb2h5VGwABIoDYGGksM848j_w8rJ4kgq3LQ>
+    <xmx:rphcaueZ1IHAb7WSr6xgSAIHr3urogvxm6CxXWz8gTCl4KLu_zJhFf3d>
+Feedback-ID: i1c3946f2:Fastmail
+Message-Id: <1784453294.136579.43A84942@outbound.messagingengine.com>
+Received: by mail.messagingengine.com (Postfix) with ESMTPA for
+ <quic@ietf.org>;
+ Sun, 19 Jul 2026 05:28:14 -0400 (EDT)
+Content-Type: multipart/alternative;
+ boundary="===============4027725102966777394=="
+MIME-Version: 1.0
+From: Repository Activity Summary Bot <do_not_reply@mnot.net>
+To: quic@ietf.org
+Subject: Weekly github digest (QUIC Activity Summary)
+Date: Sun, 19 Jul 2026 02:28:20 -0700 (PDT)
+Message-ID-Hash: RZDNXH4PPMGN3M4GC43LZLM7NNDQCXMO
+X-Message-ID-Hash: RZDNXH4PPMGN3M4GC43LZLM7NNDQCXMO
+X-MailFrom: do_not_reply@mnot.net
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-quic.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+List-Id: Main mailing list of the IETF QUIC working group <quic.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/quic/2HPjO1BgwPdLtiUDhw88yWbNEHQ>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/quic>
+List-Help: <mailto:quic-request@ietf.org?subject=help>
+List-Owner: <mailto:quic-owner@ietf.org>
+List-Post: <mailto:quic@ietf.org>
+List-Subscribe: <mailto:quic-join@ietf.org>
+List-Unsubscribe: <mailto:quic-leave@ietf.org>
+
+--===============4027725102966777394==
+MIME-Version: 1.0
+Content-Transfer-Encoding: quoted-printable
+Content-Type: text/plain; charset="utf-8"; format="flowed"
+
+
+
+
+Events without label "editorial"
+
+Issues
+------
+* quicwg/qmux (+1/-0/=F0=9F=92=AC1)
+  1 issues created:
+  - Revisit graceful close? (by Lukasa)
+    https://github.com/quicwg/qmux/issues/67=20
+
+  1 issues received 1 new comments:
+  - #67 Revisit graceful close? (1 by LPardue)
+    https://github.com/quicwg/qmux/issues/67=20
+
+* quicwg/receive-ts (+0/-0/=F0=9F=92=AC1)
+  1 issues received 1 new comments:
+  - #9 Write Security Considerations (1 by jbeshay)
+    https://github.com/quicwg/receive-ts/issues/9=20
+
+
+
+Pull requests
+-------------
+* quicwg/qmux (+1/-0/=F0=9F=92=AC1)
+  1 pull requests submitted:
+  -  (by KernelPanic2id)
+    =20
+
+  1 pull requests received 1 new comments:
+  - #66 Fix typo: PATH_REPONSE -> PATH_RESPONSE (1 by kazuho)
+    https://github.com/quicwg/qmux/pull/66=20
+
+* quicwg/receive-ts (+2/-0/=F0=9F=92=AC0)
+  2 pull requests submitted:
+  -  (by jbeshay)
+    =20
+  -  (by jbeshay)
+    =20
+
+
+Repositories tracked by this digest:
+-----------------------------------
+* https://github.com/quicwg/base-drafts
+* https://github.com/quicwg/ops-drafts
+* https://github.com/quicwg/datagram
+* https://github.com/quicwg/load-balancers
+* https://github.com/quicwg/version-negotiation
+* https://github.com/quicwg/quic-bit-grease
+* https://github.com/quicwg/qlog
+* https://github.com/quicwg/quic-v2
+* https://github.com/quicwg/multipath
+* https://github.com/quicwg/ack-frequency
+* https://github.com/quicwg/reliable-stream-reset
+* https://github.com/quicwg/qmux
+* https://github.com/quicwg/receive-ts
+* https://github.com/quicwg/extended-key-update
+* https://github.com/quicwg/address-discovery
+
+
+--=20
+To have a summary like this sent to your list, see: https://github.com/ietf=
+-github-services/activity-summary
+
+--===============4027725102966777394==
+Content-Type: text/html; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: quoted-printable
+
+<!doctype html>
+<html lang=3D"en">
+<head>
+<meta charset=3D"utf-8">
+<title>Weekly github digest (QUIC Activity Summary)</title>
+<style>
+body { font-family: Gotham, "Helvetica Neue", Helvetica, Arial, sans-serif;=
+ font-size: 14px; }
+h2 { margin-top: 3em; color: #A52A2A; font-style: italic; font-weight: norm=
+al; }
+h3 { margin-bottom:0; margin-top: 2em; font-size: 1.2em; }
+h1+h2 { margin-top: 1em; }
+a { color: #bb6219; text-decoration: none; }
+li { margin-bottom: .35em; }
+.repos { margin-bottom: 0; margin-top:0; line-height: 1.2; }
+.new { color: red; }
+.label { display: inline;
+	padding: .2em .6em .3em;
+	font-size: 75%;
+	font-weight: 700;
+	line-height: 1;
+	color: #fff;
+	text-align: center;
+	white-space: nowrap;
+	vertical-align: baseline;
+	border-radius: .25em;
+}
+details {
+	margin-top: 8em;
+	}
+summary {
+	margin-bottom: 1em;
+	cursor: pointer;
+}
+</style>
+</head>
+
+<body>
+<h1>Sunday July 19, 2026</h1>
+
+<p>Events without label "editorial"</p>
+
+<h2>Issues</h2>
+
+<h3>quicwg/qmux (+1/-0/=F0=9F=92=AC1)</h3>
+  <p class=3D"new">1 issues created:</p>
+  <ul>
+  <li>#67 <a href=3D"https://github.com/quicwg/qmux/issues/67">Revisit grac=
+eful close?</a> (by Lukasa) </li>
+  </ul>
+
+  <p>1 issues received 1 new comments:</p>
+  <ul>
+  <li>#67 <a href=3D"https://github.com/quicwg/qmux/issues/67">Revisit grac=
+eful close?</a> (1 by LPardue) </li>
+  </ul>
+
+
+<h3>quicwg/receive-ts (+0/-0/=F0=9F=92=AC1)</h3>
+
+  <p>1 issues received 1 new comments:</p>
+  <ul>
+  <li>#9 <a href=3D"https://github.com/quicwg/receive-ts/issues/9">Write Se=
+curity Considerations</a> (1 by jbeshay) </li>
+  </ul>
+
+
+
+
+<h2>Pull requests</h2>
+<h3>quicwg/qmux (+1/-0/=F0=9F=92=AC1)</h3>
+  <p class=3D"new">1 pull requests submitted:</p>
+  <ul>
+  <li>#66 <a href=3D""></a> (by KernelPanic2id) </li>
+  </ul>
+
+  <p>1 pull requests received 1 new comments:</p>
+  <ul>
+  <li>#66 <a href=3D"https://github.com/quicwg/qmux/pull/66">Fix typo: PATH=
+_REPONSE -&gt; PATH_RESPONSE</a> (1 by kazuho) </li>
+  </ul>
+
+
+<h3>quicwg/receive-ts (+2/-0/=F0=9F=92=AC0)</h3>
+  <p class=3D"new">2 pull requests submitted:</p>
+  <ul>
+  <li>#42 <a href=3D""></a> (by jbeshay) </li>
+ =20
+  <li>#41 <a href=3D""></a> (by jbeshay) </li>
+  </ul>
+
+
+
+
+  <details>
+    <summary>Repositories tracked by this digest:</summary>
+<ul class=3D"repos">
+  <li><a href=3D"https://github.com/quicwg/base-drafts">https://github.com/=
+quicwg/base-drafts</a></li>
+  <li><a href=3D"https://github.com/quicwg/ops-drafts">https://github.com/q=
+uicwg/ops-drafts</a></li>
+  <li><a href=3D"https://github.com/quicwg/datagram">https://github.com/qui=
+cwg/datagram</a></li>
+  <li><a href=3D"https://github.com/quicwg/load-balancers">https://github.c=
+om/quicwg/load-balancers</a></li>
+  <li><a href=3D"https://github.com/quicwg/version-negotiation">https://git=
+hub.com/quicwg/version-negotiation</a></li>
+  <li><a href=3D"https://github.com/quicwg/quic-bit-grease">https://github.=
+com/quicwg/quic-bit-grease</a></li>
+  <li><a href=3D"https://github.com/quicwg/qlog">https://github.com/quicwg/=
+qlog</a></li>
+  <li><a href=3D"https://github.com/quicwg/quic-v2">https://github.com/quic=
+wg/quic-v2</a></li>
+  <li><a href=3D"https://github.com/quicwg/multipath">https://github.com/qu=
+icwg/multipath</a></li>
+  <li><a href=3D"https://github.com/quicwg/ack-frequency">https://github.co=
+m/quicwg/ack-frequency</a></li>
+  <li><a href=3D"https://github.com/quicwg/reliable-stream-reset">https://g=
+ithub.com/quicwg/reliable-stream-reset</a></li>
+  <li><a href=3D"https://github.com/quicwg/qmux">https://github.com/quicwg/=
+qmux</a></li>
+  <li><a href=3D"https://github.com/quicwg/receive-ts">https://github.com/q=
+uicwg/receive-ts</a></li>
+  <li><a href=3D"https://github.com/quicwg/extended-key-update">https://git=
+hub.com/quicwg/extended-key-update</a></li>
+  <li><a href=3D"https://github.com/quicwg/address-discovery">https://githu=
+b.com/quicwg/address-discovery</a></li>
+</ul>
+</details>
+<address>To have a summary like this sent to your list, see: https://github=
+.com/ietf-github-services/activity-summary</address>
+</body>
+</html>
+
+--===============4027725102966777394==--
+

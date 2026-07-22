@@ -1,0 +1,160 @@
+Return-Path: <brian.e.carpenter@gmail.com>
+X-Original-To: ietf@mail2.ietf.org
+Delivered-To: ietf@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id ECD93119F31C8
+	for <ietf@mail2.ietf.org>; Sun, 19 Jul 2026 21:24:22 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784521462; bh=ATsva/DVLPaAXIHktc9qXCZ5nnxct4PSjQCFAshoYQA=;
+	h=Date:Subject:To:References:From:In-Reply-To;
+	b=QzmVG6AS7u3y86H4HcfbIc354H5GjEhXTd4Zm05RGXWK/iFYPoN5LMMdQHh9Ry4Bu
+	 2kVO7oBxrjbRnrhya0owqc93bv2UPyaOqpMnSja+styIB+OxffbnDWKB24q0ISYPKp
+	 83z1R7XtpKFcVhMSHV1oG/1euERTno1IAEXMu4ws=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.099
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.099 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, FREEMAIL_FROM=0.001,
+	RCVD_IN_DNSWL_NONE=-0.0001, SPF_HELO_NONE=0.001, SPF_PASS=-0.001]
+	autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=gmail.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id 5pGtgRJosArq for <ietf@mail2.ietf.org>;
+	Sun, 19 Jul 2026 21:24:22 -0700 (PDT)
+Received: from mail-pg1-x52b.google.com (mail-pg1-x52b.google.com
+ [IPv6:2607:f8b0:4864:20::52b])
+	(using TLSv1.3 with cipher TLS_AES_128_GCM_SHA256 (128/128 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 6EC7D119F31C0
+	for <ietf@ietf.org>; Sun, 19 Jul 2026 21:24:22 -0700 (PDT)
+Received: by mail-pg1-x52b.google.com with SMTP id
+ 41be03b00d2f7-c95d0a54ea5so7088135a12.0
+        for <ietf@ietf.org>; Sun, 19 Jul 2026 21:24:22 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=gmail.com; s=20251104; t=1784521456; x=1785126256; darn=ietf.org;
+        h=content-transfer-encoding:content-type:in-reply-to:from
+         :content-language:references:to:subject:user-agent:mime-version:date
+         :message-id:from:to:cc:subject:date:message-id:reply-to:content-type;
+        bh=ATsva/DVLPaAXIHktc9qXCZ5nnxct4PSjQCFAshoYQA=;
+        b=OuJPBws/zYXgwo9R/IuwVFIG/SPwJ98vpj4+nLdKrRiMbLck9AMe0tIXqdXa26TRqF
+         kosHjmaZD+uZm2zuEPiCOjX6taVP1zw/CoHEUKwF689ZeXcFb7hjXmbLfOxhTYDOGsT8
+         Ph7OgK2Cx0tBQNz+FFhbdxqeEISve/42Jqlrswq6EGJojIOh/UCU92cKxNJqdiK/xFt1
+         plLNrtbK9xGMJiRJx4xajVFAsH4wAsb6ytZR28q26PsbrObZ7lq4K1W67M6gmTAeCuY3
+         p9Ido4Y7a/Y+hnwa0QKF/I3uFmFiSvSodyUdkKaYC1JgK1QQaqeSqBELCzyIwPDwCHPw
+         vgdw==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1784521456; x=1785126256;
+        h=content-transfer-encoding:content-type:in-reply-to:from
+         :content-language:references:to:subject:user-agent:mime-version:date
+         :message-id:x-gm-gg:x-gm-message-state:from:to:cc:subject:date
+         :message-id:reply-to:content-type;
+        bh=ATsva/DVLPaAXIHktc9qXCZ5nnxct4PSjQCFAshoYQA=;
+        b=iOf7giIpzBIoOKMLu6tcxVMAJJrbweD8wYF0t67petEacqlqwGCKtajjiH3VS//jav
+         BUcFCEA2XUHVS1711izj5umo9khgdgFCnu8LbY6hfW0jIZcNMIQtAbhMNvZZzaexC+7r
+         qUo5sOls+sSKNAQbGL2ufIpdVEInzFUXEfisSqcwD+Z3xFUVlZ1/PIcLZpb9w2/FTWHs
+         MOcbHAtpbhZ9QsD0UECcIjWty20TkymNu2bj/YWTesN5FXqkctpPoYh/h1Noxzn4u4K0
+         AWRCkcIQAux19GxhrWU+3juLLoRXHhHWk1wPeM3+j5/OOJM7vAoiUe7bke4x8N/bmWgL
+         Q/1g==
+X-Gm-Message-State: AOJu0YyaFy/dyD8G8Ur+hWQOs4HKspdf2TyM5ExqGerSSxxTaSNbDdP6
+	cM6mDwmoYLsuPowAOJhqBJfzB1b4Ln25L2M9YLmeZCsXk/uPteuUu9MrTBxQpQe5
+X-Gm-Gg: AfdE7cmeaLLDjRARTQQ2H8L/xhrgnLBKPOerK9Zcgdo0gVOjkARv6+MDRdbrImAFLQQ
+	EE1C9MdRKNPlpPNYwW/zuu5w8gNyYfCWQ3lVli+Q7ZqZBjRekhuchCWF4eVnmdi6B28lTdKiP5x
+	Z8ZVgDHuorbfceKnk5aDbAvAopmYQLV3WpFYdKFOTm4OkHtbEDcMWWebTOxSd+7dSLJomJ49Mw8
+	rpLFN94Bh4oA5mC5p2qJ/pAZQ1rr/vdrg/BOgDOguGqBVOqIayGt6bOmlaB+godMbWVWkGB54W1
+	OR+e9M0DE9RP5zJ2B6CPclx+9/zGO7HjNMuCQlcMVd3K+uMRwxhHTEIVFoVy8xyzdgG6cu/F53x
+	NpjX1UPRnPoFiWgWS9A6LmXIjoa2dnCSruCFX2rCvqsoBvBLQIp6LCG3TFGyAzzK7P+Oir2tF7j
+	vnaG2KrS8yP2VjobPmz5doxp9pIhiYO1FxXc/biL/pZ+QO2uSZqloui4dZFOHlXxP+KlJ4
+X-Received: by 2002:a05:6a20:d4c:b0:3bf:b089:c55e with SMTP id
+ adf61e73a8af0-3c3ad9d1b69mr12997668637.52.1784521455591;
+        Sun, 19 Jul 2026 21:24:15 -0700 (PDT)
+Received: from ?IPV6:2404:4400:a100:1829:5956:ca53:df83:6568?
+ ([2404:4400:a100:1829:5956:ca53:df83:6568])
+        by smtp.gmail.com with ESMTPSA id
+ a92af1059eb24-13ce2cd764fsm26674115c88.12.2026.07.19.21.24.13
+        (version=TLS1_3 cipher=TLS_AES_128_GCM_SHA256 bits=128/128);
+        Sun, 19 Jul 2026 21:24:14 -0700 (PDT)
+Message-ID: <cfb968e2-8365-4f19-a79b-526f05c867ab@gmail.com>
+Date: Mon, 20 Jul 2026 16:24:11 +1200
+MIME-Version: 1.0
+User-Agent: Mozilla Thunderbird
+Subject: Re: I-D Action: draft-gerke-publication-process-reform-00.txt
+To: ietf@ietf.org, ietf@timogerke.de
+References: 
+ <178445512893.810.18056422525420352216@dt-datatracker-d4d6ff9d9-fsx7d>
+Content-Language: en-US
+From: Brian E Carpenter <brian.e.carpenter@gmail.com>
+In-Reply-To: 
+ <178445512893.810.18056422525420352216@dt-datatracker-d4d6ff9d9-fsx7d>
+Content-Type: text/plain; charset=UTF-8; format=flowed
+Content-Transfer-Encoding: base64
+Message-ID-Hash: HKWFWGEOBQJXBXKCSCYRK6EJFAD2IAS7
+X-Message-ID-Hash: HKWFWGEOBQJXBXKCSCYRK6EJFAD2IAS7
+X-MailFrom: brian.e.carpenter@gmail.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-ietf.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+List-Id: "IETF-Discussion. This is the most general IETF mailing list,
+ intended for discussion of technical, procedural, operational,
+ and other topics for which no dedicated mailing lists exist." <ietf.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/ietf/4TiqV2i5KR1nxVFc01a2i0qGCGI>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/ietf>
+List-Help: <mailto:ietf-request@ietf.org?subject=help>
+List-Owner: <mailto:ietf-owner@ietf.org>
+List-Post: <mailto:ietf@ietf.org>
+List-Subscribe: <mailto:ietf-join@ietf.org>
+List-Unsubscribe: <mailto:ietf-leave@ietf.org>
+
+SGksDQoNClNpbmNlIHRoaXMgZHJhZnQgaXNuJ3QgdGFnZ2VkIGZvciBhbnkgV0csIG5vdCBl
+dmVuIGdlbi1kaXNwYXRjaCB3aGljaCBzZWVtcyBhcHByb3ByaWF0ZSwgSSdsbCBwb3N0IGhl
+cmUsIG9uIG9uZSBhc3BlY3Qgb25seS4NCg0KPiA1LjMuIFBlcm1pc3Npb25zIGFuZCBkdXRp
+ZXMgb2YgdGhlIFJQQw0KLi4uPiBUaGUgUlBDJ3MgZHV0eSBpcyBzdHJpY3RseSBjb25maW5l
+ZCB0byBlZGl0b3JpYWwgcmVmaW5lbWVudCBhbmQgU0hBTEwgTk9UIGFsdGVyIHRoZSB0ZWNo
+bmljYWwgbWVhbmluZyBvZiB0aGUgdGV4dC4NCg0KQW4gSUVURiBwcm9jZXNzIGRvY3VtZW50
+IGNhbm5vdCBkZWZpbmUgUlBDIGR1dGllcy4gVGhhdCB3b3VsZCBuZWVkIGEgZHJhZnQgc3Vi
+bWl0dGVkIHRvIHRoZSBSU1dHLCBvciByZXBocmFzaW5nIGFzIHRoZSBJRVRGJ3MgX2V4cGVj
+dGF0aW9uc18gb2YgdGhlIFJQQy4NCg0KQWxzbzoNCg0KPiBUaGUgUlBDJ3MgZHV0eSBpcyBz
+dHJpY3RseSBjb25maW5lZCB0byBlZGl0b3JpYWwgcmVmaW5lbWVudCBhbmQgU0hBTEwgTk9U
+IGFsdGVyIHRoZSB0ZWNobmljYWwgbWVhbmluZyBvZiB0aGUgdGV4dC4NCg0KVGhhdCBpcyBh
+bHJlYWR5IG1hZGUgY2xlYXIgYXQgWzFdLCBwb2ludHMgMSBhbmQgMy4gSXQgaXMgbm90IHVu
+a25vd24gZm9yIHRoZSBSUEMgdG8gZGlzY292ZXIgcG9vciBncmFtbWFyIHRoYXQgY29uY2Vh
+bHMgYSB0ZWNobmljYWwgYW1iaWd1aXR5IG9yIHRlY2huaWNhbCBlcnJvciwgc28gcG9pbnQg
+MyBpcyBub3QgYWNhZGVtaWMuIFN1Y2ggbGF0ZSBjbGFyaWZpY2F0aW9ucyBhcmUgdG8gZXZl
+cnlvbmUncyBiZW5lZml0LiAoSSBhZ3JlZSB0aGF0IHRoZXkgc2hvdWxkIGJlIHB1YmxpYyBr
+bm93bGVkZ2UsIGxpa2UgZXZlcnl0aGluZyB0aGF0IGhhcHBlbnMgZHVyaW5nIEFVVEg0OC4p
+DQoNClsxXSBodHRwczovL3d3dy5yZmMtZWRpdG9yLm9yZy9yZmMvcmZjOTkyMC5odG1sI25h
+bWUtcnBjLXJlc3BvbnNpYmlsaXRpZXMNCg0KUmVnYXJkcy9OZ8SBIG1paGkNCiAgICBCcmlh
+biBDYXJwZW50ZXINCg0KT24gMTktSnVsLTI2IDIxOjU4LCBpbnRlcm5ldC1kcmFmdHNAaWV0
+Zi5vcmcgd3JvdGU6DQo+IEludGVybmV0LURyYWZ0IGRyYWZ0LWdlcmtlLXB1YmxpY2F0aW9u
+LXByb2Nlc3MtcmVmb3JtLTAwLnR4dCBpcyBub3cgYXZhaWxhYmxlLg0KPiANCj4gICAgIFRp
+dGxlOiAgIFB1YmxpY2F0aW9uIFByb2Nlc3MgUmVmb3JtIHRvIHByZXZlbnQgbWlzdXNlIG9m
+IEFVVEg0OCBvciBlcXVpdmFsZW50IHN0YXRlcw0KPiAgICAgQXV0aG9yOiAgVGltbyBHZXJr
+ZQ0KPiAgICAgTmFtZTogICAgZHJhZnQtZ2Vya2UtcHVibGljYXRpb24tcHJvY2Vzcy1yZWZv
+cm0tMDAudHh0DQo+ICAgICBQYWdlczogICAxMg0KPiAgICAgRGF0ZXM6ICAgMjAyNi0wNy0x
+OQ0KPiANCj4gQWJzdHJhY3Q6DQo+IA0KPiAgICAgVGhpcyBkb2N1bWVudCB1cGRhdGVzIHRo
+ZSBBVVRINDggb3IgZXF1aXZhbGVudCBwcm9jZXNzIGJ5IGludHJvZHVjaW5nDQo+ICAgICBk
+ZXRlcm1pbmlzdGljIHN0YXRlLWludGVncml0eSBjb25zdHJhaW50cyB3aXRoaW4gdGhlIElF
+VEYgRGF0YXRyYWNrZXINCj4gICAgIGFyY2hpdGVjdHVyZS4gIEl0IGVzdGFibGlzaGVzIGF1
+dG9tYXRlZCB2YWxpZGF0aW9uIG1pbGVzdG9uZXMgYW5kDQo+ICAgICBleHBsaWNpdCBhY2Nl
+c3MgY29udHJvbHMgdG8gcHJldmVudCBsYXRlIHRlY2huaWNhbCBtb2RpZmljYXRpb25zDQo+
+ICAgICBhZnRlciB0aGUgV29ya2luZyBHcm91cCBMYXN0IENhbGwsIHRoZXJlYnkgc2FmZWd1
+YXJkaW5nIHRoZSBSb3VnaA0KPiAgICAgQ29uc2Vuc3VzLg0KPiANCj4gVGhlIElFVEYgZGF0
+YXRyYWNrZXIgc3RhdHVzIHBhZ2UgZm9yIHRoaXMgSW50ZXJuZXQtRHJhZnQgaXM6DQo+IGh0
+dHBzOi8vZGF0YXRyYWNrZXIuaWV0Zi5vcmcvZG9jL2RyYWZ0LWdlcmtlLXB1YmxpY2F0aW9u
+LXByb2Nlc3MtcmVmb3JtLw0KPiANCj4gVGhlcmUgaXMgYWxzbyBhbiBIVE1MIHZlcnNpb24g
+YXZhaWxhYmxlIGF0Og0KPiBodHRwczovL3d3dy5pZXRmLm9yZy9hcmNoaXZlL2lkL2RyYWZ0
+LWdlcmtlLXB1YmxpY2F0aW9uLXByb2Nlc3MtcmVmb3JtLTAwLmh0bWwNCj4gDQo+IEludGVy
+bmV0LURyYWZ0cyBhcmUgYWxzbyBhdmFpbGFibGUgYnkgcnN5bmMgYXQ6DQo+IHJzeW5jLmll
+dGYub3JnOjppbnRlcm5ldC1kcmFmdHMNCj4gDQo+IA0KPiBfX19fX19fX19fX19fX19fX19f
+X19fX19fX19fX19fX19fX19fX19fX19fX19fXw0KPiBJLUQtQW5ub3VuY2UgbWFpbGluZyBs
+aXN0IC0tIGktZC1hbm5vdW5jZUBpZXRmLm9yZw0KPiBUbyB1bnN1YnNjcmliZSBzZW5kIGFu
+IGVtYWlsIHRvIGktZC1hbm5vdW5jZS1sZWF2ZUBpZXRmLm9yZw0K
+

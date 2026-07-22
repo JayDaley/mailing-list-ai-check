@@ -1,0 +1,150 @@
+Return-Path: <peter@desec.io>
+X-Original-To: last-call@mail2.ietf.org
+Delivered-To: last-call@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id B2DDD11B9859D;
+	Tue, 21 Jul 2026 09:57:26 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784653046; bh=8XHh0mgdYiPAiwSr7JxMPdp2JiTGFhvL0uLhadvNPk4=;
+	h=Date:Subject:To:Cc:References:From:In-Reply-To;
+	b=oswgpnWhj8cp9h5S38jh5edguDMsAIZgWeONbs1gY9+LisBMDgK3MmkR8Uw1WhQRz
+	 dtFae6D1YRs64UMkx9K/ADY8AU1Z9HtKxgZayDJi1NHSATJcf85i69CEy4SqORK2YF
+	 QwK+Ii3UxneOjdscG5fdGAHbVFv4ZGWNtb+dbkrM=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.8
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.8 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, RCVD_IN_DNSWL_LOW=-0.7,
+	SPF_HELO_NONE=0.001, SPF_PASS=-0.001] autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=desec.io
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id v7a-TghHW1GS; Tue, 21 Jul 2026 09:57:26 -0700 (PDT)
+Received: from mail.a4a.de (mail.a4a.de [IPv6:2a01:4f8:10a:1d5c:8000::8])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange ECDHE (P-256) server-signature ECDSA (P-256) server-digest
+ SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id CE62411B9853E;
+	Tue, 21 Jul 2026 09:57:19 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; d=desec.io;
+	s=20170825; h=Content-Transfer-Encoding:Content-Type:In-Reply-To:From:
+	References:Cc:To:Subject:MIME-Version:Date:Message-ID:Sender:Reply-To:
+	Content-ID:Content-Description:List-Id:List-Help:List-Unsubscribe:
+	List-Subscribe:List-Post:List-Owner:List-Archive;
+	bh=zL/1KU6twhL8DnWhNuijSt6/dm5M+mXX/g1cF4Scqk4=; b=nLVr4uYhF5+NvKdKCQUolHbno/
+	QHffFfXuR4mOgjMSOOsIHkNqKExglwtp4xLKxSFOOgOh3CoBll5ABj96+mvWHxgFSjvcvJXrv7dSc
+	zec60CIx/I8RTR28rV+1Kg1mbSdyZZs3pGfoX1SmU501PecnS2QM+hpy2PAoP4d081NUqhJY1QtCe
+	z8m+n6fsCIxAZg4tCSXiJphi00nzhRnk0i8jJFyWt/2cmsEmgHsv1q62iuaYGcnNclNIbSH9fb9jH
+	yUk5h/s2DO421XQgwaOlcx5SCjvX/5A4I2Fkj4bKPjcZqxXR/KzbzzF8qUn3ID0Of9+c5sNdl/U8F
+	uTvXroXg==;
+Received: from 212-197-161-184.hdsl.highway.telekom.at ([212.197.161.184]
+ helo=[10.0.0.152])
+	by mail.a4a.de with esmtpsa  (TLS1.3) tls
+ TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+	(Exim 4.97)
+	(envelope-from <peter@desec.io>)
+	id 1wmDmQ-0000000D2Ph-27Uh;
+	Tue, 21 Jul 2026 18:57:18 +0200
+Message-ID: <cf58f137-2e31-4580-bf45-836f5f63c792@desec.io>
+Date: Tue, 21 Jul 2026 18:57:17 +0200
+MIME-Version: 1.0
+User-Agent: Mozilla Thunderbird
+To: Roy Arends <roy@dnss.ec>,
+ Patrick Mevzek <ietf-datatracker@ext.deepcore.org>
+References: 
+ <178416056361.776897.18085372986066466901@dt-datatracker-d4d6ff9d9-kg6bf>
+ <26F8D0B4-B45D-4094-B1E8-429E90B232E2@dnss.ec>
+Content-Language: en-US, de-DE
+From: Peter Thomassen <peter@desec.io>
+Autocrypt: addr=peter@desec.io; keydata=
+ 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
+In-Reply-To: <26F8D0B4-B45D-4094-B1E8-429E90B232E2@dnss.ec>
+Content-Type: text/plain; charset=UTF-8; format=flowed
+Content-Transfer-Encoding: 8bit
+Message-ID-Hash: NUQZ3X7UDSNLID3KVGA6LNZT5GKRVXHM
+X-Message-ID-Hash: NUQZ3X7UDSNLID3KVGA6LNZT5GKRVXHM
+X-MailFrom: peter@desec.io
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; nonmember-moderation; administrivia;
+ implicit-dest; max-recipients; max-size; news-moderation; no-subject;
+ digests; suspicious-header
+CC: dnsdir@ietf.org, dnsop@ietf.org, draft-ietf-dnsop-delext.all@ietf.org,
+ last-call@ietf.org
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BLast-Call=5D_Re=3A_=5BDNSOP=5D_draft-ietf-dnsop-delext-08_ietf_?=
+	=?utf-8?q?last_call_Dnsdir_review?=
+List-Id: IETF Last Calls  <last-call.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/last-call/ku5TSOfHj-95ntPHqjeiKBADRrc>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/last-call>
+List-Help: <mailto:last-call-request@ietf.org?subject=help>
+List-Owner: <mailto:last-call-owner@ietf.org>
+List-Post: <mailto:last-call@ietf.org>
+List-Subscribe: <mailto:last-call-join@ietf.org>
+List-Unsubscribe: <mailto:last-call-leave@ietf.org>
+
+Hi Roy,
+
+Minor nit:
+
+On 7/20/26 16:28, Roy Arends wrote:
+>> 3)
+>> "To avoid a downgrade attack, where the Delegation Type RRsets and NSEC (or
+>> NSEC3) records can be replaced by unsigned NS records, causing the resolver to
+>> use unencrypted transport"
+[...]
+> 
+> I will remove ", causing the resolver to use unencrypted transport” and add a reference to paragraph 8.2.1
+
+When reading "the Delegation Type RRsets and NSEC (or NSEC3) records can be replaced", I was briefly confused regarding what about their RRSIGs.
+
+Suggest adding "signed" before "Delegation Type RRsets", or "and their signatures" after "records".
+
+Cheers,
+Peter
+

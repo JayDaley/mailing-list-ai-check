@@ -1,0 +1,16 @@
+We are running a project at the IETF 126 Hackathon (18-19 July, Vienna) on a minimal multicast extension for QUIC.
+
+Motivation: draft-navarre-quic-flexicast defines Flexicast QUIC, which supports multicast delivery, builds on Multipath QUIC, and requires changes across several parts of the stack. draft-jholland-quic-multicast takes a different approach, focusing on the security aspects of the extension. For the hackathon, we want to explore the lower bound of the design space: what is the smallest set of changes to QUIC that still yields working multicast delivery, and what do we give up to get there?
+
+We expect the outcome to be multiple proof-of-concept extensions in multiple existing implementations, plus a clearer picture of which parts of Flexicast QUIC are essential and which are conveniences.
+
+Project repository:
+https://github.com/louisna/minimal-multicast-quic-ietf-126
+
+If you are interested, please reach out or open an issue on the repo.
+
+Relevant drafts:
+- draft-navarre-quic-flexicast: https://datatracker.ietf.org/doc/draft-navarre-quic-flexicast/
+- draft-jholland-quic-multicast: https://datatracker.ietf.org/doc/draft-jholland-quic-multicast/
+Scientific paper:
+Taking the Best of Multicast and Unicast with Flexicast QUIC: https://dl.acm.org/doi/pdf/10.1145/3750832.3750834

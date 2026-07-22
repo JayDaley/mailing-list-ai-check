@@ -1,0 +1,13 @@
+   Count    |      Bytes     |  Who
+------------+----------------+-------
+ 12 ( 100%) | 356501 ( 100%) | Total
+  2 (16.7%) |  11728 ( 3.3%) | NomCom Chair 2026 <nomcom-chair-2026@ietf.org>
+  2 (16.7%) |   7870 ( 2.2%) | S Moonesamy <sm+ietf@elandsys.com>
+  1 ( 8.3%) | 254437 (71.4%) | Job Snijders <job@bsd.nl>
+  1 ( 8.3%) |  23845 ( 6.7%) | Mallory Knodel <mallory.knodel@nyu.edu>
+  1 ( 8.3%) |  13289 ( 3.7%) | Warren Kumari <warren@kumari.net>
+  1 ( 8.3%) |  11235 ( 3.2%) | Roman Danyliw <rdd@cert.org>
+  1 ( 8.3%) |  10521 ( 3.0%) | Nicolas Giard <nick@staff.ietf.org>
+  1 ( 8.3%) |  10460 ( 2.9%) | Brian Campbell <bcampbell@pingidentity.com>
+  1 ( 8.3%) |   9829 ( 2.8%) | Jen Linkova <furry13@gmail.com>
+  1 ( 8.3%) |   3287 ( 0.9%) | NomCom Chair 2025 <nomcom-chair-2025@ietf.org>

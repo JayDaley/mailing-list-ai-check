@@ -1,0 +1,219 @@
+Return-Path: <nick@staff.ietf.org>
+X-Original-To: ietf@mail2.ietf.org
+Delivered-To: ietf@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id B38B011849A0C
+	for <ietf@mail2.ietf.org>; Fri, 17 Jul 2026 01:27:51 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784276871; bh=PnJPKXb5pL17p/t12ZuqjtqIIVeSyJtuHJD2kWGYIBU=;
+	h=References:In-Reply-To:From:Date:Subject:To:Cc;
+	b=BMzE/sE2Qp2Z0j+IC1kokfihvsSs+1GQ+hF0vc0aX4XogTUxGIUllRc7KTY2qj08d
+	 CT8gcjDq49NvFAxhU8+ENEpLIunOduXM1kpahamEHgqHHHlIBq93KSGcZ0t2QaOHAz
+	 bL/XZogtg3HcYjCPu4q0qJaQJWq/RxdBR7mdQGs0=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -1.899
+X-Spam-Level: 
+X-Spam-Status: No, score=-1.899 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	HTML_MESSAGE=0.001, RCVD_IN_DNSWL_NONE=-0.0001, SPF_HELO_NONE=0.001,
+	SPF_PASS=-0.001] autolearn=unavailable autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=staff-ietf-org.20251104.gappssmtp.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id OmNbEhqZMSEX for <ietf@mail2.ietf.org>;
+	Fri, 17 Jul 2026 01:27:51 -0700 (PDT)
+Received: from mail-yx1-xb12a.google.com (mail-yx1-xb12a.google.com
+ [IPv6:2607:f8b0:4864:20::b12a])
+	(using TLSv1.3 with cipher TLS_AES_128_GCM_SHA256 (128/128 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 5688E11849A05
+	for <ietf@ietf.org>; Fri, 17 Jul 2026 01:27:51 -0700 (PDT)
+Received: by mail-yx1-xb12a.google.com with SMTP id
+ 956f58d0204a3-668005ba03cso4701197d50.2
+        for <ietf@ietf.org>; Fri, 17 Jul 2026 01:27:51 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1784276865; cv=none;
+        d=google.com; s=arc-20260327;
+        b=VPmfITfKCLFvd6A41CYF0F/7coBlE397IBVi39pxtRWt/5ysaSZ2W1ASCgEere/X9I
+         rvpObx/kNEcJU2Um89Zp1dGtrIbtdxQLEspAJdZKZnLrD7BLIiJLSP/zSrSQaGdSu+3v
+         geehvuWk6u20h/V+6uO8XC8QccqbizgRw9c5Bkf5LIW0ZhWRY5XPlOpf0xUXxqevoroB
+         5dzgI0tD89xmE3oE0uwo8lDIloSkJhJeSeqsQ4xMC6VCaFjQHfUiamoTazCUdGeFEO24
+         4u4hblghIAxgR7ovTffhj7SCZL5Q2ZJaj30kxmviUn0d2Ii8S5AsEhiEcjVf4iGT6BF2
+         Iz2A==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com;
+ s=arc-20260327;
+        h=cc:to:subject:message-id:date:from:in-reply-to:references
+         :mime-version:dkim-signature;
+        bh=PnJPKXb5pL17p/t12ZuqjtqIIVeSyJtuHJD2kWGYIBU=;
+        fh=3MPBiVk+oiQCiAjaczHhvGh3Oz7hO6p9W0xfpTGxsIY=;
+        b=k9M6rqAj+rUGVmqRUodgovHaPep3949W4oQOJfq+ufX3DFzdvNE6nYQnq/GA95vzly
+         pJJEHAyVet4PW1BCc4Noy0LJGvTlkaL3neUYEI2QmTedIyJuKtHS9rXW6L1EZfa5NAKy
+         FHoHekkgjQsIDes95i7bmmfi4mXbreHgUW7ybm6w3KG0xPv7bOxwDhBWorhOa30bF/S5
+         HSmlQSHW/rtNLJ5ap9pwkGbcHg6jBNS1x98g6uX6L5s6iZ5HdywPRBCGWatbJN1UUEFF
+         Hg0RqQkJqFZ2lgHwkiVKZkKOnsNywmtRtM1+5SvYpOyxzOpzYSZoWGmvkVCOGPPl9xD5
+         ttSg==;
+        darn=ietf.org
+ARC-Authentication-Results: i=1; mx.google.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=staff-ietf-org.20251104.gappssmtp.com; s=20251104; t=1784276865;
+ x=1784881665; darn=ietf.org;
+        h=content-type:cc:to:subject:message-id:date:from:in-reply-to
+         :references:mime-version:from:to:cc:subject:date:message-id:reply-to
+         :content-type;
+        bh=PnJPKXb5pL17p/t12ZuqjtqIIVeSyJtuHJD2kWGYIBU=;
+        b=lPxE9rszy20tmn06kM5AKfhvKFzrRNwoZnl3lhjDxfAs39wYmgu6hBSTP9z5KG0wDT
+         oA57xjaVJDLsrX4vgc5s3EgBg+VYkQxVlVM2XBITC4B+6xItXUSnavTtb+NRMh8eBSDP
+         mA9NSBV3e57AaibX19lt0tUKIXbOE59FzOZkFLXyAQmwL6W5b7iIPR8G0tkm4g5GjhVn
+         dOHDVvAWHRMkd8WQGz3pwDrioha5Czi8THSSgo4E1bZXee6VvIc3884q4w/uRp/BM0aw
+         SaqjevoSxyhejiF6PQ/E3ImrhfjzgJ3RL8IXuavWFWhgiNcIWXDjRNX9rcwqxFH8FIaX
+         9/Vg==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1784276865; x=1784881665;
+        h=content-type:cc:to:subject:message-id:date:from:in-reply-to
+         :references:mime-version:x-gm-gg:x-gm-message-state:from:to:cc
+         :subject:date:message-id:reply-to:content-type;
+        bh=PnJPKXb5pL17p/t12ZuqjtqIIVeSyJtuHJD2kWGYIBU=;
+        b=Xx855VnWpe/J6Ujn9vDzWOJnn8sD8GHm/Lm63V/mQE+CdOQ6U3dHdlNOv3JcmnCHSM
+         9bKmj5fCzxgMf/pl/Cz1w7mLWFwGvjcFOZm9/YK4r/MflGfof7+aX6vo9gc4gRAObZJG
+         neHtcZxD595p0a/1hwDeA4ebjcdULV8/0h9FkE4pX2Lj14fLu46qNBVBkctOMiYoZyIT
+         1qGEBdEKqjWKTM8xaAzLcATbqpwp0cS7+M9lnLYI1eQL8/LPDhUriR2XDhwAMaVQDaIW
+         AV71KAMMOzYtigdaQ1wtkuOgR9DbK0GlCBWLxVMsPLQsX+hsTVy9ib5Sd7KoukCvUZFX
+         4agA==
+X-Gm-Message-State: AOJu0YxEgWw9Dh1V63dk5e615RD1nb8lvrdMn/zFeIDilxwkdOV7uBHU
+	aeMjaF2kTRPvnSvHZHRzNjWogWskokvnQsYjWfOU4Q0aaBTGmHEWjxPT+QguyPNbkuS6/7VKMAv
+	jI4U+MJHufsXM2Yt362pJU0wCd+fedzp6rERo3aJXpg+jEdKqT8VZ1ojvQw==
+X-Gm-Gg: AfdE7cksSG+6xKzWfjZtEN2FXGoO/pf/uJYgP537xko+swlc3gGiUdq6VzKD4F+uDl4
+	cAswo7ZrQdzDCPlVvCSnYxLrPth4esgBnxof9gsLg/zc7czSEVnBHhTNeOdrnm4kDy8Tkler5mO
+	te2lToM2DXxfVjfUpG0XVYUY5mQomymvTW4TGH1hRDPXG33r2Thv0DAA5dcI0KLRs/4Hq1eYLWK
+	VJOivDBaTC9QNySXN7ryrAKINGuTzP3WBT+2i/Y2QqnZRwesNjN0CFAXX1YUerCEwQk4kvLBLft
+	6BcP12Iozfi1dePPe0RdPj+OqaDCm6swYrCOtiVZzVz9Bw==
+X-Received: by 2002:a53:a04e:0:b0:667:91ba:9bdd with SMTP id
+ 956f58d0204a3-6683bd9001dmr308845d50.81.1784276865162; Fri, 17 Jul 2026
+ 01:27:45 -0700 (PDT)
+MIME-Version: 1.0
+References: <041148E4-5921-4E48-8C14-85372BAB14A5@bsd.nl>
+In-Reply-To: <041148E4-5921-4E48-8C14-85372BAB14A5@bsd.nl>
+From: Nicolas Giard <nick@staff.ietf.org>
+Date: Fri, 17 Jul 2026 04:27:34 -0400
+X-Gm-Features: AUfX_mympuJwzIDpGbkF-RIDwX5sueAvPfZItkb-RoIPNxEnrPtL4RJKTQ7Oabg
+Message-ID: 
+ <CAL_px1Pj+8iKEeyqwf4-Qs0P3bEw4UhrQpyyajD_un4hA=HW6A@mail.gmail.com>
+Subject: Re: Some RFCs are unreadable on phone?
+To: Job Snijders <job=40bsd.nl@dmarc.ietf.org>
+Content-Type: multipart/alternative; boundary="000000000000bab0580656ca54d7"
+Message-ID-Hash: UKEBCY6KTN5OZLPFKPZ6HE4TBXRW3UPB
+X-Message-ID-Hash: UKEBCY6KTN5OZLPFKPZ6HE4TBXRW3UPB
+X-MailFrom: nick@staff.ietf.org
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-ietf.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+CC: ietf@ietf.org
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+List-Id: "IETF-Discussion. This is the most general IETF mailing list,
+ intended for discussion of technical, procedural, operational,
+ and other topics for which no dedicated mailing lists exist." <ietf.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/ietf/7TjZy8W_EFYr8QbmQsoHefsSbNw>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/ietf>
+List-Help: <mailto:ietf-request@ietf.org?subject=help>
+List-Owner: <mailto:ietf-owner@ietf.org>
+List-Post: <mailto:ietf@ietf.org>
+List-Subscribe: <mailto:ietf-join@ietf.org>
+List-Unsubscribe: <mailto:ietf-leave@ietf.org>
+
+--000000000000bab0580656ca54d7
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi Job,
+
+This is definitely a bug.
+Please create an issue on https://github.com/ietf-tools/red/issues and
+include the list of RFCs that have problems.
+
+Feel free to submit UI improvement suggestions there as well.
+
+Nick
+
+On Fri, Jul 17, 2026 at 3:55=E2=80=AFAM Job Snijders <job=3D40bsd.nl@dmarc.=
+ietf.org>
+wrote:
+
+> Hi,
+>
+> If I=E2=80=99m not mistaken, it used to be the case that RFC document HTM=
+L content
+> properly flowed, as in, you could always read specifications on narrow
+> screens (like your phone) without constantly scrolling right to left and
+> back.
+>
+> Nowadays for _some_ RFCs it=E2=80=99s harder to quickly read the spec on =
+your
+> phone, text disappears beyond the right border, see attached screenshot.
+> Tried 2 browsers on iPhone: Safari and DuckDuckGo. Some tables also rende=
+r
+> poorly with sideways scrolling inside sideways scrolling. Also, IMHO havi=
+ng
+> the title persist at the bottom wastes valuable screen real estate.
+>
+> The current content presentation puts me at a disadvantage when trying to
+> settle arguments in the hallway track ;-)
+>
+> What=E2=80=99s the process to improve the presentation?
+>
+> Kind regards,
+>
+> Job
+>
+> Ps. Only seems an issue with some RFCs
+>
+>
+>
+
+--000000000000bab0580656ca54d7
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr">Hi Job,<div><br></div><div>This is definitely a bug.</div>=
+<div>Please create an issue on=C2=A0<a href=3D"https://github.com/ietf-tool=
+s/red/issues">https://github.com/ietf-tools/red/issues</a> and include the =
+list of RFCs that have problems.</div><div><br></div><div>Feel free to subm=
+it UI improvement suggestions there as well.</div><div><br></div><div>Nick<=
+/div></div><br><div class=3D"gmail_quote gmail_quote_container"><div dir=3D=
+"ltr" class=3D"gmail_attr">On Fri, Jul 17, 2026 at 3:55=E2=80=AFAM Job Snij=
+ders &lt;job=3D<a href=3D"mailto:40bsd.nl@dmarc.ietf.org">40bsd.nl@dmarc.ie=
+tf.org</a>&gt; wrote:<br></div><blockquote class=3D"gmail_quote" style=3D"m=
+argin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left=
+:1ex">Hi,<br>
+<br>
+If I=E2=80=99m not mistaken, it used to be the case that RFC document HTML =
+content properly flowed, as in, you could always read specifications on nar=
+row screens (like your phone) without constantly scrolling right to left an=
+d back.<br>
+<br>
+Nowadays for _some_ RFCs it=E2=80=99s harder to quickly read the spec on yo=
+ur phone, text disappears beyond the right border, see attached screenshot.=
+ Tried 2 browsers on iPhone: Safari and DuckDuckGo. Some tables also render=
+ poorly with sideways scrolling inside sideways scrolling. Also, IMHO havin=
+g the title persist at the bottom wastes valuable screen real estate.<br>
+<br>
+The current content presentation puts me at a disadvantage when trying to s=
+ettle arguments in the hallway track ;-)<br>
+<br>
+What=E2=80=99s the process to improve the presentation?<br>
+<br>
+Kind regards,<br>
+<br>
+Job<br>
+<br>
+Ps. Only seems an issue with some RFCs<br>
+<br>
+<br>
+</blockquote></div>
+
+--000000000000bab0580656ca54d7--
+

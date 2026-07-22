@@ -1,0 +1,326 @@
+Return-Path: <kghoshworkid@gmail.com>
+X-Original-To: wimse@mail2.ietf.org
+Delivered-To: wimse@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 03A7111896E3A
+	for <wimse@mail2.ietf.org>; Fri, 17 Jul 2026 14:31:20 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784323880; bh=5cW69c7YEpFGQHYxfw9wYihKRAphKvfzXIvmedS+TiY=;
+	h=From:Date:Subject:To;
+	b=je3nPwb83y6fjrRL/HQwB6NMLnB2wxhJBOwkb75tgJ5dOkhbyrLlXf7ZeCrpMWb4U
+	 OHl02cyLjdN/rh9qFOODkIKfFnZqPAHT/ZJYAU6qKqZHjYUTfbgqY6wvQfRlYrWspX
+	 Khu+EUl79COVblGzfAo/C1LiXwQP6tco/UT62xJE=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.098
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.098 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, FREEMAIL_FROM=0.001,
+	HTML_MESSAGE=0.001, RCVD_IN_DNSWL_NONE=-0.0001, SPF_HELO_NONE=0.001,
+	SPF_PASS=-0.001] autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=gmail.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id LckpySXYSUeL for <wimse@mail2.ietf.org>;
+	Fri, 17 Jul 2026 14:31:19 -0700 (PDT)
+Received: from mail-pl1-x630.google.com (mail-pl1-x630.google.com
+ [IPv6:2607:f8b0:4864:20::630])
+	(using TLSv1.3 with cipher TLS_AES_128_GCM_SHA256 (128/128 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 3347411896E33
+	for <wimse@ietf.org>; Fri, 17 Jul 2026 14:31:19 -0700 (PDT)
+Received: by mail-pl1-x630.google.com with SMTP id
+ d9443c01a7336-2cc61541f8cso22464235ad.0
+        for <wimse@ietf.org>; Fri, 17 Jul 2026 14:31:19 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1784323872; cv=none;
+        d=google.com; s=arc-20260327;
+        b=jhEt9sIl2KxPy5K3R88sT/iFeRq2ZPpyV9w8hxFf87nOt2OX3/iMhaN10YokbMeTt4
+         jXhbh8r8b5YwoAFGIE90vqhseVZIoalmTefq9nkmEY33RQojwpguawF+7MZD8bvfxUH3
+         SnOjQrPYuQ+OBhBFhuxCorjUIihDIKKwMiL8/hwwLbSt7vLQhMnPH7rJuKPaNVtkqZdF
+         7hMFQixuuVi/T0fRr1f5FE5bRRkBkJXYcamiqr+84Fx1YT4qqgy63wWcWh5/rMdeegD5
+         b8UMVPiZWdwsaHzVcbv780/qUnV0zBQbo3heU5fBE0OyuvmYPWJKJMy8X6TWS71ZoRSf
+         gO+g==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com;
+ s=arc-20260327;
+        h=to:subject:message-id:date:from:mime-version:dkim-signature;
+        bh=5cW69c7YEpFGQHYxfw9wYihKRAphKvfzXIvmedS+TiY=;
+        fh=dKf12lvXI2hCnl/KA9R7oCcFEAwSsHLNkPOLsc5fVHc=;
+        b=p1Fa4y2VaFdK9t++P7GRbuCOJWgspdvYhoEpAvHgJGKcG02yBUuytyZxVT4MLcGpUd
+         DwDLPqTVk4+++mWEnxBCmLPFw+dC6oPVx7LrB2DOlvHiiiFcpOqfHZN+3x2tdXbfphyX
+         PjgucvAgCo7wXiX2b2A1jA8dT1S6IWWHwM8Rjts2Grt1L7nb+3DWjIXVgoXeW1WtAgnU
+         tqhhdLKWIRRKhoMgOj5vPtbBW8hDfNB/4hmXAYHhjqHXWlMwfGw3Qja1+HZVdL/AZelQ
+         ALle2YKNBHee/H/VSwifLwK0FMecmqQqf0fhbbuMSBA4zmSYQh89e9stE35IVpOCW5h4
+         05nA==;
+        darn=ietf.org
+ARC-Authentication-Results: i=1; mx.google.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=gmail.com; s=20251104; t=1784323872; x=1784928672; darn=ietf.org;
+        h=content-type:to:subject:message-id:date:from:mime-version:from:to
+         :cc:subject:date:message-id:reply-to:content-type;
+        bh=5cW69c7YEpFGQHYxfw9wYihKRAphKvfzXIvmedS+TiY=;
+        b=piGQ4yl/qy7rmN+lvnKNtqdwu7mD3Z8uPM6f8C5DXR7ArRB2ktO985tg0iJYqTOrK1
+         761+LEQ29jaAtLOuMtReWWhUODGFu0kYWPRGNTq1O9bJhBlP9bhazbyFxh+OLaonkjmO
+         Vcp3WS4TABWWqg+mLcPLO4v1vPITBujzCFbaQyn6tGs34xKvJlgHAEi8/IP0sLpeRip8
+         CvtTbMxvi15d396qEZuGn17QpBSY4o/gyCyFzSaJpl3XyQpEXN7bV+uk6mbU2XCQe4bt
+         cNLqJQ6yeRn4K3L1ajv5Ja2zAiCYMiGXwAGGpXtfYOEaqhgPgBkiTGYtpsiuS/B4SVMw
+         9Fbg==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1784323872; x=1784928672;
+        h=content-type:to:subject:message-id:date:from:mime-version:x-gm-gg
+         :x-gm-message-state:from:to:cc:subject:date:message-id:reply-to
+         :content-type;
+        bh=5cW69c7YEpFGQHYxfw9wYihKRAphKvfzXIvmedS+TiY=;
+        b=gnwKIV18JySbZdqDtMJWMeaLd3P64FJz6+C7rRYKiIQtCRPn1cWTAHLYS1g9k5MWTY
+         BiMkIxCs4HkPZzmjOt7N5fMJbyarRn2I4BGm3wal1BrP+1fjaEYdG+pTcOWFzAzfJvMD
+         T9tQ5i+3sI1p4q9NhIK5k7dspfWnLrGf1wT51DIjEaC8rt+s78ZDlY5U266oodTgMRrL
+         IGAXtyNW4O4QOYjJLronEhcb2h1dNUmpM99U5RlNlwAWcIV7SW9ToKa5jSuFeicHDCGc
+         HlOCQAwHAP4CkkP7PyeB7X6sFNVk7h47qz+FJv01p0dOcgM/nYUjgxiv+FwhSOautyIL
+         cr6g==
+X-Gm-Message-State: AOJu0YwWHpNdmi696t3i7OTl+lMQW1FGElXXbDVbvcPqGV3e/5M20L41
+	/Q7vk0P9xaVnPBAGvP+Lrv+WSWXYfYoG+N2FbYYor8Gj0JHIsXNUNrGnEHdMPTjBBHXgw78NU1z
+	G4jaYQzs0yzxoAxht3NRv2dyKVTgWKQZHWA==
+X-Gm-Gg: AfdE7cm/axpu2sHoukkniNt5xXWgJEUNfT/wXRhBUoFM2ZOKNXhbd0f/ybWlDgXfPwH
+	/tk8AkgTl4lTJCOu+L6uZybjos3owY7xTnN/3yedbpJo3MbT+bNvK5E3MqVj9DVaEYrJPomFNer
+	lfZdpLgd357FD8M64Zv0SCnMWyQGmjP5FhtIaoblA6jWMdskVjOM4g4LrJZCwFdfHz97AIlwtOq
+	HbgZ6cOhejfkEdnQpt886bwrltXnYk1wrsqnJhj7abbbA/X4Vh8LiHHHnIqg79xkhu7Wdy3
+X-Received: by 2002:a17:90a:ec8b:b0:38d:ec55:7aa7 with SMTP id
+ 98e67ed59e1d1-38e3d29a193mr9459971a91.19.1784323872103; Fri, 17 Jul 2026
+ 14:31:12 -0700 (PDT)
+MIME-Version: 1.0
+From: Kunal Ghosh <kghoshworkid@gmail.com>
+Date: Fri, 17 Jul 2026 14:31:01 -0700
+X-Gm-Features: AUfX_mzJByf_rX5VbMWBylbn8XTfGzMWw0yOB7MwGZ1urnGaIbf7Fbwg0fWVhrw
+Message-ID: 
+ <CAHNRNd3GNnbCC7Bh6MKoprHDBaehH8q8SaxFtRNMXG4Z-HPEUA@mail.gmail.com>
+To: wimse@ietf.org
+Content-Type: multipart/alternative; boundary="0000000000008f9e470656d546a4"
+Message-ID-Hash: AGEZ7IESSLFEDQJSHL44GVOBHBJNTIPV
+X-Message-ID-Hash: AGEZ7IESSLFEDQJSHL44GVOBHBJNTIPV
+X-MailFrom: kghoshworkid@gmail.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; nonmember-moderation; administrivia;
+ implicit-dest; max-recipients; max-size; news-moderation; no-subject;
+ digests; suspicious-header
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BWIMSE=5D_Review_of_draft-klrc-aiagent-auth-03?=
+List-Id: WIMSE Workload Identity in Multi-Service Environment <wimse.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/wimse/cJ5Zg2I9p5i2f9cRw4TCcneBT1g>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/wimse>
+List-Help: <mailto:wimse-request@ietf.org?subject=help>
+List-Owner: <mailto:wimse-owner@ietf.org>
+List-Post: <mailto:wimse@ietf.org>
+List-Subscribe: <mailto:wimse-join@ietf.org>
+List-Unsubscribe: <mailto:wimse-leave@ietf.org>
+
+--0000000000008f9e470656d546a4
+Content-Type: text/plain; charset="UTF-8"
+
+Hi Authors, all,
+
+I hope you are doing well. I am new to the list. It is amazing to see such
+good work going on in the AI Agent domain. A little background on where my
+comments come from: I work on on-device threat defense and enterprise
+identity at Samsung Research America, and previously worked on Universal
+Logout at Okta. My comments revolve around revocation and the
+human-in-the-loop section, and build in part on Yaron's review of the
+2026-06-01 editor's copy.
+
+1) I see a possible tension between Section 8 and Section 11 on revocation
+
+Section 8 states that short-lived credentials provide "an alternative to
+explicit revocation mechanisms."
+Section 11 states that recipients of SSF/CAEP/RISC signals "MUST ensure
+that revoked or downgraded authorization is enforced without undue delay,"
+and that cached tokens "MUST NOT continue to be used after a revocation or
+risk notification is received."
+
+I may be misreading, but these seem to pull in different directions:
+Section 8 positions expiry as a substitute for revocation, while Section 11
+treats revocation as a live, mandatory obligation. The distinction may be
+threat-model dependent. Expiry works well for credential theft. It works
+poorly for a compromised agent - one that is correctly attested and holds
+an unexpired credential, but whose behavior has been subverted (e.g. via
+indirect prompt injection). In that case the credential remains valid and
+correct for its full lifetime while the agent acts outside its intended
+scope, and typical credential lifetimes exceed the time needed to act.
+
+Would it be worth either reconciling these two sections explicitly, or
+scoping Section 8's claim to the credential-exposure threat model rather
+than compromise generally?
+
+2) Section 11 makes subscription optional but enforcement mandatory
+
+Section 11 says participants "MAY subscribe" to SSF with CAEP or RISC, but
+that recipients "MUST" enforce on receipt. The MUST is therefore
+conditional on the MAY. A deployment that does not subscribe has no
+revocation path at all, and silently falls back to the Section 8 expiry
+model without the document saying so.
+
+Would the working group consider whether subscription should be SHOULD, or
+MUST, for agents authorized to access sensitive resources? It is entirely
+possible this is deliberate deployment latitude, in which case it may still
+be worth stating the consequence.
+
+3) Section 10.7: same-device deployments weaken the out-of-band property
+
+Yaron notes in TECH-8 that CIBA assumes a push notification to a separate
+device, while the agent flow may already be running on a mobile device. I
+would like to extend that from the device-security side, as it is where
+most of my work sits.
+
+CIBA's value in Section 10.7 rests on the interaction being genuinely
+out-of-band - the approval channel is assumed to be independent of the
+requesting client. When an on-device agent and the authenticator
+application share a device, that independence is gone: a device compromise
+takes both the agent and the approval channel, and the confirmation is
+in-band in all but name. This is not hypothetical - on-device agents
+running alongside the user's authenticator are becoming common.
+
+This does not invalidate the CIBA guidance, but the assumption seems worth
+stating, along with what deployments can do when it does not hold (e.g.
+relying on platform-level isolation for the approval path, or requiring a
+distinct device for higher-risk operations).
+
+4) Section 10.7 Note: RFC 9470 as a possible input to the mid-execution case
+
+The Note in the Human in the Loop section observes that CIBA only accounts
+for client initiation and does not map well to User confirmation occurring
+mid-execution. Yaron's TECH-8 raises a related concern about the threat
+model. I do not see RFC 9470 (OAuth 2.0 Step Up Authentication Challenge)
+in Section 18, so offering it as a possible input rather than a correction:
+
+9470's model is resource-server-initiated - the RS inspects the
+authentication context behind the presented token and returns
+insufficient_user_authentication with acr_values / max_age. That addresses
+the initiation direction the Note identifies, and it places the trigger at
+the resource, where the sensitivity of the specific action is known. The
+obvious obstacle is that 9470 assumes the client can direct a user agent to
+the AS, which an autonomous agent does not have. But 9470 is agnostic about
+the grant used to satisfy the challenge, so a composition may be possible:
+a 9470-style challenge from the resource server as the trigger, with CIBA
+as the out-of-band grant that satisfies it.
+
+One wrinkle if this were pursued: 9470's acr and auth_time reflect the
+original user authentication event and do not change on token renewal,
+which may need thought for long-running agent sessions.
+
+Was 9470 considered for this case? If it was ruled out, I would find the
+reasoning useful, and would rather understand it than reopen settled ground.
+
+5) Section 14 and agent-specific threats
+
+Section 14 defers to the security considerations of each referenced
+specification, plus OAuth BCP and FAPI 2.0. Given the goal in Section 1 of
+identifying gaps to guide future standardization, is agent-specific threat
+analysis in scope for this document - in particular the
+compromised-but-attested agent, where posture assessment at issuance
+(Section 8) establishes what an agent is, but not what it is doing at
+request time? If that is in scope and useful, I would be glad to help draft
+text.
+
+Thanks for the document. The consolidation framing in Section 1 is very
+useful, and the prior-art mapping is more complete than most work I have
+seen in this area.
+
+Happy to upload any of these as GitHub issues if the authors prefer.
+
+Regards,
+Kunal Ghosh
+ORCID: 0009-0007-4602-5624
+kghoshworkid.github.io
+
+--0000000000008f9e470656d546a4
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><div dir=3D"ltr"><div>Hi Authors, all,<br><br>I hope you a=
+re doing well. I am new to the list. It is amazing to see such good work go=
+ing on in the AI Agent domain. A little background on where my comments com=
+e from: I work on on-device threat defense and enterprise identity at Samsu=
+ng Research America, and previously worked on Universal Logout at Okta. My =
+comments revolve around revocation and the human-in-the-loop section, and b=
+uild in part on Yaron&#39;s review of the 2026-06-01 editor&#39;s copy.<br>=
+<br>1) I see a possible tension between Section 8 and Section 11 on revocat=
+ion<br><br>Section 8 states that short-lived credentials provide &quot;an a=
+lternative to explicit revocation mechanisms.&quot;<br>Section 11 states th=
+at recipients of SSF/CAEP/RISC signals &quot;MUST ensure that revoked or do=
+wngraded authorization is enforced without undue delay,&quot; and that cach=
+ed tokens &quot;MUST NOT continue to be used after a revocation or risk not=
+ification is received.&quot;<br><br>I may be misreading, but these seem to =
+pull in different directions: Section 8 positions expiry as a substitute fo=
+r revocation, while Section 11 treats revocation as a live, mandatory oblig=
+ation. The distinction may be threat-model dependent. Expiry works well for=
+ credential theft. It works poorly for a compromised agent - one that is co=
+rrectly attested and holds an unexpired credential, but whose behavior has =
+been subverted (e.g. via indirect prompt injection). In that case the crede=
+ntial remains valid and correct for its full lifetime while the agent acts =
+outside its intended scope, and typical credential lifetimes exceed the tim=
+e needed to act.<br><br>Would it be worth either reconciling these two sect=
+ions explicitly, or scoping Section 8&#39;s claim to the credential-exposur=
+e threat model rather than compromise generally?<br><br>2) Section 11 makes=
+ subscription optional but enforcement mandatory<br><br>Section 11 says par=
+ticipants &quot;MAY subscribe&quot; to SSF with CAEP or RISC, but that reci=
+pients &quot;MUST&quot; enforce on receipt. The MUST is therefore condition=
+al on the MAY. A deployment that does not subscribe has no revocation path =
+at all, and silently falls back to the Section 8 expiry model without the d=
+ocument saying so.<br><br>Would the working group consider whether subscrip=
+tion should be SHOULD, or MUST, for agents authorized to access sensitive r=
+esources? It is entirely possible this is deliberate deployment latitude, i=
+n which case it may still be worth stating the consequence.<br><br>3) Secti=
+on 10.7: same-device deployments weaken the out-of-band property<br><br>Yar=
+on notes in TECH-8 that CIBA assumes a push notification to a separate devi=
+ce, while the agent flow may already be running on a mobile device. I would=
+ like to extend that from the device-security side, as it is where most of =
+my work sits.<br><br>CIBA&#39;s value in Section 10.7 rests on the interact=
+ion being genuinely out-of-band - the approval channel is assumed to be ind=
+ependent of the requesting client. When an on-device agent and the authenti=
+cator application share a device, that independence is gone: a device compr=
+omise takes both the agent and the approval channel, and the confirmation i=
+s in-band in all but name. This is not hypothetical - on-device agents runn=
+ing alongside the user&#39;s authenticator are becoming common.<br><br>This=
+ does not invalidate the CIBA guidance, but the assumption seems worth stat=
+ing, along with what deployments can do when it does not hold (e.g. relying=
+ on platform-level isolation for the approval path, or requiring a distinct=
+ device for higher-risk operations).<br><br>4) Section 10.7 Note: RFC 9470 =
+as a possible input to the mid-execution case<br><br>The Note in the Human =
+in the Loop section observes that CIBA only accounts for client initiation =
+and does not map well to User confirmation occurring mid-execution. Yaron&#=
+39;s TECH-8 raises a related concern about the threat model. I do not see R=
+FC 9470 (OAuth 2.0 Step Up Authentication Challenge) in Section 18, so offe=
+ring it as a possible input rather than a correction:<br><br>9470&#39;s mod=
+el is resource-server-initiated - the RS inspects the authentication contex=
+t behind the presented token and returns insufficient_user_authentication w=
+ith acr_values / max_age. That addresses the initiation direction the Note =
+identifies, and it places the trigger at the resource, where the sensitivit=
+y of the specific action is known. The obvious obstacle is that 9470 assume=
+s the client can direct a user agent to the AS, which an autonomous agent d=
+oes not have. But 9470 is agnostic about the grant used to satisfy the chal=
+lenge, so a composition may be possible: a 9470-style challenge from the re=
+source server as the trigger, with CIBA as the out-of-band grant that satis=
+fies it.<br><br>One wrinkle if this were pursued: 9470&#39;s acr and auth_t=
+ime reflect the original user authentication event and do not change on tok=
+en renewal, which may need thought for long-running agent sessions.<br><br>=
+Was 9470 considered for this case? If it was ruled out, I would find the re=
+asoning useful, and would rather understand it than reopen settled ground.<=
+br><br>5) Section 14 and agent-specific threats<br><br>Section 14 defers to=
+ the security considerations of each referenced specification, plus OAuth B=
+CP and FAPI 2.0. Given the goal in Section 1 of identifying gaps to guide f=
+uture standardization, is agent-specific threat analysis in scope for this =
+document - in particular the compromised-but-attested agent, where posture =
+assessment at issuance (Section 8) establishes what an agent is, but not wh=
+at it is doing at request time? If that is in scope and useful, I would be =
+glad to help draft text.<br><br>Thanks for the document. The consolidation =
+framing in Section 1 is very useful, and the prior-art mapping is more comp=
+lete than most work I have seen in this area.<br><br>Happy to upload any of=
+ these as GitHub issues if the authors prefer.<br><br>Regards,<br>Kunal Gho=
+sh<br>ORCID: 0009-0007-4602-5624<br><a href=3D"http://kghoshworkid.github.i=
+o" target=3D"_blank">kghoshworkid.github.io</a></div></div>
+</div>
+
+--0000000000008f9e470656d546a4--
+

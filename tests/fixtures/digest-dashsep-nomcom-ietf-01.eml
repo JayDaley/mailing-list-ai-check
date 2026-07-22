@@ -1,0 +1,79 @@
+Return-Path: <johnl@ietf.email>
+X-Original-To: ietf@mail2.ietf.org
+Delivered-To: ietf@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 6538D11962F87
+	for <ietf@mail2.ietf.org>; Sun, 19 Jul 2026 03:00:26 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784455226; bh=q/1fYkGjtrVYBxmDaIeaamxg5O9EG2yho8l6XuprvWY=;
+	h=Date:From:To:Subject:In-Reply-To:References;
+	b=N7doJtzrZ6Y5JUCGVn77RvOa351/mNgjhnrW8VPdjxErwCQ4VFh+rSXhfims0rU4K
+	 XQNIWErZ8kO7YndY3P8gGPMmrtYjirrRcGKL/QFk2w5piKOiL6kakmN74chcgpBGVq
+	 E1SHMzTj72cDYt4OtiEUYDe3YC9DQAAE8jAeRUu8=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -1.602
+X-Spam-Level: 
+X-Spam-Status: No, score=-1.602 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, MSGID_RANDY=2.599, RCVD_IN_DNSWL_MED=-2.3,
+	SPF_PASS=-0.001] autolearn=no autolearn_force=no
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id 6BA36NqakvRd for <ietf@mail2.ietf.org>;
+	Sun, 19 Jul 2026 03:00:26 -0700 (PDT)
+Received: from gal.iecc.com (gal.iecc.com
+ [IPv6:2001:470:1f07:1126:0:43:6f73:7461])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 748D011962F4C
+	for <ietf@ietf.org>; Sun, 19 Jul 2026 03:00:08 -0700 (PDT)
+Received: (qmail 46156 invoked by uid 100); 19 Jul 2026 10:00:01 -0000
+Date: 19 Jul 2026 10:00:01 +0000
+Message-ID: <count-ietf-2026-07-19@examp1e.com>
+From: "John Levine" <johnl@ietf.email>
+To: ietf@ietf.org
+Subject: Messages from the ietf list for the week ending Sun Jul 19 10:00:01
+ 2026
+Content-Type: text/plain; charset=utf-8
+Mime-Version: 1.0
+Content-Transfer-Encoding: 8bit
+In-Reply-To: <count-ietf-2026-07-12@examp1e.com>
+References: <count-ietf-2026-07-12@examp1e.com>
+ <count-ietf-2026-07-05@examp1e.com> <count-ietf-2026-06-28@examp1e.com>
+Expires: 26 Jul 2026 10:00:01 +0000
+Message-ID-Hash: AHF4ZQRV2YNSABMEWZGENFLER67MLG5W
+X-Message-ID-Hash: AHF4ZQRV2YNSABMEWZGENFLER67MLG5W
+X-MailFrom: johnl@ietf.email
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-ietf.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+List-Id: "IETF-Discussion. This is the most general IETF mailing list,
+ intended for discussion of technical, procedural, operational,
+ and other topics for which no dedicated mailing lists exist." <ietf.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/ietf/6JNhAvFgxOH_qQ30g9kPY7jYAkw>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/ietf>
+List-Help: <mailto:ietf-request@ietf.org?subject=help>
+List-Owner: <mailto:ietf-owner@ietf.org>
+List-Post: <mailto:ietf@ietf.org>
+List-Subscribe: <mailto:ietf-join@ietf.org>
+List-Unsubscribe: <mailto:ietf-leave@ietf.org>
+
+   Count    |      Bytes     |  Who
+------------+----------------+-------
+ 12 ( 100%) | 356501 ( 100%) | Total
+  2 (16.7%) |  11728 ( 3.3%) | NomCom Chair 2026 <nomcom-chair-2026@ietf.org>
+  2 (16.7%) |   7870 ( 2.2%) | S Moonesamy <sm+ietf@elandsys.com>
+  1 ( 8.3%) | 254437 (71.4%) | Job Snijders <job@bsd.nl>
+  1 ( 8.3%) |  23845 ( 6.7%) | Mallory Knodel <mallory.knodel@nyu.edu>
+  1 ( 8.3%) |  13289 ( 3.7%) | Warren Kumari <warren@kumari.net>
+  1 ( 8.3%) |  11235 ( 3.2%) | Roman Danyliw <rdd@cert.org>
+  1 ( 8.3%) |  10521 ( 3.0%) | Nicolas Giard <nick@staff.ietf.org>
+  1 ( 8.3%) |  10460 ( 2.9%) | Brian Campbell <bcampbell@pingidentity.com>
+  1 ( 8.3%) |   9829 ( 2.8%) | Jen Linkova <furry13@gmail.com>
+  1 ( 8.3%) |   3287 ( 0.9%) | NomCom Chair 2025 <nomcom-chair-2025@ietf.org>
+

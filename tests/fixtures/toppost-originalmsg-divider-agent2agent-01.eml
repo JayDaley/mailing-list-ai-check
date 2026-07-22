@@ -1,0 +1,257 @@
+Return-Path: <chris@nomotic.ai>
+X-Original-To: agent2agent@mail2.ietf.org
+Delivered-To: agent2agent@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id F26A5116929C1
+	for <agent2agent@mail2.ietf.org>; Tue, 14 Jul 2026 07:17:52 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784038672; bh=5CsY0FVqnYb2X7ENcuoaCP4DFc2BWfsmtE6IsazN1CY=;
+	h=Subject:In-Reply-To:From:To:Cc:Date;
+	b=dCULs/jLJUW/YEjUKvTfirQKwXfmmkrCJe3/ZLFVI/tavJy8mer1CWAITh+24eQNC
+	 Hjsd6DBAubzHhVT2zacN8eTNmOHeiCaJ1xTjsfoaY2bIRxualvCtwaQKpLwTFoqpea
+	 z49Sv8xguk6xasa5YJPI7bW09QQNvGqMOo8q77xI=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.096
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.096 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, HTML_MESSAGE=0.001,
+	RCVD_IN_DNSWL_NONE=-0.0001, RCVD_IN_MSPIKE_H2=0.001,
+	RCVD_IN_VALIDITY_CERTIFIED_BLOCKED=0.001,
+	RCVD_IN_VALIDITY_RPBL_BLOCKED=0.001, SPF_HELO_NONE=0.001,
+	SPF_PASS=-0.001] autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=nomotic.ai
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id 5n4VwFfoCq34 for <agent2agent@mail2.ietf.org>;
+	Tue, 14 Jul 2026 07:17:52 -0700 (PDT)
+Received: from fly.ash.relay.mailchannels.net (fly.ash.relay.mailchannels.net
+ [23.83.222.61])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id EADC5116929B6
+	for <agent2agent@ietf.org>; Tue, 14 Jul 2026 07:17:51 -0700 (PDT)
+X-Sender-Id: hostingeremail|x-authuser|chris@nomotic.ai
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id 43F764C11AD;
+	Tue, 14 Jul 2026 14:17:44 +0000 (UTC)
+Received: from de-fra-smtpout8.hostinger.io
+ (trex-green-2.trex.outbound.svc.cluster.local [100.104.249.99])
+	(Authenticated sender: hostingeremail)
+	by relay.mailchannels.net (Postfix) with ESMTPA id 682634C11E3;
+	Tue, 14 Jul 2026 14:17:41 +0000 (UTC)
+X-Sender-Id: hostingeremail|x-authuser|chris@nomotic.ai
+X-MC-Relay: Neutral
+X-MailChannels-SenderId: hostingeremail|x-authuser|chris@nomotic.ai
+X-MailChannels-Auth-Id: hostingeremail
+X-Sponge-Chemical: 0f891c734a1cd728_1784038662911_3348037839
+X-MC-Loop-Signature: 1784038662911:1826052638
+X-MC-Ingress-Time: 1784038662911
+Received: from de-fra-smtpout8.hostinger.io (de-fra-smtpout8.hostinger.io
+ [148.222.55.13])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.104.249.99 (trex/8.0.2);
+	Tue, 14 Jul 2026 14:17:42 +0000
+Received: from [192.168.0.69] (162-196-81-188.lightspeed.irvnca.sbcglobal.net
+ [162.196.81.188])
+	(Authenticated sender: chris@nomotic.ai)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4h01bl18qDz3wk5;
+	Tue, 14 Jul 2026 14:17:39 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=nomotic.ai;
+	s=hostingermail-a; t=1784038659;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:cc:mime-version:mime-version:content-type:content-type:
+	 in-reply-to:in-reply-to; bh=5CsY0FVqnYb2X7ENcuoaCP4DFc2BWfsmtE6IsazN1CY=;
+	b=Jrmmm2Y5fCX2KErOEKPfR8vAGsoWJHDeCQeXmSzM3i6SQ8wGuq8arSHZKkv3cJJNkPZUMz
+	Ts0NY91wkBq93dDvTEnapbU/g3Ius5ajDnv6diKZ4tqOGSs4boo2d69MQb1ED/pf/a/GTw
+	OTBr6P85vFYJuAZpI5yzRJ3pwD3ThqxUFg68TGaaNAFgebZciH/QoH7Z5Q8TClc83trXkx
+	46UZYgYsKO6iBeUuXYMjje4bm+9f88mVQUAr6Eh1etvXGhm81gls76S5mL6VEqL39ddQBB
+	YMJUFYGKTBtnngNHWN1quEe3IuIWRQF8G7xhUQrPPBOElyVNjNbF5RQKP1ATHw==
+SavedFromEmail: chris@nomotic.ai
+In-Reply-To: 
+ <CAJsPq9v9c2-2JQvRkX7CaVhVipj+K_=sBvChpsu+ZAUw4be+Qw@mail.gmail.com>
+Importance: normal
+From: Chris Hood <chris@nomotic.ai>
+To: Steven Mih <steven=40actionstate.ai@dmarc.ietf.org>,
+ agent2agent@ietf.org
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--_com.samsung.android.email_4745782664220860"
+Message-Id: <4h01bl18qDz3wk5@de-fra-smtpout8.hostinger.io>
+Date: Tue, 14 Jul 2026 14:17:39 +0000 (UTC)
+X-CM-Envelope: 
+ MS4xfKQrGIXsggt+nzfk6+hxGEGj3G8fiqwdWWS8JfwywsmOEIWj/5aJw9S5axoDKoxpSz/GQdJGHAfSzFOowoLZxNlu8rYmFVF26ygoiSu3pUN+ZbA+olwC
+ 3MaWtE+FQX9/nGB/3ANwfccGVzseV+VvI3wTe1lTwdPsiCfJq/Z4bveLXHteOCoJ0ESqSZorVdTxKdynOf1fFHyE5WbNUMsP47nRmoC1mpKJc0iDquhAs4zj
+ Ks/Uj4MA9FDUDoZTgIBD0PwUsH4r7616Qa4xbP0ax+nb9GvgCG7xUVLUaItcMBUFrqPgUpyrnAuNQi6NMyMf/qmo4I7VOA4QheXvJe0hfWXk3GZ51TO4qnuY
+ HMuMi5dH
+X-CM-Analysis: v=2.4 cv=etGNzZpX c=1 sm=1 tr=0 ts=6a564503
+ a=0Jc/PamxAqIYG3i5sr16IA==:117 a=0Jc/PamxAqIYG3i5sr16IA==:17 a=48vgC7mUAAAA:8
+ a=H5-Y3wr7AAAA:8 a=pGLkceISAAAA:8 a=yy-prUDcY2k-B-0TXIUA:9 a=QEXdDO2ut3YA:10
+ a=VGNuH7dwCbR2BHW-:21 a=_W_S_7VecoQA:10 a=xQQAPZQGLo_s4kwC_Ucp:22
+ a=LqjuK653gXiAmlz8ymte:22
+X-AuthUser: chris@nomotic.ai
+Message-ID-Hash: 56RILG6QLFXDNF7YS4NI6VNYSDKROLEL
+X-Message-ID-Hash: 56RILG6QLFXDNF7YS4NI6VNYSDKROLEL
+X-MailFrom: chris@nomotic.ai
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; nonmember-moderation; administrivia;
+ implicit-dest; max-recipients; max-size; news-moderation; no-subject;
+ digests; suspicious-header
+CC: blake@truealter.com, Iman Schrock <team@emiliaprotocol.ai>,
+ mikhailsergeev369@gmail.com
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5Bagent2agent=5D_Re=3A_A_set_of_agent-identity_drafts_=28morrison?=
+ =?utf-8?q?-*=29_for_AGENTPROTO?=
+List-Id: Standardization of AI Agent Communications <agent2agent.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/agent2agent/V_6sOOpe-2E_OLrQAAJNkcvI_ko>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/agent2agent>
+List-Help: <mailto:agent2agent-request@ietf.org?subject=help>
+List-Owner: <mailto:agent2agent-owner@ietf.org>
+List-Post: <mailto:agent2agent@ietf.org>
+List-Subscribe: <mailto:agent2agent-join@ietf.org>
+List-Unsubscribe: <mailto:agent2agent-leave@ietf.org>
+
+----_com.samsung.android.email_4745782664220860
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+QWxsLFRocmVlIHF1aWNrIHF1ZXN0aW9ucyBmb3IgZXZlcnlvbmUsIHNpbmNlIHRoZSB0aHJlYWQg
+aXMgd29ya2luZyB0aHJvdWdoIHdoZXJlIHRoZSBhcnRpZmFjdHMgc2l0OjEpIEhvdyBkb2VzIHlv
+dXIgd29yayBmdW5jdGlvbiB3aXRob3V0IGlkZW50aXR5PyBJZiBpZGVudGl0eSB3YXMgYSBwYXJ0
+IG9mIHNvbWV0aGluZyBlbHNlLCBob3cgd291bGQgdGhpcyB3b3JrPzIpIENhbiB0aGlzIHdvcmsg
+dmFsaWRhdGUgZXh0ZXJuYWwgc2NvcGUsIG9yIGRvZXMgaXQgZGVmaW5lIGl0cyBvd24/MykgSG93
+IHdvdWxkIHRoaXMgd29yayBpbiBhbiBvcGVuIG1hcmtldCB3aXRoIGF2YWlsYWJsZSB3ZWIgdHJh
+ZmZpYyBhbmQgZGV2ZWxvcG1lbnQ/T25lIG5vdGUgb2YgcG9pbnQsIHRoaXMgdGhyZWFkIGZlZWxz
+IG1vcmUgbGlrZSBhbiBhcHBsaWNhdGlvbiBkZXNpZ24gYXMgb3Bwb3NlZCB0byBhIHN0YW5kYXJk
+cyByZXZpZXcuwqBDaHJpcwotLS0tLS0tLSBPcmlnaW5hbCBtZXNzYWdlIC0tLS0tLS0tRnJvbTog
+U3RldmVuIE1paCA8c3RldmVuPTQwYWN0aW9uc3RhdGUuYWlAZG1hcmMuaWV0Zi5vcmc+IERhdGU6
+IDcvMTQvMjYgIDE6MjQgQU0gIChHTVQtMDg6MDApIFRvOiBhZ2VudDJhZ2VudEBpZXRmLm9yZyBD
+YzogYmxha2VAdHJ1ZWFsdGVyLmNvbSwgSW1hbiBTY2hyb2NrIDx0ZWFtQGVtaWxpYXByb3RvY29s
+LmFpPiwgbWlraGFpbHNlcmdlZXYzNjlAZ21haWwuY29tIFN1YmplY3Q6IFthZ2VudDJhZ2VudF0g
+UmU6IEEgc2V0IG9mIGFnZW50LWlkZW50aXR5IGRyYWZ0cyAobW9ycmlzb24tKikgZm9yIEFHRU5U
+UFJPVE8gQmxha2UsIEltYW4sIE1pa2hhaWwsQmxha2UgYXNrZWQgd2hlcmUgYSByZWZ1c2FsIHJl
+Y29yZCBnZXRzIGl0cyBjb250ZW50LCBpZiBub3QgZnJvbSB0aGUgZW52ZWxvcGUncyB0eXBlZCBv
+dXRjb21lcy4gVGhlIGFuc3dlciBpczogZnJvbSB0d28gZGlmZmVyZW50IHBsYWNlcywgYmVjYXVz
+ZSB0aGVyZSBhcmUgdHdvIGRpZmZlcmVudCByZWZ1c2FscyDigJQgYW5kIGtlZXBpbmcgdGhlbSBh
+cGFydCBpcyB0aGUgc2FtZSB0d28tb2JqZWN0IGRpc2NpcGxpbmUgdGhpcyB0aHJlYWQga2VlcHMg
+Y29udmVyZ2luZyBvbi5BIGh1bWFuIHJlZnVzYWwgKHRoZSBjYXBzdWxlJ3MgdmVyZGljdF9jbGFz
+czogZGVuaWVkLCBodW1hbi1kaXNwb3NlZCkgdGFrZXMgaXRzIHNlbWFudGljIGNvbnRlbnQgZnJv
+bSBleGFjdGx5IHdoZXJlIEltYW4gcHV0IGl0OiB0aGUgZHVyYWJsZSByZXNvbHV0aW9uIHJlY2Vp
+cHQsIHdoaWNoIGJpbmRzIHRoZSBlbnZlbG9wZSBkaWdlc3QgYW5kIHRoZSB0eXBlZCBvdXRjb21l
+IHVuZGVyIHRoZSBwcmluY2lwYWwncyBwaW5uZWQga2V5LiBUaGUgY2Fwc3VsZSBkb2Vzbid0IHJl
+c3RhdGUgdGhhdCBjb250ZW50IOKAlCBpdCByZWZlcmVuY2VzIGl0IGJ5IGRpZ2VzdCwgdGhlIHNh
+bWUgd2F5IGFuIGV4ZWN1dGVkIGFjdGlvbiByZWZlcmVuY2VzIGl0cyBncmFudC4gU28geWVzLCBC
+bGFrZTogdGhlIGVudmVsb3BlJ3MgYW5zd2VyIHNwYWNlIHNoYXBlcyB0aGUgcmVmdXNhbCdzIGNv
+bnRlbnQsIGJ1dCBpdCByZWFjaGVzIHRoZSByZWNvcmQgdGhyb3VnaCB0aGUgcmVjZWlwdCwgbm90
+IHRoZSB0cmFuc2llbnQgZW52ZWxvcGUg4oCUIGVudmVsb3BlIHNwZWNpZmllcyB0aGUgbW9tZW50
+LCByZWNlaXB0IHN1cnZpdmVzIGl0LCBjYXBzdWxlIGNpdGVzIGl0LiBJbWFuJ3Mgc2VxdWVuY2Us
+IHVuY2hhbmdlZC5BIGNvbnN0cmFpbnQgcmVmdXNhbCAodmVyZGljdF9jbGFzczogYmxvY2tlZCkg
+bmV2ZXIgdG91Y2hlcyBhbiBlbnZlbG9wZS4gSXRzIGNvbnRlbnQgY29tZXMgZnJvbSB0aGUgZWZm
+ZWN0IGJvdW5kYXJ5IGl0c2VsZjogdGhlIHBpbm5lZCBkaWdlc3Qgb2YgdGhlIGNvbnN0cmFpbnQg
+c2V0IGluIGZvcmNlLCBhIHJlc3VsdCBmb3IgZXZlcnkgY29uc3RyYWludCBpbiB0aGF0IHNldCwg
+YW5kIHRoZSByZWFzb24g4oCUIHdoaWNoIGlzIHdoYXQgdGhlIGJpbGF0ZXJhbCAtMDEgYmluZHMg
+YXMgb2YgdG9kYXkncyBmcmVlemUuIEFuZCBwZXIgSW1hbidzIGxpc3QsIGV4cGlyeSBhbmQgdHJh
+bnNwb3J0IGZhaWx1cmUgc3RheSBkaXN0aW5jdCByZWNvcmQgdHlwZXMgYWdhaW4g4oCUIGEgdGlt
+ZW91dCBpcyBub3QgYSB2ZXRvLCBhbmQgdGhlIHJlY29yZCB2b2NhYnVsYXJ5IHNob3VsZG4ndCBs
+ZXQgb25lIGltcGVyc29uYXRlIHRoZSBvdGhlci5UaGUgYW1lbmQvcmVqZWN0IG91dGNvbWVzIGZh
+bGwgb3V0IGNsZWFubHk6IHRoZXkgdGVybWluYXRlIHRoZSBlbnZlbG9wZSB3aXRoIG5vIGRpZC1j
+bGFpbSBhbnl3aGVyZSwgYW5kIGEgcmV2aXNlZCBhY3Rpb24gaXMgYSBuZXcgYWN0aW9uIOKAlCBu
+ZXcgZGlnZXN0LCBuZXcgZW52ZWxvcGUsIG5ldyBjYXBzdWxlLCB3aXRoIHRoZSBjaGFpbiByZWNv
+cmRpbmcgdGhlIHNlcXVlbmNlIHJhdGhlciB0aGFuIGFueSByZWNvcmQgcHJldGVuZGluZyBjb250
+aW51aXR5Lk1pa2hhaWwg4oCUIHlvdXIgd2l0bmVzc2VkLWV4ZWN1dGlvbiBib3VuZCBpcyBhbHJl
+YWR5IGVuZm9yY2VkIGluIHRoZSBjYXBzdWxlJ3Mgdm9jYWJ1bGFyeSByYXRoZXIgdGhhbiBsZWZ0
+IHRvIGRpc2NpcGxpbmU6IGEgY2Fwc3VsZSBzdGF0ZXMgaXRzIG93biBvYnNlcnZhdGlvbiBib3Vu
+ZGFyeSBleHBsaWNpdGx5IChlZmZlY3Qgc3RhdHVzIGRpc3BhdGNoZWQgdnMuIGNvbmZpcm1lZDsg
+YXR0ZXN0YXRpb24gbW9kZSBydW50aW1lLWNsYWltZWQgdnMuIGdhdGUtZXhlY3V0ZWQpLCBhbmQg
+aXQgY2Fubm90IGNsYWltIHBhc3Qgd2hhdCB0aGF0IGJvdW5kYXJ5IHdpdG5lc3NlZCDigJQgZGlz
+cGF0Y2hlZC11bmNvbmZpcm1lZCBpcyBwcmVjaXNlbHkgIkkgYXNzZXJ0ZWQgbGVzcyBiZWNhdXNl
+IEkgc2F3IGxlc3MuIiBBIFdFWFAgcm93IGFsb25nc2lkZSB0aGVzZSBvYmplY3RzLCBqb2luZWQg
+YnkgZGlnZXN0LCBjb21wb3NlcyB0aGUgc2FtZSB3YXkgZXZlcnl0aGluZyBlbHNlIG9uIHRoaXMg
+dGhyZWFkIGRvZXM7IGFuZCB3aGVuIFBhcmlzYSdzIGV2aWRlbmNlIGRpbWVuc2lvbiBsYW5kcywg
+SSBhZ3JlZSB0aGUgY2xhaW0tc3RyZW5ndGggYm91bmRhcnkgYmVsb25ncyBpbiB0aGUgbW9kZWwg
+d2hlcmUgZXZlcnlvbmUgY2FuIHNlZSBpdC5CZXN0LFN0ZXZlbi0tLS0tLS0tLS0tLS0tLS0tLVN0
+ZXZlbiBNaWhGb3VuZGVyL0NFT0FjdGlvbiBTdGF0ZSBHcm91cCwgSW5jLjQwOC0zMDktNjI5OQoK
+
+----_com.samsung.android.email_4745782664220860
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGhlYWQ+PG1ldGEgaHR0cC1lcXVpdj0iQ29udGVudC1UeXBlIiBjb250ZW50PSJ0ZXh0
+L2h0bWw7IGNoYXJzZXQ9VVRGLTgiPjwvaGVhZD48Ym9keSBkaXI9ImF1dG8iPjxkaXYgZGlyPSJh
+dXRvIj5BbGwsPC9kaXY+PGRpdiBkaXI9ImF1dG8iPjxicj48L2Rpdj48ZGl2IGRpcj0iYXV0byI+
+VGhyZWUgcXVpY2sgcXVlc3Rpb25zIGZvciBldmVyeW9uZSwgc2luY2UgdGhlIHRocmVhZCBpcyB3
+b3JraW5nIHRocm91Z2ggd2hlcmUgdGhlIGFydGlmYWN0cyBzaXQ6PC9kaXY+PGRpdiBkaXI9ImF1
+dG8iPjxicj48L2Rpdj48ZGl2IGRpcj0iYXV0byI+MSkgSG93IGRvZXMgeW91ciB3b3JrIGZ1bmN0
+aW9uIHdpdGhvdXQgaWRlbnRpdHk/IElmIGlkZW50aXR5IHdhcyBhIHBhcnQgb2Ygc29tZXRoaW5n
+IGVsc2UsIGhvdyB3b3VsZCB0aGlzIHdvcms/PC9kaXY+PGRpdiBkaXI9ImF1dG8iPjxicj48L2Rp
+dj48ZGl2IGRpcj0iYXV0byI+MikgQ2FuIHRoaXMgd29yayB2YWxpZGF0ZSBleHRlcm5hbCBzY29w
+ZSwgb3IgZG9lcyBpdCBkZWZpbmUgaXRzIG93bj88L2Rpdj48ZGl2IGRpcj0iYXV0byI+PGJyPjwv
+ZGl2PjxkaXYgZGlyPSJhdXRvIj4zKSBIb3cgd291bGQgdGhpcyB3b3JrIGluIGFuIG9wZW4gbWFy
+a2V0IHdpdGggYXZhaWxhYmxlIHdlYiB0cmFmZmljIGFuZCBkZXZlbG9wbWVudD88L2Rpdj48ZGl2
+IGRpcj0iYXV0byI+PGJyPjwvZGl2PjxkaXYgZGlyPSJhdXRvIj5PbmUgbm90ZSBvZiBwb2ludCwg
+dGhpcyB0aHJlYWQgZmVlbHMgbW9yZSBsaWtlIGFuIGFwcGxpY2F0aW9uIGRlc2lnbiBhcyBvcHBv
+c2VkIHRvIGEgc3RhbmRhcmRzIHJldmlldy4mbmJzcDs8L2Rpdj48ZGl2IGRpcj0iYXV0byI+PGJy
+PjwvZGl2PjxkaXYgZGlyPSJhdXRvIj5DaHJpczwvZGl2PjxkaXYgZGlyPSJhdXRvIj48YnI+PC9k
+aXY+PGRpdiBkaXI9ImF1dG8iPjxicj48L2Rpdj48ZGl2Pjxicj48L2Rpdj48ZGl2IGFsaWduPSJs
+ZWZ0IiBkaXI9ImF1dG8iIHN0eWxlPSJmb250LXNpemU6MTAwJTtjb2xvcjojMDAwMDAwIj48ZGl2
+Pi0tLS0tLS0tIE9yaWdpbmFsIG1lc3NhZ2UgLS0tLS0tLS08L2Rpdj48ZGl2PkZyb206IFN0ZXZl
+biBNaWggJmx0O3N0ZXZlbj00MGFjdGlvbnN0YXRlLmFpQGRtYXJjLmlldGYub3JnJmd0OyA8L2Rp
+dj48ZGl2PkRhdGU6IDcvMTQvMjYgIDE6MjQgQU0gIChHTVQtMDg6MDApIDwvZGl2PjxkaXY+VG86
+IGFnZW50MmFnZW50QGlldGYub3JnIDwvZGl2PjxkaXY+Q2M6IGJsYWtlQHRydWVhbHRlci5jb20s
+IEltYW4gU2Nocm9jayAmbHQ7dGVhbUBlbWlsaWFwcm90b2NvbC5haSZndDssIG1pa2hhaWxzZXJn
+ZWV2MzY5QGdtYWlsLmNvbSA8L2Rpdj48ZGl2PlN1YmplY3Q6IFthZ2VudDJhZ2VudF0gUmU6IEEg
+c2V0IG9mIGFnZW50LWlkZW50aXR5IGRyYWZ0cyAobW9ycmlzb24tKikgZm9yIEFHRU5UUFJPVE8g
+PC9kaXY+PGRpdj48YnI+PC9kaXY+PC9kaXY+PGRpdiBkaXI9Imx0ciI+PGRpdiBkaXI9Imx0ciI+
+PGRpdj48ZGl2IGRpcj0iYXV0byI+Qmxha2UsIEltYW4sIE1pa2hhaWwsPGJyPjxicj5CbGFrZSBh
+c2tlZCB3aGVyZSBhIHJlZnVzYWwgcmVjb3JkIGdldHMgaXRzIGNvbnRlbnQsIGlmIG5vdCBmcm9t
+IHRoZSBlbnZlbG9wZSdzIHR5cGVkIG91dGNvbWVzLiBUaGUgYW5zd2VyIGlzOiBmcm9tIHR3byBk
+aWZmZXJlbnQgcGxhY2VzLCBiZWNhdXNlIHRoZXJlIGFyZSB0d28gZGlmZmVyZW50IHJlZnVzYWxz
+IOKAlCBhbmQga2VlcGluZyB0aGVtIGFwYXJ0IGlzIHRoZSBzYW1lIHR3by1vYmplY3QgZGlzY2lw
+bGluZSB0aGlzIHRocmVhZCBrZWVwcyBjb252ZXJnaW5nIG9uLjxicj48YnI+QSBodW1hbiByZWZ1
+c2FsICh0aGUgY2Fwc3VsZSdzIHZlcmRpY3RfY2xhc3M6IGRlbmllZCwgaHVtYW4tZGlzcG9zZWQp
+IHRha2VzIGl0cyBzZW1hbnRpYyBjb250ZW50IGZyb20gZXhhY3RseSB3aGVyZSBJbWFuIHB1dCBp
+dDogdGhlIGR1cmFibGUgcmVzb2x1dGlvbiByZWNlaXB0LCB3aGljaCBiaW5kcyB0aGUgZW52ZWxv
+cGUgZGlnZXN0IGFuZCB0aGUgdHlwZWQgb3V0Y29tZSB1bmRlciB0aGUgcHJpbmNpcGFsJ3MgcGlu
+bmVkIGtleS4gVGhlIGNhcHN1bGUgZG9lc24ndCByZXN0YXRlIHRoYXQgY29udGVudCDigJQgaXQg
+cmVmZXJlbmNlcyBpdCBieSBkaWdlc3QsIHRoZSBzYW1lIHdheSBhbiBleGVjdXRlZCBhY3Rpb24g
+cmVmZXJlbmNlcyBpdHMgZ3JhbnQuIFNvIHllcywgQmxha2U6IHRoZSBlbnZlbG9wZSdzIGFuc3dl
+ciBzcGFjZSBzaGFwZXMgdGhlIHJlZnVzYWwncyBjb250ZW50LCBidXQgaXQgcmVhY2hlcyB0aGUg
+cmVjb3JkIHRocm91Z2ggdGhlIHJlY2VpcHQsIG5vdCB0aGUgdHJhbnNpZW50IGVudmVsb3BlIOKA
+lCBlbnZlbG9wZSBzcGVjaWZpZXMgdGhlIG1vbWVudCwgcmVjZWlwdCBzdXJ2aXZlcyBpdCwgY2Fw
+c3VsZSBjaXRlcyBpdC4gSW1hbidzIHNlcXVlbmNlLCB1bmNoYW5nZWQuPGJyPjxicj5BIGNvbnN0
+cmFpbnQgcmVmdXNhbCAodmVyZGljdF9jbGFzczogYmxvY2tlZCkgbmV2ZXIgdG91Y2hlcyBhbiBl
+bnZlbG9wZS4gSXRzIGNvbnRlbnQgY29tZXMgZnJvbSB0aGUgZWZmZWN0IGJvdW5kYXJ5IGl0c2Vs
+ZjogdGhlIHBpbm5lZCBkaWdlc3Qgb2YgdGhlIGNvbnN0cmFpbnQgc2V0IGluIGZvcmNlLCBhIHJl
+c3VsdCBmb3IgZXZlcnkgY29uc3RyYWludCBpbiB0aGF0IHNldCwgYW5kIHRoZSByZWFzb24g4oCU
+IHdoaWNoIGlzIHdoYXQgdGhlIGJpbGF0ZXJhbCAtMDEgYmluZHMgYXMgb2YgdG9kYXkncyBmcmVl
+emUuIEFuZCBwZXIgSW1hbidzIGxpc3QsIGV4cGlyeSBhbmQgdHJhbnNwb3J0IGZhaWx1cmUgc3Rh
+eSBkaXN0aW5jdCByZWNvcmQgdHlwZXMgYWdhaW4g4oCUIGEgdGltZW91dCBpcyBub3QgYSB2ZXRv
+LCBhbmQgdGhlIHJlY29yZCB2b2NhYnVsYXJ5IHNob3VsZG4ndCBsZXQgb25lIGltcGVyc29uYXRl
+IHRoZSBvdGhlci48YnI+PGJyPlRoZSBhbWVuZC9yZWplY3Qgb3V0Y29tZXMgZmFsbCBvdXQgY2xl
+YW5seTogdGhleSB0ZXJtaW5hdGUgdGhlIGVudmVsb3BlIHdpdGggbm8gZGlkLWNsYWltIGFueXdo
+ZXJlLCBhbmQgYSByZXZpc2VkIGFjdGlvbiBpcyBhIG5ldyBhY3Rpb24g4oCUIG5ldyBkaWdlc3Qs
+IG5ldyBlbnZlbG9wZSwgbmV3IGNhcHN1bGUsIHdpdGggdGhlIGNoYWluIHJlY29yZGluZyB0aGUg
+c2VxdWVuY2UgcmF0aGVyIHRoYW4gYW55IHJlY29yZCBwcmV0ZW5kaW5nIGNvbnRpbnVpdHkuPGJy
+Pjxicj5NaWtoYWlsIOKAlCB5b3VyIHdpdG5lc3NlZC1leGVjdXRpb24gYm91bmQgaXMgYWxyZWFk
+eSBlbmZvcmNlZCBpbiB0aGUgY2Fwc3VsZSdzIHZvY2FidWxhcnkgcmF0aGVyIHRoYW4gbGVmdCB0
+byBkaXNjaXBsaW5lOiBhIGNhcHN1bGUgc3RhdGVzIGl0cyBvd24gb2JzZXJ2YXRpb24gYm91bmRh
+cnkgZXhwbGljaXRseSAoZWZmZWN0IHN0YXR1cyBkaXNwYXRjaGVkIHZzLiBjb25maXJtZWQ7IGF0
+dGVzdGF0aW9uIG1vZGUgcnVudGltZS1jbGFpbWVkIHZzLiBnYXRlLWV4ZWN1dGVkKSwgYW5kIGl0
+IGNhbm5vdCBjbGFpbSBwYXN0IHdoYXQgdGhhdCBib3VuZGFyeSB3aXRuZXNzZWQg4oCUIGRpc3Bh
+dGNoZWQtdW5jb25maXJtZWQgaXMgcHJlY2lzZWx5ICJJIGFzc2VydGVkIGxlc3MgYmVjYXVzZSBJ
+IHNhdyBsZXNzLiIgQSBXRVhQIHJvdyBhbG9uZ3NpZGUgdGhlc2Ugb2JqZWN0cywgam9pbmVkIGJ5
+IGRpZ2VzdCwgY29tcG9zZXMgdGhlIHNhbWUgd2F5IGV2ZXJ5dGhpbmcgZWxzZSBvbiB0aGlzIHRo
+cmVhZCBkb2VzOyBhbmQgd2hlbiBQYXJpc2EncyBldmlkZW5jZSBkaW1lbnNpb24gbGFuZHMsIEkg
+YWdyZWUgdGhlIGNsYWltLXN0cmVuZ3RoIGJvdW5kYXJ5IGJlbG9uZ3MgaW4gdGhlIG1vZGVsIHdo
+ZXJlIGV2ZXJ5b25lIGNhbiBzZWUgaXQuPGJyPjxicj5CZXN0LDxicj5TdGV2ZW48YnI+PGJyPi0t
+LS0tLS0tLS0tLS0tLS0tLTxicj5TdGV2ZW4gTWloPGJyPkZvdW5kZXIvQ0VPPGJyPkFjdGlvbiBT
+dGF0ZSBHcm91cCwgSW5jLjxicj40MDgtMzA5LTYyOTk8L2Rpdj48L2Rpdj48L2Rpdj4KPC9kaXY+
+CjwvYm9keT48L2h0bWw+
+
+----_com.samsung.android.email_4745782664220860--
+

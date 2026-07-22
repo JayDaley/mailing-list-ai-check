@@ -1,0 +1,13 @@
+Some quick replies.
+
+Thanks.
+
+These would be different domains that don't connect to each other. You can run separate instances, especially when there are multicast group boundaries so the well-known groups stay disjoint.
+
+If there are no group boundaries, then the packets go to all members of the well-known group but are dropped by the ones without common encryption keys.
+
+Right, a tradeoff between plug-and-play and secure communication.
+
+I thought we had something like that. I'll leave this for Mike and Stig to comment about.
+
+Dino

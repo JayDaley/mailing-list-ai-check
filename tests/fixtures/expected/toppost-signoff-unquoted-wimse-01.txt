@@ -1,0 +1,23 @@
+Thank you for spelling out the four possession-side rows. I agree that rows
+1-4 should remain a substrate and authorize nothing by themselves. I
+attached a short review and test-vector plan.
+
+Three corrections are important before treating the rows as a verifier
+contract:
+
+   - Row 1 must be limited to attested inputs that are actually measured
+   and bound to the enrolled key and enrollment record. Key existence alone is
+   not evidence for every claimed input.
+   - Row 3 should enumerate the monitored conditions, detection timing, and
+   the governed key operations. Key erasure protects the next relevant key use
+   or agreement; an established connection still needs its own stated
+   management rule.
+   - Row 4 needs a re-assessment lease or expiry, delivery and clock
+   assumptions, and a grace policy. Non-delivery does not fail closed merely
+   by being called non-delivery; after the lease, the next governed key use
+   must fail because current status cannot be established.
+
+The attached vectors cover enrollment binding, live possession, local
+failure before and after a connection, lifecycle delivery, lease expiry,
+and replay/stale/wrong-device events. The proposed outcome labels are
+vector vocabulary only, not a request for new wire-level errors.

@@ -1,0 +1,257 @@
+Return-Path: <dapon.crypto@gmail.com>
+X-Original-To: tls@mail2.ietf.org
+Delivered-To: tls@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 6040F11AD7772
+	for <tls@mail2.ietf.org>; Mon, 20 Jul 2026 15:15:32 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784585732; bh=3evRLKaT4EmIFvU7xIlh+h8+e2sjlx+Xeqi6xZwP8+o=;
+	h=In-Reply-To:References:From:Date:Subject:To:Cc;
+	b=YWWme4GiO5y61bNwfsTHfoJqiYA//GHV3crDmetwPHK8yvcMBNH8u3k3A5f2wa6ET
+	 MOP3rpqp/xyLwtClRpNhGRYTZir0YDaSAv+HAYPe9do4Gt4GtIlpbnp1IIeFIraJnN
+	 RtXfaqjOmwczQMzi2SHMvbrIB8kntNl7fI3HMxxE=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -1.838
+X-Spam-Level: 
+X-Spam-Status: No, score=-1.838 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, FREEMAIL_FROM=0.001,
+	HTML_MESSAGE=0.001, HTML_OBFUSCATE_05_10=0.26,
+	RCVD_IN_DNSWL_NONE=-0.0001, SPF_HELO_NONE=0.001, SPF_PASS=-0.001]
+	autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=gmail.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id LMlK2-XYGsoA for <tls@mail2.ietf.org>;
+	Mon, 20 Jul 2026 15:15:32 -0700 (PDT)
+Received: from mail-lf1-x12b.google.com (mail-lf1-x12b.google.com
+ [IPv6:2a00:1450:4864:20::12b])
+	(using TLSv1.3 with cipher TLS_AES_128_GCM_SHA256 (128/128 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id EEA3211AD776B
+	for <tls@ietf.org>; Mon, 20 Jul 2026 15:15:31 -0700 (PDT)
+Received: by mail-lf1-x12b.google.com with SMTP id
+ 2adb3069b0e04-5b29599b81cso2713188e87.1
+        for <tls@ietf.org>; Mon, 20 Jul 2026 15:15:31 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1784585725; cv=none;
+        d=google.com; s=arc-20260327;
+        b=n/O92iRFgIk9lLrxjGEpD2ofOOdjzaxAmCUzYV9VE0XiTkJZENulPCg/pHI/Z3x/9J
+         eu4zcLEEA3qkloovSWp3YGyBup0s3seJvfYLXWVs7qJEKfN4I7/YbOzfqEbaRVKTxk/k
+         XjyYXt91CLzFf6WbQGpbul+CAYuFqtxECtkZ9e4n5t3TW04I7hRq34SSODFUfJSXEx8p
+         Dz0HmDAoX2AYwunTlOBGAeSw8WqLItQ26XSQ8wiWP9IRhR2Kg8E+hPrrKn6UH56/1K8h
+         HotYn79Lg78sJNjTkfMfOOiovYkWXR9gT4ertkoY/CoZY+UGFelq70nYPX8Q9ujhpmqX
+         SX+Q==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com;
+ s=arc-20260327;
+        h=cc:to:subject:message-id:date:from:references:in-reply-to
+         :mime-version:dkim-signature;
+        bh=3evRLKaT4EmIFvU7xIlh+h8+e2sjlx+Xeqi6xZwP8+o=;
+        fh=gGfHo1Fk2srgzfyR3uLYcqmN+4jtCrcDl1t0Ivr0UAo=;
+        b=l6jv1NtirmFUB2dbzIFhYCIzzw3UtKi2/mJh+d+BL6uA3h09I17AhvdvC2H6FVWMOf
+         jOC2JFCCQotqmSFKDHHR9L1J7tWaguWObXXs3BxdKSq9ekCPjp/VJwXVGiltcDqQKbR9
+         pHKcuJHZTs09PEP6bpdCLwPABxgM1z0xmdbTrRIoe32NSd/Hhmm/hI6pxK36GQMg4vfL
+         t3hV2JAWsOxDFK0ITUyNTI2lJlmeeXOwYjdGnNH/TKbjKL8PFl9DvC824d0+C8WVL9iD
+         5AWngfAKizX61nUMxLlLYZJ/g7n3eMdgqL0JUdo56o/ZMAvNHOztE7K+dp2eRJRWL3oF
+         GFwA==;
+        darn=ietf.org
+ARC-Authentication-Results: i=1; mx.google.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=gmail.com; s=20251104; t=1784585725; x=1785190525; darn=ietf.org;
+        h=content-type:cc:to:subject:message-id:date:from:references
+         :in-reply-to:mime-version:from:to:cc:subject:date:message-id
+         :reply-to:content-type;
+        bh=3evRLKaT4EmIFvU7xIlh+h8+e2sjlx+Xeqi6xZwP8+o=;
+        b=F4R/m+J8nGvVIUv8eQAu0fNEg722yvKzJvGwDvfXeIQF9TScgxDFECwbNpaNtQZMor
+         7bFss8Jd725EVepeO/i+moIaM7XO7wghClzWc5IxxXBk+9jL2BmgSQUCfAImLxgrrG7S
+         sU3ZOS4CnDhOJqgFxq+Ht9xZYco7XKnPb6IVvdyAQ3W7I3fflJeA0k4yci9cpSYzA+kE
+         v2h+y/cSu/fQMETid3wniB4ti6Tu3ph7PcQNSDGiyLn2CK22ST+S7IKFUkhhPsfSqi26
+         +jDgwYhiSkr5Z81GOVcrxEDGqUOOrUNcUYid8YpxwemdAnZn0LC4xnFTZgqimmkxKzYk
+         RN4Q==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1784585725; x=1785190525;
+        h=content-type:cc:to:subject:message-id:date:from:references
+         :in-reply-to:mime-version:x-gm-gg:x-gm-message-state:from:to:cc
+         :subject:date:message-id:reply-to:content-type;
+        bh=3evRLKaT4EmIFvU7xIlh+h8+e2sjlx+Xeqi6xZwP8+o=;
+        b=AN1/hlXAxtiyf8u12dWAOKbihMqBOrTuJNE/XOjbQL9o+AhKlwc0FYzQ8XoMWeGPgf
+         T/YoRODSKJUIQQmAciapgUD7CQH++yVgmYMSVWBh8h06fGZdsPJFEFmkA8VDhBHjo1pI
+         TRANwGKkvxkbQWsjdedzgIcBq7+4shS3VK3D+RvFsL3MxNVBY/vzsSk8yYq7nGuPgsrZ
+         xrFtKPssYmD3uNZTULk6GhYmL9IZwftTqpmVdYbvCIle4RoIZ1IicPubcyJwyrJP8BEX
+         /kEQjlQsl4FSQIbXPVmKPqQMHyO6OGsLMbm7Ce0xHBRh0cu3kAfW+GhInX5SifC2GEBu
+         7dZw==
+X-Forwarded-Encrypted: i=1;
+ AHgh+RrXrKjz47TA0G6lktYWgtBbX6LbmeMGAI49EWc6oaV2ru0tnXrB97LyWH4u76bLauDU1J0=@ietf.org
+X-Gm-Message-State: AOJu0YwtSozW1L0gtPPcdQaj5KlFFjnJyQ39w0VGDCHgdggsLqNJee4w
+	E8bp1t9apHlf2mIzgsprVnswiUTGKAsLKvsL7IkqFRLQzeb53rtHdKsu6692GskP/z7oCwarCRq
+	797S3vmcJi4XnvaggLm5jmFpc65ZI0kuGJ2pw5PQpfw==
+X-Gm-Gg: AR+sD13mBVTd+v6qh99H+kutRR1nA3/kX2c523Zh1bfpryLjdObJlxW4/kSQyiskZf7
+	qj1TdnPQ9lxNW9qqpiOIVAkuDJPjCteKgd6UofWOTdEdfifO2su8XkUWWMBW5MFZ8V/bCe09bVg
+	ClPWusAH6LmNZ+n3sCh7YM47+N6hLbGlUvJSWCSpHNjaCtmApAz3anygViMmqJOU5j80WQgM+Tv
+	ujcZKnzUrGjDNGDhGQ6safj23ek2Ui6gNwjwBnx7SjLT4AZnCz68o2tam8MBPgtt+Wzp1fyWv2C
+	SlJXQiCwBMl3Vtp7n8r2hzw+Bs0De3269HcGqi33X9cjEjO8tMk5hgn7uGgtUMpXZ7S5teiWw6D
+	kt0lHJHf/nUDMC0EOmOfVuKJ0+pSokthpZxg1tkBuBVT+44LyLSse+TYcuAoLHsO6v8S43wq8m+
+	ifzw==
+X-Received: by 2002:a05:6512:6d2:b0:5ae:b792:7f1e with SMTP id
+ 2adb3069b0e04-5b28f9ac8bbmr3694315e87.30.1784585724256; Mon, 20 Jul 2026
+ 15:15:24 -0700 (PDT)
+MIME-Version: 1.0
+Received: by 2002:a05:6520:534a:10b0:33d:c3b1:9a2e with HTTP; Mon, 20 Jul 2026
+ 15:15:22 -0700 (PDT)
+In-Reply-To: <40728f77-60c2-4ce9-b5d1-b2d8a7b52262@cs.tcd.ie>
+References: <A09BB1B0-38F6-4EDC-B538-FDF25FAAFE67@sn3rd.com>
+ <40728f77-60c2-4ce9-b5d1-b2d8a7b52262@cs.tcd.ie>
+From: Daniel Apon <dapon.crypto@gmail.com>
+Date: Mon, 20 Jul 2026 18:15:22 -0400
+X-Gm-Features: AUfX_mx6Lwt72m5hLQos9tIG4Fc7pK5nZ4PSLNWRrv351QF-SrWCpkuZCcJwDwg
+Message-ID: 
+ <CAPxHsSJByVqmTF=A=OwoDbyvDwQs2tthcjRzMbAAcJjqvnEhxw@mail.gmail.com>
+To: Stephen Farrell <stephen.farrell@cs.tcd.ie>
+Content-Type: multipart/alternative; boundary="0000000000002a653a0657123e14"
+Message-ID-Hash: EXA5KM6C7XGZLPN6HYYKZV55JE23JPSB
+X-Message-ID-Hash: EXA5KM6C7XGZLPN6HYYKZV55JE23JPSB
+X-MailFrom: dapon.crypto@gmail.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-tls.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+CC: TLS List <tls@ietf.org>
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BTLS=5D_Re=3A_tls=40ietf126=3A_agenda?=
+List-Id: "This is the mailing list for the Transport Layer Security working
+ group of the IETF." <tls.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/tls/AnBYnw-nagHdhvtQWwTzWE37fMs>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/tls>
+List-Help: <mailto:tls-request@ietf.org?subject=help>
+List-Owner: <mailto:tls-owner@ietf.org>
+List-Post: <mailto:tls@ietf.org>
+List-Subscribe: <mailto:tls-join@ietf.org>
+List-Unsubscribe: <mailto:tls-leave@ietf.org>
+
+--0000000000002a653a0657123e14
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi,
+
+Is there a thread to discuss the merits of the two PQ + T signature drafts
+in comparison? (I think the email you sent for agenda meant to reference
+[2] and [3])
+
+Apologies for not being around live for that session,
+=E2=80=94Daniel
+
+On Monday, July 20, 2026, Stephen Farrell <stephen.farrell@cs.tcd.ie> wrote=
+:
+
+>
+> Hiya,
+>
+> On 20/07/2026 14:09, Sean Turner wrote:
+>
+>> Hi! We have (finally) posted the agenda. It is available here:
+>> https://datatracker.ietf.org/meeting/126/materials/agenda-126-tls
+>>
+>> Note we took ekr=E2=80=99s suggestion [1] to allocate some time on the
+>> agenda to discuss PQ + T signature for TLS drafts, see [1] and [2];
+>> we worked with authors to ensure they would be ready for our Friday
+>> session.
+>>
+>
+> Likely doesn't affect too many people, but it does affect me, so
+> just in case there's a pile of others in a similar situation:
+>
+> I'll be gone already on Friday so won't be able to be there for
+> that PQ + T signature slot, which is a pity for me. Were that on
+> Thursday, that'd be great.
+>
+> I don't expect you to switch the slot just for me.
+>
+> Cheers,
+> S.
+>
+>
+>> spt
+>>
+>> [1] https://mailarchive.ietf.org/arch/msg/tls/H20gwrTeJVe1-
+>> qFmI_uBDtYBVnc/ [2] https://datatracker.ietf.org/doc/draft-reddy-tls-
+>> composite-mldsa/ [3] https://datatracker.ietf.org/doc/draft-yusef-
+>> tls-pqt-dual-certs/
+>>
+>> _______________________________________________ TLS mailing list --
+>> tls@ietf.org To unsubscribe send an email to tls-leave@ietf.org
+>>
+>
+>
+
+--0000000000002a653a0657123e14
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi,<div><br></div><div>Is there a thread to discuss the merits of the two P=
+Q + T signature drafts in comparison? (I think the email you sent for agend=
+a meant to reference [2] and [3])</div><div><br></div><div>Apologies for no=
+t being around live for that session,</div><div>=E2=80=94Daniel<br><br>On M=
+onday, July 20, 2026, Stephen Farrell &lt;<a href=3D"mailto:stephen.farrell=
+@cs.tcd.ie">stephen.farrell@cs.tcd.ie</a>&gt; wrote:<br><blockquote class=
+=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padd=
+ing-left:1ex"><br>
+Hiya,<br>
+<br>
+On 20/07/2026 14:09, Sean Turner wrote:<br>
+<blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+x #ccc solid;padding-left:1ex">
+Hi! We have (finally) posted the agenda. It is available here: <a href=3D"h=
+ttps://datatracker.ietf.org/meeting/126/materials/agenda-126-tls" target=3D=
+"_blank">https://datatracker.ietf.org/m<wbr>eeting/126/materials/agenda-12<=
+wbr>6-tls</a><br>
+<br>
+Note we took ekr=E2=80=99s suggestion [1] to allocate some time on the<br>
+agenda to discuss PQ + T signature for TLS drafts, see [1] and [2];<br>
+we worked with authors to ensure they would be ready for our Friday<br>
+session.<br>
+</blockquote>
+<br>
+Likely doesn&#39;t affect too many people, but it does affect me, so<br>
+just in case there&#39;s a pile of others in a similar situation:<br>
+<br>
+I&#39;ll be gone already on Friday so won&#39;t be able to be there for<br>
+that PQ + T signature slot, which is a pity for me. Were that on<br>
+Thursday, that&#39;d be great.<br>
+<br>
+I don&#39;t expect you to switch the slot just for me.<br>
+<br>
+Cheers,<br>
+S.<br>
+<br>
+<blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+x #ccc solid;padding-left:1ex">
+<br>
+spt<br>
+<br>
+[1] <a href=3D"https://mailarchive.ietf.org/arch/msg/tls/H20gwrTeJVe1-" tar=
+get=3D"_blank">https://mailarchive.ietf.org/a<wbr>rch/msg/tls/H20gwrTeJVe1-=
+</a><br>
+qFmI_uBDtYBVnc/ [2] <a href=3D"https://datatracker.ietf.org/doc/draft-reddy=
+-tls-" target=3D"_blank">https://datatracker.ietf.org/d<wbr>oc/draft-reddy-=
+tls-</a><br>
+composite-mldsa/ [3] <a href=3D"https://datatracker.ietf.org/doc/draft-yuse=
+f-" target=3D"_blank">https://datatracker.ietf.org/d<wbr>oc/draft-yusef-</a=
+><br>
+tls-pqt-dual-certs/<br>
+<br>
+______________________________<wbr>_________________ TLS mailing list --<br=
+>
+<a href=3D"mailto:tls@ietf.org" target=3D"_blank">tls@ietf.org</a> To unsub=
+scribe send an email to <a href=3D"mailto:tls-leave@ietf.org" target=3D"_bl=
+ank">tls-leave@ietf.org</a><br>
+</blockquote>
+<br>
+</blockquote></div>
+
+--0000000000002a653a0657123e14--
+

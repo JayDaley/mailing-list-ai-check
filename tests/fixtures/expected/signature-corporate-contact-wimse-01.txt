@@ -1,0 +1,23 @@
+Thanks Iman, I see. Possession proven live; authorization carried as evidence bound to the action. And "keys pinned out of band" is the case — raw keys registered directly with the relying party, no CA. We reached the same no-stranger model from the user side.
+
+I agree on your recommendation: signalling first, token second. A combined token can stay combined as long as the event names the row it revokes. That is deployable now, without reissuing anyone.
+Btw, your "possession no longer proven" event is the endpoint-presence signal I have proposed in the Shared Signals WG. So we are converging. The row-scoped signal I want is the possession row of your model.
+
+And, a row-scoped signal lets the relying party remove trust on the possession row. It cannot prove it. A copied bearer token still presents as valid possession, because the token cannot show it is live. So the signal handles the deployed token world — it removes the wrong. Proving the possession row right, at the moment of use, needs a key that is live and exists in only one place.
+
+Now to the idea the possession row can carry users and agents, not just workloads.
+Because the row is not about who the actor is. It is about where the key lives. If the key is live and nowhere else, then whoever is bound to it is provably present. The actor slot is pluggable:
+Workload: the key is the platform's. Possession means the workload is live. This is mTLS today.
+
+Human: the human is verified into the platform. The platform's live key then stands for "this verified human is present." Same row.
+Agent: the agent runs on the platform and acts for a human verified into it. Possession means the agent is live and the human it acts for is present. Two actors, one platform, one key.
+
+There is also a place where this row meets your gravest risk directly. You name rendering faithfulness as the thing cryptography cannot prove — the human signs a hash believing it is action X when it is Y — and your mitigation is a second surface on hardware the operator does not author. That surface is the endpoint. So the possession row does not only sit beside EP; the platform that proves live possession can also be the trusted display your receipt needs. The signature proves a key signed; the endpoint can help prove the human saw the true action.
+
+We call this LIT — Live Identity in Transaction. The key is live: it exists only while its conditions hold — the right user present, the device sound — and is gone the moment any condition fails. So its presence is its validity. If the handshake completes, the conditions are met; nothing separate to check. And the key exists in one place only, so no copy is off somewhere staying alive when the user is not.
+Underneath is a fuller definition of identity: not one thing, proven once, but three things, proven live — who is acting, on which platform, under which conditions. The industry proves the first, at one moment. LIT proves all three, in the channel, continuously.
+
+In WIMSE this appears as a profile, under the precise term — condition-bounded credential. LIT is the general name for the same idea.
+
+Your EP receipt sits on the authorization row; LIT sits on the possession row. Together they are your two rows, each proven on its own terms.
+You asked why the human binds into the platform. The core is in the possession row above — the human is verified into the platform, and the platform's live key then stands for that verified human being present. The rest — how the agent case composes two actors on one platform, and how the trusted-rendering piece works — needs more room than a mail. Happy to walk the group through it. Vienna would be ideal — I may not make it in person, but I can do it remotely, or on a call whenever it suits the WG.

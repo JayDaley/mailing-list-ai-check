@@ -1,0 +1,109 @@
+Return-Path: <mcr@sandelman.ca>
+X-Original-To: last-call@mail2.ietf.org
+Delivered-To: last-call@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 4D40A117C1B0B;
+	Thu, 16 Jul 2026 03:45:39 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784198739; bh=Sik2Oa8vGqOK/GkU71bOlCagv8a3etXZ13ne9MFvEmY=;
+	h=From:To:Cc:Subject:In-Reply-To:References:Date;
+	b=syBpyaUuCeGTG+Sg/tdiXs4J1Zv5bD7qUuFQjuodopL1Uxk3PtSQueMN2BO32sfX2
+	 ht6pNc33iohT/TBLIFP73YBL7n5U0D1BcH2YAoS7jU/Y9ZzZGza+bGQH7Ae7sWZ90e
+	 QB9zek27aU4YVWB/fbECyWGDkJk5ePpSHV6iGsiQ=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -1.9
+X-Spam-Level: 
+X-Spam-Status: No, score=-1.9 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, SPF_HELO_NONE=0.001, SPF_PASS=-0.001]
+	autolearn=ham autolearn_force=no
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id b5cGf8icy9v8; Thu, 16 Jul 2026 03:45:39 -0700 (PDT)
+Received: from relay.sandelman.ca (relay.cooperix.net
+ [IPv6:2a01:7e00:e000:2bb::1])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256))
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 6A02A117C1AB1;
+	Thu, 16 Jul 2026 03:45:14 -0700 (PDT)
+Received: from dyas.sandelman.ca (unknown [62.218.44.76])
+	by relay.sandelman.ca (Postfix) with ESMTPS id BD56F1F685;
+	Thu, 16 Jul 2026 10:45:13 +0000 (UTC)
+Received: from dyas (localhost [127.0.0.1])
+	by dyas.sandelman.ca (Postfix) with ESMTP id 46D47A13F1;
+	Thu, 16 Jul 2026 06:45:13 -0400 (EDT)
+From: Michael Richardson <mcr@sandelman.ca>
+To: Martin Thomson <mt@lowentropy.net>, art@ietf.org, uta@ietf.org
+In-Reply-To: 
+ <178418880694.780441.8386081187174595128@dt-datatracker-d4d6ff9d9-kg6bf>
+References: 
+ <178418880694.780441.8386081187174595128@dt-datatracker-d4d6ff9d9-kg6bf>
+X-Mailer: MH-E 8.6+git; nmh 1.8+dev; Emacs 29.3
+MIME-Version: 1.0
+Content-Type: multipart/signed; boundary="=-=-=";
+	micalg=pgp-sha512; protocol="application/pgp-signature"
+Date: Thu, 16 Jul 2026 12:45:13 +0200
+Message-ID: <491081.1784198713@dyas>
+Message-ID-Hash: A5YWA2XYG755RN4JACLARIVHBK3NDFIM
+X-Message-ID-Hash: A5YWA2XYG755RN4JACLARIVHBK3NDFIM
+X-MailFrom: mcr@sandelman.ca
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; nonmember-moderation; administrivia;
+ implicit-dest; max-recipients; max-size; news-moderation; no-subject;
+ digests; suspicious-header
+CC: draft-ietf-uta-tls13-iot-profile.all@ietf.org, last-call@ietf.org
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BLast-Call=5D_Re=3A_draft-ietf-uta-tls13-iot-profile-22_telechat?=
+	=?utf-8?q?_Artart_review?=
+List-Id: IETF Last Calls  <last-call.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/last-call/QqHZZ04_1yZyE7JRVG97jEmAdCg>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/last-call>
+List-Help: <mailto:last-call-request@ietf.org?subject=help>
+List-Owner: <mailto:last-call-owner@ietf.org>
+List-Post: <mailto:last-call@ietf.org>
+List-Subscribe: <mailto:last-call-join@ietf.org>
+List-Unsubscribe: <mailto:last-call-leave@ietf.org>
+
+--=-=-=
+Content-Type: text/plain
+
+
+Martin Thomson via Datatracker <noreply@ietf.org> wrote:
+    > It does not appear as though my previous review was considered in the
+    > preparation of this revision.  The bulk of the changes appear to be in
+    > a section I did not review (Section 17, which should be a separate
+    > document).
+
+Correct.
+We believe that we understood your point of view.
+
+We discussed the view that all profiles create non-interoperability, and
+that none of the certificate belongs, and we respectfully disagree.
+
+We think you are in the rough on this.
+But, we very much appreciated the engagement.
+
+    > I don't think it makes sense for me to review this again.  If I were on
+    > the IESG, I would abstain.
+
+
+
+--=-=-=
+Content-Type: application/pgp-signature; name="signature.asc"
+
+-----BEGIN PGP SIGNATURE-----
+
+iQEzBAEBCgAdFiEERK+9HEcJHTJ9UqTMlUzhVv38QpAFAmpYtjkACgkQlUzhVv38
+QpD4GAf/fAUySGuGcNhaN0Zk2l9XYUe1AuD6tVjBHiwQ7I7/cxeTvwMlxxeV/atu
+So+joCcjX89txHtUi38OYlTe2Be3yfzh3z7NsnoH+ZkVj2x4d/QJfHERYtPB2XnY
+zUY5yPXn4xWWAb4LOlLMd+hsF3nm/sonVZ+LLVPbiTv0GCfo4SNNrPmSoIODyrgn
+3BjuZA1wkJK/MZdSuBJG9foexJ5GBO/W1Oop5u51asVd7t9CQQmsIrNpt6YnXySr
+tCwgguvbrKDLev3+FGtLLh2cE6LBzWKSTxlds4wYUDdRy6i0wMUD7QzRZkQu8cRm
+fkflwviCPI9e+kIPHIq3gDZg3+0Qkg==
+=GOth
+-----END PGP SIGNATURE-----
+--=-=-=--
+

@@ -1,0 +1,285 @@
+Return-Path: <john.mattsson@ericsson.com>
+X-Original-To: tls@mail2.ietf.org
+Delivered-To: tls@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id EED3B119F4905;
+	Sun, 19 Jul 2026 21:36:57 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784522217; bh=QLTfz0+UYaNwraO+juYLii3VQ2uzMEhyyrm84U1QI1Q=;
+	h=From:To:CC:Subject:Date:References:In-Reply-To;
+	b=WvfdNe4/JOMMpg8xN1nGyYo5aHUCgimu8DK4WClMCIZn3Nq4+poUeRNudgwp1vOOn
+	 W8sWOZ8RjyjH/1WB2Q5vI09YbWQ3YQQvv/ddw+hqcPorPOby86/3EMuLEKCthyHJ57
+	 GDZ5xHKcq9EvIimHgbzkRBI1xO5ZC5+obBFqQPWo=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.095
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.095 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIMWL_WL_HIGH=-0.001, DKIM_SIGNED=0.1,
+	DKIM_VALID=-0.1, DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1,
+	HTML_MESSAGE=0.001, RCVD_IN_DNSWL_NONE=-0.0001,
+	RCVD_IN_MSPIKE_H2=0.001, RCVD_IN_VALIDITY_CERTIFIED_BLOCKED=0.001,
+	RCVD_IN_VALIDITY_RPBL_BLOCKED=0.001, SPF_HELO_NONE=0.001,
+	SPF_NONE=0.001] autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=ericsson.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id TuiaMuxHOmpu; Sun, 19 Jul 2026 21:36:57 -0700 (PDT)
+Received: from GVXPR05CU001.outbound.protection.outlook.com
+ (mail-swedencentralazon11013019.outbound.protection.outlook.com
+ [52.101.83.19])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange ECDHE (P-384) server-signature ECDSA (P-256) server-digest
+ SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 46AB0119F48FE;
+	Sun, 19 Jul 2026 21:36:57 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; s=arcselector10001; d=microsoft.com; cv=none;
+ b=tmaSXaxZzYolktthn1OarWH0OD11Gh2SKDjaLpaqGqG5JcZDcRvoB8YNGmB2ZcKPjxm+SDutZvYwwK1v4UHmB6cWQfi4iR49urkVNsog/zbBAhK96q4rQFWVxYZi3h8ICJEgWWe2U4bEgxKPsJ97julEw76LKBWZsMtrud7MO3LTFafOLidwFWnTtCUFoNcmz0pwUlZ5Y0g5iC/1mdIy46yhHx/qA6ylyLWwOCOY1LMbU1Fbc6mZgGh4wcpMomnEQPBHIDP/hqbJ1MG0u06zyrfLkN1jW9EFJ7XUDTj82Y/d23GgGFkh4VKUOzrZB20GcM88an/L3hkHLmRyNtHwGg==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=microsoft.com;
+ s=arcselector10001;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh=QLTfz0+UYaNwraO+juYLii3VQ2uzMEhyyrm84U1QI1Q=;
+ b=s5P78CGQ6tGNCskNEw8AgX3c3WMndLi+pFfgTHAJAiMfk6nvjdOsoXWIfvSYR7PBkcxbrkFaTY7AdOsjy2JDMvV8Nq6RQMoArTbbaWjNhirYufIrcK3SNaRpiim3Hqk1ZQjyFEpO46rN8A44K+KVd+UvoC7V7cJmv6sgBqPgbhTqBxdaF6BeSK616XxRbESojQcsWhsTQ+TozVsT6s7qK3jcMZn94FXjOgfaUcrNXciR6GjFEqKP3o5VGqLzLFA/RX5C9ea1hQXpgEaD4BgtjGD/NKiryJq8RqDyr3pPd0wAvufW85T+hgQquOw4Qamopyo/1Vu5N9qNMjxCdJjjUw==
+ARC-Authentication-Results: i=1; mx.microsoft.com 1; spf=pass
+ smtp.mailfrom=ericsson.com; dmarc=pass action=none header.from=ericsson.com;
+ dkim=pass header.d=ericsson.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=ericsson.com;
+ s=selector2;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-SenderADCheck;
+ bh=QLTfz0+UYaNwraO+juYLii3VQ2uzMEhyyrm84U1QI1Q=;
+ b=HlyFgrE9DR5ND8GFJDgvUVxMd7Au7AFtk4ZxsvKYEbmpxv5ljfmJxhOfZ62Or4+BhUJ1VFzsVssGDcZyU0Vf0q79mK3796ZfXLEL/4alXbtvgOkZLjmonWqMXItIurV2+7oBq/jt4M15pF2ykYS8ElgH4B/osZeOvJbYZu0vio54B5GkgRQOgfZEx437Lgr4Ohgfab6z7eShVGRZNhKxeBXHNpLtleXxdop5jC2wUBXwneRGpbi3EW5nDKJ0y0DR7pLusP9ARUsWlyHV6aDD5weicSjS94xDXLQoHqZ73u/68a82ozNRyFoxrmtXYPpdJcmeE+bGZmA49d/1D7l1VQ==
+Received: from AS4PR07MB8825.eurprd07.prod.outlook.com (2603:10a6:20b:4f3::15)
+ by DB9PR07MB10898.eurprd07.prod.outlook.com (2603:10a6:10:5fc::14) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.21.245.8; Mon, 20 Jul
+ 2026 04:36:47 +0000
+Received: from AS4PR07MB8825.eurprd07.prod.outlook.com
+ ([fe80::11a4:5f37:fa92:f174]) by AS4PR07MB8825.eurprd07.prod.outlook.com
+ ([fe80::11a4:5f37:fa92:f174%6]) with mapi id 15.21.0245.003; Mon, 20 Jul 2026
+ 04:36:47 +0000
+From: John Mattsson <john.mattsson@ericsson.com>
+To: Joseph Salowey <joe@salowey.net>, "<tls@ietf.org>" <tls@ietf.org>
+Thread-Topic: [TLS] MLKEM Consensus Call (was WG Last Call:
+ draft-ietf-tls-mlkem-08 (Ends 2026-07-08))
+Thread-Index: AQHdF3JKYuOOeMKnHUOw9piuQ4pXTrZ1zqSd
+Date: Mon, 20 Jul 2026 04:36:47 +0000
+Message-ID: 
+ <AS4PR07MB8825D85863620C22920F700F89C32@AS4PR07MB8825.eurprd07.prod.outlook.com>
+References: 
+ <CAOgPGoAcjjOvqNaxyL0N2+hLXOBPeRz-0JMv5cDGG3vS-JLCXw@mail.gmail.com>
+In-Reply-To: 
+ <CAOgPGoAcjjOvqNaxyL0N2+hLXOBPeRz-0JMv5cDGG3vS-JLCXw@mail.gmail.com>
+Accept-Language: en-US
+Content-Language: en-GB
+X-MS-Has-Attach: 
+X-MS-TNEF-Correlator: 
+x-ms-reactions: allow
+authentication-results: dkim=none (message not signed)
+ header.d=none;dmarc=none action=none header.from=ericsson.com;
+x-ms-publictraffictype: Email
+x-ms-traffictypediagnostic: AS4PR07MB8825:EE_|DB9PR07MB10898:EE_
+x-ms-office365-filtering-correlation-id: 4f389443-4865-4a3e-2193-08dee6188289
+x-ms-exchange-senderadcheck: 1
+x-ms-exchange-antispam-relay: 0
+x-microsoft-antispam: 
+ BCL:0;ARA:13230040|366016|1800799024|376014|23010399003|10070799003|18002099003|22082099003|11063799006|56012099006|8096899003|13003099007|38070700021|10067099003;
+x-microsoft-antispam-message-info: 
+ 2Y3ocUz9AefJt4SkouaOsherygAxPX6SqYwtb3i4ifcVoU/kWBAxJdhRpbR3zmxbqkjQQNiZc1hTr7YuZT+lVgNaubn6culqLW/wSU2BrNcVDCzwog1Tt9E78YYrvr2RNG+sU/snJAvwyqa4aMLASvt8TT5ZUih7nMFMcA6/TI1XeP09f5Zy5EY0kDA70HYbNjdn3Ejp7xj3c5wDCEPLS+aL7wcip07wg8t9UMhd5AZpJMYD7L9A3i8fHP3GBePsjfsxnx1IqM8+AspaXx1gDXhINKEqgOd0gOKnp9H4OAKAj9I33MH2SHIg1zBAanZJFK5XpsiKlyOvIyvWkdwFWz2iKFJ7JBkrWRxGNBTJpk7eYhkfwAY9lYlGRPK6VvUrWR5QfAJ9dNtkQhWJp6ImngzWT1FtHkaAMc6Dq6v3JT7PPUaqgdd960vpXmMMAxSZXAB1yGJgg74MLWj3FdtiQL3NSEenEzpzIK3KK49YXJTLsNPPQGtTc+UbT/tavTe6jWsKjPCSYsva4VrDgmZATWceH148BlgmnUhMf5kowcVUGslCretq460P8s/+AOjaiK6SQ64a0uFeNq9FboSD7BJLzv+8d7n34y9abs+JUoP+0e4YrQ9Md37yg/yE+tnt9gBukZX5wsVzcneRGKWAxqIaJ5nRnl9aHDS8uhNgqO8=
+x-forefront-antispam-report: 
+ CIP:255.255.255.255;CTRY:;LANG:en;SCL:1;SRV:;IPV:NLI;SFV:NSPM;H:AS4PR07MB8825.eurprd07.prod.outlook.com;PTR:;CAT:NONE;SFS:(13230040)(366016)(1800799024)(376014)(23010399003)(10070799003)(18002099003)(22082099003)(11063799006)(56012099006)(8096899003)(13003099007)(38070700021)(10067099003);DIR:OUT;SFP:1101;
+x-ms-exchange-antispam-messagedata-chunkcount: 2
+x-ms-exchange-antispam-messagedata-0: 
+ =?iso-8859-1?Q?gzmLasMPKslVbEwF/ONt4P79PLWU7PW7M271uMOjUslh0bvHU0LNKnyNle?=
+ =?iso-8859-1?Q?hGTmIXHQHF+NCAo0ZA59mzefcR3X/KW7n29FqjakHK1jo6MWehmptQWEne?=
+ =?iso-8859-1?Q?0lb3fNeKHoXvRz/iiLwNQY7PUTyw7jjuWGc7IqLY6XgTUh9O77fqS+F/0l?=
+ =?iso-8859-1?Q?NuxAuBepK2jpJlrCUFUtK+DQ/U7VwqPEuR3LJuoseaS+WrQ1uKNPHCFvtj?=
+ =?iso-8859-1?Q?DutOj57sgByaMyuX8X6Jt0Bx+loenZyDzIl5rvYzdwbXwN+IxE3Blb9u3m?=
+ =?iso-8859-1?Q?ndLDQvkIEJNwrw+uR1/Rmo5Qr9q/WHCy/MbiRcfERq6uK973W+gdiVy70N?=
+ =?iso-8859-1?Q?Go88ZlwQR9bVoZTvGjO6Ry5Fa54UXQ+4HVlZOZPb9FRa0VgQV5IxJ+UGWf?=
+ =?iso-8859-1?Q?jf/+jxK/zn2F8ayAjii6uTb1L6lAUxnXt+JyrtaniCM/Gezpgs1yM9PUH6?=
+ =?iso-8859-1?Q?LCNEbhY/WQq4ajl9cHcz2gWzOOEJpKelkLojNErfDLLXUlNcPyTwJmmCfv?=
+ =?iso-8859-1?Q?65z9hoHtaUHCZ/S9c2QEk1HcuMz0qaq+TJsV1m0RdlYeiH5HP5AN5u4k3R?=
+ =?iso-8859-1?Q?eAJq19Dt/AwryuRhAhqnltA6IYOfl15ginn5KFKgM7yIe+9S2PaSkuQKtv?=
+ =?iso-8859-1?Q?NpVQU7jdchiJH70GwkQjFxoK5phMQQa6/45aZS1VIFlqbYU7wA2k4//D2C?=
+ =?iso-8859-1?Q?nmS3m4ykrY0xjn2N31PFAEzRyfWKZ695GOCULGCsCfJCLY0rBlPw3nFxTg?=
+ =?iso-8859-1?Q?wOpfLmsA1Buvm3u70I6LGUEQYmadQ45KaRwTo7dL9MW8HhfprV3FBwSnm/?=
+ =?iso-8859-1?Q?NrA3zRRQ4ULTfuK312nbk01ipdqcOpKnss1aCISeXdqF7Nqrz+sbymmH1n?=
+ =?iso-8859-1?Q?UTF9WLcjbINC6nadf9v3OJpnM0U2HP4xtLL5QWsNv5UPTj2GAnSnMdlXhf?=
+ =?iso-8859-1?Q?2ekHw63MUrkPSnGhwb6iUyWBj0Ec/LnCbOD5UFdvdeTuTIRHxI4U8ao/gC?=
+ =?iso-8859-1?Q?6GjzJL4uUynf6DpjusHWredhwfBovTF4+QPArQ5N0wOX2VQZkuzeYqSXLX?=
+ =?iso-8859-1?Q?2dyCl+rCj0EtkWQuwQFFdt5lkKuT6R0z1iLgUF9Sh47ojSti53qGkD8sMx?=
+ =?iso-8859-1?Q?MuvCWkU6k0QE3PAzB5NGm2Osaflo0JpvcW1CNisW/Or3tWPa4dGoUjnfLx?=
+ =?iso-8859-1?Q?Jvgs7XZ90betsuUiUjyOchz+hosfBFZBfETojII/pGMhwwhRlDozJ9DKf4?=
+ =?iso-8859-1?Q?bf3sntGdcjSyfS7GtbyW9tIW5M/uJjMB7UDQ4j0uaFfSBRF0zzQ8HZDWw0?=
+ =?iso-8859-1?Q?9aVwEDad5VHKwwg4vlSQ7iJ6Hge8722dhkwNIFL1VUYgFEEVfuaRucP8Yr?=
+ =?iso-8859-1?Q?Zax3Lo7o09lS4/hHfrX8auoieZjzqkI4zr4Cjo1AtHCZjmAXk0NkrZg0qS?=
+ =?iso-8859-1?Q?aTAuhGevntVZATYCbQWlGaLWrjGm12QG5rM3+bFf6qHhCN64CVd/tCr+3E?=
+ =?iso-8859-1?Q?kNtWEb5HX87ir5lqR+VES6jSKa7xzsqkWTnii3cILvt2M79ukR63FirLfV?=
+ =?iso-8859-1?Q?zj7ohIikYwH8i1ILj3vKv+5quZZMd8HODc3AyDphqwO9U7VY90YijCh/2o?=
+ =?iso-8859-1?Q?m3ETsrhb+gCm7Ji7d7z99NkRDNY/iyuWpUbGewR1sJDNYxQ8MtNaU80SyL?=
+ =?iso-8859-1?Q?e8+uNZ346wQ9vhyrr82bdzChfuC0UnwgGcgTUFKAIMbxjplk9mqVBGCjK7?=
+ =?iso-8859-1?Q?YLKcWY1tJpdTdomB5cuc7PxNgLTqyekEyb3UyP0x5Uzj1fJEQqVM1gkpA+?=
+ =?iso-8859-1?Q?OVlFg7AoZBjfVEtV5s69tXqSz9X21Cg5NP1ai/1n4Dh05SDJ0MVgYpHZjE?=
+ =?iso-8859-1?Q?Nk?=
+x-ms-exchange-antispam-messagedata-1: 
+ YNjWm+ECVd7gluKVZOGpNJg1dgwi1cYtzHqn9cF2CUO2W8XNFBmHQW65
+Content-Type: multipart/alternative;
+	boundary="_000_AS4PR07MB8825D85863620C22920F700F89C32AS4PR07MB8825eurp_"
+MIME-Version: 1.0
+X-OriginatorOrg: ericsson.com
+X-MS-Exchange-CrossTenant-AuthAs: Internal
+X-MS-Exchange-CrossTenant-AuthSource: AS4PR07MB8825.eurprd07.prod.outlook.com
+X-MS-Exchange-CrossTenant-Network-Message-Id: 
+ 4f389443-4865-4a3e-2193-08dee6188289
+X-MS-Exchange-CrossTenant-originalarrivaltime: 20 Jul 2026 04:36:47.6348
+ (UTC)
+X-MS-Exchange-CrossTenant-fromentityheader: Hosted
+X-MS-Exchange-CrossTenant-id: 92e84ceb-fbfd-47ab-be52-080c6b87953f
+X-MS-Exchange-CrossTenant-mailboxtype: HOSTED
+X-MS-Exchange-CrossTenant-userprincipalname: 
+ hJL2aJXWyURat0S5xz5bhOuxI3ZN26omsWLZPMzYF1bU2IHG8hciHyQNSChjvlLMywuVurbc3snTnwfQbBsgWHi6Bpp/al2SBHtuqKkVkuI=
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: DB9PR07MB10898
+Message-ID-Hash: EIOJBQCJ6MQB4FQESAH7VB2K3QHEVRHH
+X-Message-ID-Hash: EIOJBQCJ6MQB4FQESAH7VB2K3QHEVRHH
+X-MailFrom: john.mattsson@ericsson.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-tls.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+CC: "draft-ietf-tls-mlkem@ietf.org" <draft-ietf-tls-mlkem@ietf.org>,
+ tls-chairs <tls-chairs@ietf.org>
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BTLS=5D_Re=3A_MLKEM_Consensus_Call_=28was_WG_Last_Call=3A_draft-?=
+ =?utf-8?q?ietf-tls-mlkem-08_=28Ends_2026-07-08=29=29?=
+List-Id: "This is the mailing list for the Transport Layer Security working
+ group of the IETF." <tls.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/tls/ru2n3qOjIEsyHMyjuQh1ou0SJlE>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/tls>
+List-Help: <mailto:tls-request@ietf.org?subject=help>
+List-Owner: <mailto:tls-owner@ietf.org>
+List-Post: <mailto:tls@ietf.org>
+List-Subscribe: <mailto:tls-join@ietf.org>
+List-Unsubscribe: <mailto:tls-leave@ietf.org>
+
+--_000_AS4PR07MB8825D85863620C22920F700F89C32AS4PR07MB8825eurp_
+Content-Type: text/plain; charset="iso-8859-1"
+Content-Transfer-Encoding: quoted-printable
+
+Thanks Joe,
+
+As with most industry, I would like to see this standardized and supported =
+by libraries so that I can potentially enable it in the future. European cy=
+bersecurity agencies such as ANSSI has a high confidence in ML-KEM [1].
+
+The value of hybridization with quantum-vulnerable cryptography is clearly =
+temporary, especially if one believes that nation-state attackers will have=
+ CRQCs in 2029 [2].
+
+The campaign by Bernstein et al. against the IETF and ML-KEM is a waste of =
+everybody's time and resources and is likely to have a significant negative=
+ impact on cybersecurity. Can the IETF please take action before we lose mo=
+re brilliant researchers, such as Nadim Kobeissi, from the community? [3]
+
+Cheers,
+John Preu=DF Mattsson
+
+[1] https://na.eventscloud.com/file_uploads/b635298de1c10be6d3732863e8b1bec=
+a_Day2-1600-ANSSI.pdf
+
+[2] https://cr.yp.to/talks/2023.06.15/slides-djb-20230615-pqrisk-4x3.pdf
+
+[3] https://mailarchive.ietf.org/arch/msg/tls/7HNihlgf0I8Mpe-0nqGb56dnON8/
+
+--_000_AS4PR07MB8825D85863620C22920F700F89C32AS4PR07MB8825eurp_
+Content-Type: text/html; charset="iso-8859-1"
+Content-Transfer-Encoding: quoted-printable
+
+<html>
+<head>
+<meta http-equiv=3D"Content-Type" content=3D"text/html; charset=3Diso-8859-=
+1">
+</head>
+<body>
+<div style=3D"direction: ltr; font-family: Aptos, Arial, Helvetica, sans-se=
+rif; font-size: 12pt; color: rgb(0, 0, 0);">
+Thanks Joe,</div>
+<div style=3D"direction: ltr; font-family: Aptos, Arial, Helvetica, sans-se=
+rif; font-size: 12pt; color: rgb(0, 0, 0);">
+<br>
+</div>
+<div style=3D"font-family: Aptos, Arial, Helvetica, sans-serif; font-size: =
+12pt; color: rgb(0, 0, 0);">
+As with most industry, I would like to see this standardized and supported =
+by libraries so that I can potentially enable it in the future. European cy=
+bersecurity agencies such as ANSSI has a high confidence in ML-KEM [1].</di=
+v>
+<div style=3D"direction: ltr; font-family: Aptos, Arial, Helvetica, sans-se=
+rif; font-size: 12pt; color: rgb(0, 0, 0);">
+<br>
+</div>
+<div style=3D"font-family: Aptos, Arial, Helvetica, sans-serif; font-size: =
+12pt; color: rgb(0, 0, 0);">
+The value of hybridization with quantum-vulnerable cryptography is clearly =
+temporary, especially if one believes that nation-state attackers will have=
+ CRQCs in 2029 [2].</div>
+<div style=3D"direction: ltr; font-family: Aptos, Arial, Helvetica, sans-se=
+rif; font-size: 12pt; color: rgb(0, 0, 0);">
+<br>
+</div>
+<div style=3D"font-family: Aptos, Arial, Helvetica, sans-serif; font-size: =
+12pt; color: rgb(0, 0, 0);">
+The campaign by Bernstein et al. against the IETF and ML-KEM is a waste of =
+everybody's time and resources and is likely to have a significant negative=
+ impact on cybersecurity. Can the IETF please take action before we lose mo=
+re brilliant researchers, such as
+ Nadim Kobeissi, from the community? [3]</div>
+<div style=3D"direction: ltr; font-family: Aptos, Arial, Helvetica, sans-se=
+rif; font-size: 12pt; color: rgb(0, 0, 0);">
+<br>
+</div>
+<div style=3D"font-family: Aptos, Arial, Helvetica, sans-serif; font-size: =
+12pt; color: rgb(0, 0, 0);">
+Cheers,</div>
+<div style=3D"font-family: Aptos, Arial, Helvetica, sans-serif; font-size: =
+12pt; color: rgb(0, 0, 0);">
+John Preu=DF Mattsson</div>
+<div style=3D"direction: ltr; font-family: Aptos, Arial, Helvetica, sans-se=
+rif; font-size: 12pt; color: rgb(0, 0, 0);">
+<br>
+</div>
+<div style=3D"font-family: Aptos, Arial, Helvetica, sans-serif; font-size: =
+12pt; color: rgb(0, 0, 0);">
+[1] <a href=3D"https://na.eventscloud.com/file_uploads/b635298de1c10be6d373=
+2863e8b1beca_Day2-1600-ANSSI.pdf" data-outlook-id=3D"7d96a96d-5a84-4019-a0f=
+c-c427c8fb10dc">
+https://na.eventscloud.com/file_uploads/b635298de1c10be6d3732863e8b1beca_Da=
+y2-1600-ANSSI.pdf</a></div>
+<div style=3D"direction: ltr; font-family: Aptos, Arial, Helvetica, sans-se=
+rif; font-size: 12pt; color: rgb(0, 0, 0);">
+<br>
+</div>
+<div style=3D"font-family: Aptos, Arial, Helvetica, sans-serif; font-size: =
+12pt; color: rgb(0, 0, 0);">
+[2] <a href=3D"https://cr.yp.to/talks/2023.06.15/slides-djb-20230615-pqrisk=
+-4x3.pdf" data-outlook-id=3D"2ea32ac8-5607-464a-baf9-d8fc63514ec8">
+https://cr.yp.to/talks/2023.06.15/slides-djb-20230615-pqrisk-4x3.pdf</a></d=
+iv>
+<div style=3D"direction: ltr; font-family: Aptos, Arial, Helvetica, sans-se=
+rif; font-size: 12pt; color: rgb(0, 0, 0);">
+<br>
+</div>
+<div style=3D"direction: ltr; font-family: Aptos, Arial, Helvetica, sans-se=
+rif; font-size: 12pt; color: rgb(0, 0, 0);">
+[3] <a href=3D"https://mailarchive.ietf.org/arch/msg/tls/7HNihlgf0I8Mpe-0nq=
+Gb56dnON8/" data-outlook-id=3D"ee5bc721-e1be-45b6-beda-b1289017e9af">
+https://mailarchive.ietf.org/arch/msg/tls/7HNihlgf0I8Mpe-0nqGb56dnON8/</a><=
+/div>
+</body>
+</html>
+
+--_000_AS4PR07MB8825D85863620C22920F700F89C32AS4PR07MB8825eurp_--
+

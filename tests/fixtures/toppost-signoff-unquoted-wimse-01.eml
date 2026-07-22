@@ -1,0 +1,5065 @@
+Return-Path: <bluedognull@gmail.com>
+X-Original-To: wimse@mail2.ietf.org
+Delivered-To: wimse@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 810291170E011
+	for <wimse@mail2.ietf.org>; Wed, 15 Jul 2026 01:01:02 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784102462; bh=xORLAbsHjZu4Edz52tr3TmJ3U9NWmwZZnSz2fVgopw4=;
+	h=References:In-Reply-To:From:Date:Subject:To:Cc;
+	b=Bf5r/xn8qi+JEUfVRdqilz2SVAWA4I1uRk7C8JpjfRh6ZY/TJ2CSOQpiTxiXeqikF
+	 0Kzcm1fRpMuT1dZ8WVBVKGrS9jj3JGDng96sziW1uOaMjiAlIsN+rqH/VqSU1ZoLI9
+	 /qXfrb2C2y4CmrAhyaEPGQs/dl0mNf/vlmz0BwTg=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.098
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.098 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, FREEMAIL_FROM=0.001,
+	HTML_MESSAGE=0.001, RCVD_IN_DNSWL_NONE=-0.0001, SPF_HELO_NONE=0.001,
+	SPF_PASS=-0.001] autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=gmail.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id Gu80QnZl8-Zw for <wimse@mail2.ietf.org>;
+	Wed, 15 Jul 2026 01:00:59 -0700 (PDT)
+Received: from mail-qv1-xf2e.google.com (mail-qv1-xf2e.google.com
+ [IPv6:2607:f8b0:4864:20::f2e])
+	(using TLSv1.3 with cipher TLS_AES_128_GCM_SHA256 (128/128 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 2D0A11170E004
+	for <wimse@ietf.org>; Wed, 15 Jul 2026 01:00:59 -0700 (PDT)
+Received: by mail-qv1-xf2e.google.com with SMTP id
+ 6a1803df08f44-8efef6533aaso18405766d6.0
+        for <wimse@ietf.org>; Wed, 15 Jul 2026 01:00:59 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1784102459; cv=none;
+        d=google.com; s=arc-20260327;
+        b=FoLdDntY6Idx4Xis9WB6QtEckLBhxaNxuzXgwS/hslE976cwsIC3Pp60BiCf+NreGT
+         kkMLAP102tWdivydtgAbz7AWBJOhRk0DQAYJk5zQaMI6SECqctoPvK+CHwz1sZxcPj29
+         3J8vPNMdH67OLHLc5YbQTUHG178ixODd8aEcVtlY+4bdeJspvxXLi/UFNzwfuF55d1XN
+         dhK69fv/9GlLhkrp/EC3KcSsEH1zrbthRzey5Z2R8ai0IpXyKpbBZIXcT7kNAKbhpnBj
+         /Jmr4Ml/G3i5KDUx2ZNTxhxtEs82GKERD1G9iac1IxT0PZCVNi5enZkfYzsLgv7pOSP4
+         04nQ==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com;
+ s=arc-20260327;
+        h=cc:to:subject:message-id:date:from:in-reply-to:references
+         :mime-version:dkim-signature;
+        bh=xAfETMpsapFPaHwyrauu+3GgecQCl6x/V8brJBSBFkw=;
+        fh=CLkgqzfbjh+KXFtlpfkooB+EmjTiy5eOzCBaehRX/zE=;
+        b=GrOxSIEJ1Pc5o8io/6DZ26zxkuF00A8ANb7tdLtYj1SLKuRm/nEcZOZOphHcabNser
+         hYcdWIecxEBYbBw9hyj3L3WNi6OQ/0j3BGMf2jv2MTew/4Xe65FcEXbPzj0USvKLLeT9
+         YAnD4XqioHoi3gkC82efZ+7VOQv/Ir9JkSwDGCsSiV3g0yOPbDxa/pfb3iIxY1MkmaTA
+         /U61hs1kyXfHpl+U21gErcm7/D9GtkzJCH7AuC0r08BvfPC3hEqgBaNuFZF38jpAfY2o
+         RwP2PlKswk5G76R1504oR+vq9oPMZRiLTQgoUtqzhDqEAGyVM6LwHiYER1kfIxdiMWN0
+         MT2w==;
+        darn=ietf.org
+ARC-Authentication-Results: i=1; mx.google.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=gmail.com; s=20251104; t=1784102459; x=1784707259; darn=ietf.org;
+        h=content-type:cc:to:subject:message-id:date:from:in-reply-to
+         :references:mime-version:from:to:cc:subject:date:message-id:reply-to
+         :content-type;
+        bh=xAfETMpsapFPaHwyrauu+3GgecQCl6x/V8brJBSBFkw=;
+        b=OqRziPNKd0F8MqFYJ561djDfPIb/TOyeRnhrnD05vDeHtTt819C162eSEaQVILlcJh
+         H8eifImRbQSTu9u8KdUp0q1vXkgVreiHogLLpDABWvVSXaEhbwK28Y6wcge0eOlsjHY5
+         EuHIaXIjo7gz3ZDHSBvy2OA7OFBi2u5D830jgluVLIxSAOlFm6skK9RcD8tORi75SrJm
+         XZxlkCKS8PMMlqz4fI6kESCFhSRQQS/ZE5T1V9NowhCUF9VGtF0psWFWQp2TjRsmFZf0
+         IYgSxRNmcOHfJMOxNTTguNHg7PZEOmMI9iX2tO+Xmog4HGkhfVtUgIYaDB4TpoAgh8zj
+         48Cg==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1784102459; x=1784707259;
+        h=content-type:cc:to:subject:message-id:date:from:in-reply-to
+         :references:mime-version:x-gm-gg:x-gm-message-state:from:to:cc
+         :subject:date:message-id:reply-to:content-type;
+        bh=xAfETMpsapFPaHwyrauu+3GgecQCl6x/V8brJBSBFkw=;
+        b=Q4xwJscRK2zwck2h6pHmUORX5VuUtvbYN2WXx5/dFfk3SmHM55o2hJrjXZVhX0thQ2
+         Vsm/T6Zw20jKLrrxCjN/RTTBgh8cpmA7aLpL0I4dsxnbEXT11/+SFTpuoH4WEOGPadmd
+         CP1HSpoM5gL3iAM8pXoHMzF2hwCFK4Kx2lo7Ae/VDEGLeNDe4tFhCAIPOfFZg2bpQq6C
+         /9gMRerNJAuGdpEe5pBkug0LHreG9gV1Rsgdk4NC03hJ46k2wHMbxxOf8ilbblwqhbXk
+         /hy5msgShsYpMwM7e3C075/hPytVs3GRllzj5zwUClnunXGZ7QmeJMmlGQVJ+lpCq8tM
+         A6og==
+X-Forwarded-Encrypted: i=1;
+ AHgh+RrAiqlxW8Ti/2kHDB55xqOzTfSKl1huRhiqsv9+tmLGcNydwUPG8IbnRVSIk6HTF59n+Qeo3w==@ietf.org
+X-Gm-Message-State: AOJu0YyOP45HjSVJ9lFK4Yl71LjyOMhjY3DJb4zvVijFhWX42vZdZjnG
+	1LQijlrMqupYaZ9Mygrz4/56zJmo45bQZnLZkpCE92pCXS1Vp2T5BxmIsnKeD6vtyv8TAlBsRj6
+	FlTOVub0LtLGlrRsJTq8OMOMtLpIuo1g=
+X-Gm-Gg: AfdE7clyPIJZJLVCN3tH9dE2PDuenqsXJzqfOlfQrnGCEcf4VR04hmV66aeWxLs9hS5
+	CCU/5sSKb6atNA2nQonO6SnD9GJinknpptSI1eKFyzSN9kqOyovVvesrojzXH77gxPvYzn3XjC/
+	9JVcrZLQ00+QufbdMF/Aw2uVkdZvzYXlUuGl+yTSuCQRWii+fimxMDcXCNDwzcE++jSJw76cEbt
+	Gi3gGbha++0GkR/hhoYrT2Ylt7zMscYSSMkzDpkv0giZkZnZAYSuJqYMM6zo7iL/1Ligg/iXhVd
+	60bGDMT7UFcds7wSjo30kAWEv6OF7ENBUkP8
+X-Received: by 2002:a05:6214:768:b0:8f3:e97:59b8 with SMTP id
+ 6a1803df08f44-90400385201mr195484156d6.29.1784102457500; Wed, 15 Jul 2026
+ 01:00:57 -0700 (PDT)
+MIME-Version: 1.0
+References: 
+ <QB1PR01MB24040C500A6189F3C2FD441BF9E02@QB1PR01MB2404.CANPRD01.PROD.OUTLOOK.COM>
+ <CAK08nYajaDyPdNakNe45e2YWY=sxrWZQ021CY01DJJiXd70rOw@mail.gmail.com>
+ <YTBPR01MB241526B49EBC838DBE8549BCF9EF2@YTBPR01MB2415.CANPRD01.PROD.OUTLOOK.COM>
+ <CAK08nYYJoa8ox7RYb526P_Ajrrzabxz_6tcNm=hz3yNnG1F+7w@mail.gmail.com>
+ <YTBPR01MB241537FAFEF080915DCCEB29F9EF2@YTBPR01MB2415.CANPRD01.PROD.OUTLOOK.COM>
+ <YTBPR01MB241589CC84C1CDB889CA623EF9EF2@YTBPR01MB2415.CANPRD01.PROD.OUTLOOK.COM>
+ <CAK08nYYpjLnHWg0ZhFATnQe6EW69x+Hn0tPVayhJOygMcKjh8Q@mail.gmail.com>
+ <YTBPR01MB24155503B0E4E849A4FB9E41F9EE2@YTBPR01MB2415.CANPRD01.PROD.OUTLOOK.COM>
+ <CAK08nYZcC_J5w8vJ33pyUZL_CcfexGKVsHGQ-kxb60e=YEoM9A@mail.gmail.com>
+ <CAGVw8=0WSRbrPKpbR52+QAJ=S12P7ySupB=RpL3v0HB1r3e-EQ@mail.gmail.com>
+ <CAK08nYZXo1O08VT9toWvk74XGZsXNKm5WM9sy3cNF7a_WQzE5Q@mail.gmail.com>
+ <CAOfgHgq6W7S+pa6Mqmakg9CgHnndd738TuoKgjzUGZAsuy37uw@mail.gmail.com>
+ <CAGVw8=2fbW6AmtJH4tMFvBZH9bSEedQYj15A+si4W6C5o-6aAA@mail.gmail.com>
+ <CAOfgHgqT60N1tozVj0J2gWMo3zqRz+SNyN9=te_FnWxhcV-+cQ@mail.gmail.com>
+ <CAGVw8=0yR_S+y54EUne+pXMka5DZGhndTzAz+uVUEh_WsfkJdg@mail.gmail.com>
+ <CAGVw8=2bR3O391zvbviVkbu-c3e+gUhcPsHLg9w4pgoaaScpJg@mail.gmail.com>
+ <YTBPR01MB24154C3019B8D24B0B8F2D26F9F22@YTBPR01MB2415.CANPRD01.PROD.OUTLOOK.COM>
+ <CAGVw8=12HAdnxWKt5RxJmK2WaFaY9Zx8dP1XWygd6JrQLiWeVg@mail.gmail.com>
+ <CAK08nYa7128PDj3b-DPkjqGBm1Nu2fmn_Bv0=0VfEwiuj8DY1A@mail.gmail.com>
+ <CAOfgHgqCe9-9Ty4pnb+d=GGC1Bzw8uK7=9vk9dmZzs6TUoyv0g@mail.gmail.com>
+ <CAGVw8=0-0cUf8+yMdbu=3YO5kqXwntu1iK-b5WvOaU+UyPi_cw@mail.gmail.com>
+ <YTBPR01MB24151725C1C62D1E7B8658B2F9F12@YTBPR01MB2415.CANPRD01.PROD.OUTLOOK.COM>
+ <CAK08nYaRK6fj=oMZVyeT9ew5EGnidAikGUu9kyFGefrW3REvHg@mail.gmail.com>
+ <YTBPR01MB24150ABD53D576CD3D7834CAF9F12@YTBPR01MB2415.CANPRD01.PROD.OUTLOOK.COM>
+ <CAGVw8=0xuWYuy7fJE62KVR+M2aonJbvxCqj15DNK9RQmioEs0w@mail.gmail.com>
+ <YTBPR01MB2415AFFEB5642F377157F401F9F92@YTBPR01MB2415.CANPRD01.PROD.OUTLOOK.COM>
+In-Reply-To: 
+ <YTBPR01MB2415AFFEB5642F377157F401F9F92@YTBPR01MB2415.CANPRD01.PROD.OUTLOOK.COM>
+From: Songbo Bu <bluedognull@gmail.com>
+Date: Wed, 15 Jul 2026 16:00:44 +0800
+X-Gm-Features: AUfX_mwGGCLtGqNgP9T1b-HRUogYhYeP44cqcXYaTCT3XFnMub0RYizcKjqYFGo
+Message-ID: 
+ <CAK08nYYH8zRSXv1gODmyir0bkjrG0r2ExzqNkEyNfNt4QWX7Jg@mail.gmail.com>
+To: thi.nh@winmagic.com
+Content-Type: multipart/mixed; boundary="000000000000390fc70656a1b9aa"
+Message-ID-Hash: 7KWC6QEEX26OFWG43O2JC27TJYPEYCXF
+X-Message-ID-Hash: 7KWC6QEEX26OFWG43O2JC27TJYPEYCXF
+X-MailFrom: bluedognull@gmail.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; nonmember-moderation; administrivia;
+ implicit-dest; max-recipients; max-size; news-moderation; no-subject;
+ digests; suspicious-header
+CC: karthik@glyphzerolabs.com, team@emiliaprotocol.ai, wimse@ietf.org
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BWIMSE=5D_Re=3A_Condition-bounded_credential_profile_for_WIMSE_?=
+	=?utf-8?q?=E2=80=94_no_rotation=2C_no_cert_lifecycle?=
+List-Id: WIMSE Workload Identity in Multi-Service Environment <wimse.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/wimse/XZe8sN-M03tqqN0J359RjX3gOcE>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/wimse>
+List-Help: <mailto:wimse-request@ietf.org?subject=help>
+List-Owner: <mailto:wimse-owner@ietf.org>
+List-Post: <mailto:wimse@ietf.org>
+List-Subscribe: <mailto:wimse-join@ietf.org>
+List-Unsubscribe: <mailto:wimse-leave@ietf.org>
+
+--000000000000390fc70656a1b9aa
+Content-Type: multipart/alternative; boundary="000000000000390fc50656a1b9a8"
+
+--000000000000390fc50656a1b9a8
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi Thi, Karthik, all,
+
+Thank you for spelling out the four possession-side rows. I agree that rows
+1-4 should remain a substrate and authorize nothing by themselves. I
+attached a short review and test-vector plan.
+
+Three corrections are important before treating the rows as a verifier
+contract:
+
+   - Row 1 must be limited to attested inputs that are actually measured
+   and bound to the enrolled key and enrollment record. Key existence alone=
+ is
+   not evidence for every claimed input.
+   - Row 3 should enumerate the monitored conditions, detection timing, and
+   the governed key operations. Key erasure protects the next relevant key =
+use
+   or agreement; an established connection still needs its own stated
+   management rule.
+   - Row 4 needs a re-assessment lease or expiry, delivery and clock
+   assumptions, and a grace policy. Non-delivery does not fail closed merel=
+y
+   by being called non-delivery; after the lease, the next governed key use
+   must fail because current status cannot be established.
+
+The attached vectors cover enrollment binding, live possession, local
+failure before and after a connection, lifecycle delivery, lease expiry,
+and replay/stale/wrong-device events. The proposed outcome labels are
+vector vocabulary only, not a request for new wire-level errors.
+
+Best,
+Songbo
+
+On Tue, 14 Jul 2026 18:45:07 +0000, Thi Nguyen-Huu thi.nh@winmagic.com
+wrote:
+
+Karthik, Songbo, all,
+
+To Morgan on the weekend I said I would state the possession-side rows in
+Songbo=E2=80=99s template, and here they are.
+
+The possession row is one of four that belong together. Possession is what
+a verifier checks, but it is not self-supporting: Row 1 says why the key
+means anything; Row 3 says
+why its continued existence is an assertion and not an assumption; Row 4
+says what happens when the condition is decided somewhere the endpoint
+cannot see. Together they are one substrate =E2=80=94 they establish who is=
+ present
+and sound, and they authorize nothing.
+Rows five through seven authorize, join on the action digest per Songbo=E2=
+=80=99s
+framing, and no row inherits another=E2=80=99s guarantees.
+
+Row 2 is stated below for continuity with the three that surround it. Where
+it differs from the reconciled text you have already recorded, yours stands=
+.
+
+Row 1 =E2=80=94 Enrollment binding (key, actor, workload, environment).
+
+Claim: this key was built inside this hardware anchor, for this actor and
+workload, with the required conditions as inputs to the build =E2=80=94 the=
+ key
+exists, therefore the inputs existed at mint.
+
+Carrier: attestation evidence at enrollment; the platform key endorsed, the
+public key registered with the verifier =E2=80=94 as a raw public key (RFC =
+7250) or
+in a certificate where one is wanted.
+
+Verifier and rule: the credential service appraises the attestation at
+issuance and pins the key. The binding is proven by attestation, not
+asserted by the workload.
+
+Binding and freshness: established at mint; re-appraisal per policy.
+Attestation proves construction and custody at mint =E2=80=94 it does not p=
+rove
+future soundness. That is Rows 2=E2=80=934.
+
+Failure behavior: failed appraisal, no enrollment; nothing exists to
+present later.
+
+Dependency: the hardware anchor (TPM, secure element, vTPM) and its
+endorsement chain.
+
+Evidence: the attestation record at enrollment.
+
+Row 2 =E2=80=94 Live key possession at connection.
+
+Claim: the presenter on this connection holds and can use the enrolled key
+now. The key exists in exactly one place; validity is the successful use.
+
+Carrier: the mTLS handshake itself. No new wire format.
+
+Verifier and rule: standard TLS client authentication against the enrolled
+key.
+
+Binding and freshness: fresh per handshake, channel-bound; nothing bearer,
+nothing replayable.
+
+Failure behavior: key absent or unusable, the handshake fails. Fails closed
+with no signal.
+
+Dependency: Row 1 for what the key means. Nothing else =E2=80=94 this row l=
+eans on
+no other row.
+
+Evidence: the connection itself; none retained, by design. Durable evidence
+of a decision is Row 7=E2=80=99s job, not this row=E2=80=99s.
+
+Row 3 =E2=80=94 Local condition failure / key unavailability.
+
+Claim: the key=E2=80=99s continued existence is itself the assertion that t=
+he mint
+conditions still hold. When a locally visible condition fails =E2=80=94 the=
+ user
+departs, posture drops, protection is disabled in place, the workload ends
+=E2=80=94 the platform erases the key in real
+time.
+
+Carrier: none. Absence is the carrier; no message is sent.
+
+Verifier and rule: the verifier observes nothing except that Row 2 stops
+succeeding. There is nothing to fetch and no list to distribute.
+
+Binding and freshness: real-time at the endpoint; enforcement lands at the
+key=E2=80=99s next use. An established connection can outlive a mid-session=
+ failure
+=E2=80=94 bounding connection lifetime is the fix, and it is the same fix r=
+otation
+needs for the same gap.
+
+Failure behavior: fail-stop by absence. Zero-message revocation for the
+locally visible class.
+
+Dependency: Row 1=E2=80=99s anchor, and the property that the key is availa=
+ble
+nowhere else =E2=80=94 hardware holds that property for the key=E2=80=99s l=
+ife; software
+holds it only briefly.
+
+Evidence: none, by design; the diagnostic is possession ceasing. The
+condition inputs are software-observed posture readings feeding
+hardware-held keys =E2=80=94 deterministic cryptography on sensor-grade inp=
+uts,
+stated here so the cell is honest.
+
+Row 4 =E2=80=94 External lifecycle events.
+
+Claim: conditions decided where the endpoint cannot see them =E2=80=94 a ro=
+le
+removed, a workload no longer trusted, quarantine, retirement =E2=80=94 are=
+ carried
+as an event to the platform, which erases the key. An external decision
+becomes Row 3=E2=80=99s local absence: one event
+per device, and the fan-out to relying parties happens by absence rather
+than by notification.
+
+Carrier: a continuous-evaluation event (CAEP / Shared Signals); one event
+type, aligned with the naming in Iman=E2=80=99s drafts.
+
+Verifier and rule: the relying party=E2=80=99s check remains Row 2; nothing=
+ is
+distributed per relying party.
+
+Binding and freshness: bound at delivery. Where the device is unreachable,
+the key=E2=80=99s liveness requirement fails closed =E2=80=94 no re-assessm=
+ent within the
+window, no key.
+
+Failure behavior: fail closed on non-delivery.
+
+Dependency: a signals channel to the platform, and Row 3=E2=80=99s erasure
+mechanism.
+
+Evidence: the event record at the transmitter.
+
+Two seams to the authorizing rows, offered rather than claimed: Row 2 is
+the possession dependency the mapping=E2=80=99s R4 names, and the endpoint =
+platform
+is a candidate for the
+trusted display surface Row 7=E2=80=99s rendering residual asks for. Test v=
+ectors
+for Rows 2 and 3 to follow to the list.
+
+Cheers
+
+Thi
+
+From: KARTHIK RAMPALLI karthik@glyphzerolabs.com
+
+Sent: Monday, July 6, 2026 6:13 AM
+
+To: Thi Nguyen-Huu thi.nh@winmagic.com
+
+Cc: Songbo Bu bluedognull@gmail.com; team@emiliaprotocol.ai; wimse@ietf.org
+
+Subject: Re: [WIMSE] Re: Condition-bounded credential profile for WIMSE =E2=
+=80=94
+no rotation, no cert lifecycle
+
+CAUTION:This email originated from outside of the organization. Do
+not click links, open attachments or respond unless you recognize the
+sender and know that the content is safe.
+
+Thi, Songbo, all:
+
+Reconciled row is in, verbatim, and -05 is posted. Section 3.3 now carries
+it as reconciled, including the relying-party-acceptance non-claim Songbo
+asked to keep explicit and the key-agreement-versus-connection granularity
+distinction,
+which is the sharpest freshness statement on the list. The workload-path
+negative vector is recorded in the evidence cell in the shape the thread
+set, so when it publishes it drops in as this row=E2=80=99s analogue to the
+composition negative the root layer already
+ships.
+
+Two composition-section additions come with it. Application acceptance now
+sits as a separate relying-party input alongside the rows, which is where
+the final conjunctive verdict lives. And the three cross-row boundaries
+this list produced
+are recorded together as one discipline: presence versus approval,
+attribution versus approval, may versus did, all the same shape, same
+action digest, different claims, independent failure. That paragraph is the
+reason the rows can be conjunctive in the final
+decision without inheriting each other=E2=80=99s guarantees, and it is now =
+in the
+document rather than only in the threads.
+
+With this, every row of the composed stack is stated and reconciled by its
+supplier. Thank you both.
+
+Karthik Rampalli
+
+Glyphzero, Inc.
+
+On Mon, Jul 6, 2026 at 7:04=E2=80=AFPM Thi Nguyen-Huu thi.nh@winmagic.com w=
+rote:
+
+All,
+
+Confirming the reconciled possession row (Nguyen-Huu / Bu) that Songbo put
+on-list. I=E2=80=99ve folded in the one boundary he asked to keep explicit =
+=E2=80=94
+relying-party acceptance stays separate from possession =E2=80=94 directly =
+in the
+Claim, so nothing further is needed to
+carry it. Songbo, if you=E2=80=99d word the acceptance clause differently, =
+change
+it; I put in what I understood.
+
+The only change from the version Songbo posted is the added clause in the
+Claim=E2=80=99s non-claims sentence (=E2=80=9C=E2=80=A6or relying-party acc=
+eptance of the action=E2=80=9D).
+Everything else stands as reconciled.
+
+Possession under condition =E2=80=94 reconciled row (Nguyen-Huu / Bu)
+
+   -
+
+   Claim: the presenter is the genuine attested actor or workload at this
+   hop, and its signing key exists only while its attested release conditio=
+ns
+   currently hold =E2=80=94 right user present, platform sound, workload ge=
+nuine. This
+   proves live possession under configured
+   conditions; it does not by itself prove delegated authority, human
+   authorization, operation scope, action sufficiency, or relying-party
+   acceptance of the action. Not =E2=80=9Ca key answered the handshake,=E2=
+=80=9D but =E2=80=9Ca key
+   whose continued existence is those conditions answered.=E2=80=9D
+   -
+
+   Carrier: the mTLS possession proof =E2=80=94 the CertificateVerify signa=
+ture
+   over the handshake, on a hardware-bound key registered with the relying
+   party (raw public key or certificate / X.509-SVID, immaterial to this ro=
+w)
+   =E2=80=94 together with the enrollment and attestation
+   material binding the actor/workload/environment tuple, the protected
+   key, and the key-release policy. The signature is producible only if the
+   release policy is satisfied at that instant.
+   -
+
+   Verifier and rule: the relying party, sidecar, gateway, or verifier,
+   offline, per connection: validate the key against the enrolled trust bun=
+dle
+   it already holds =E2=80=94 no per-connection issuer call =E2=80=94 and t=
+ake a completed
+   handshake as possession under the current
+   condition. The attestation and enrollment evidence, bound at enrollment
+   and re-attestation, explains why that key is usable only while the state=
+d
+   conditions hold. A cryptographic fact prepared ahead of time, not a poli=
+cy
+   claim made in the moment.
+   -
+
+   Binding and freshness: bound to the platform (the key cannot exist
+   outside its boundary), to the enrolled actor/workload/environment tuple =
+and
+   release policy, and, where present, to the verified human at that platfo=
+rm
+   =E2=80=94 distinct from the approving human in
+   the human-authorization row: one is present, the other approved the
+   action. Freshness is condition-liveness, not a validity window: the enti=
+ty
+   that assesses the condition and the entity that withdraws the key are th=
+e
+   same =E2=80=94 the endpoint =E2=80=94 so validity ends
+   by absence, with no revocation message to travel or go stale. The
+   condition is re-proven at every key agreement, and this is airtight at
+   key-agreement granularity: key erasure guarantees the next key agreement
+   fails. At connection granularity it must be stated,
+   not assumed =E2=80=94 an in-flight connection is not torn down by key ab=
+sence
+   alone, the same boundary a rotated certificate has, so immediate
+   termination of a long-lived connection after a condition change is a
+   separately specified behavior, delivered by bounding
+   connection lifetime or driven from the event channel.
+   -
+
+   Failure behavior: missing or invalid enrollment or attestation evidence,
+   stale lifecycle state beyond the configured bound, local condition failu=
+re
+   that makes the key unavailable, or failure to prove possession, all fail=
+ as
+   a possession/condition failure
+   =E2=80=94 independent of delegation-chain failure and of human-authoriza=
+tion
+   failure. For locally detectable failure no message travels; absence
+   enforces. Distrust of a still-sound platform decided elsewhere rides a
+   CAEP-class channel, as the other rows=E2=80=99 external
+   inputs do.
+   -
+
+   Dependency: the hardware or protected key-release mechanism enforcing
+   =E2=80=9Ccannot exist outside its boundary=E2=80=9D; the attestation ver=
+ifier or enrollment
+   authority; and any lifecycle or event channel used for externally
+   originated change. The row makes no authority
+   claim of its own: it supplies the holder proof the delegation-chain and
+   human-authorization rows depend on at the transport, and nothing more.
+   -
+
+   Evidence: reference implementation at github.com/WinMagic/LIT. The
+   verified-human presence-bound path is demonstrated. The workload path is
+   not yet implemented, and this cell says so. When the workload vectors
+   publish they will carry this row=E2=80=99s negative analogue in the shap=
+e the
+   thread set
+   =E2=80=94 transport attempted, required condition unmet, possession fail=
+s closed
+   =E2=80=94 the possession-layer counterpart to the composition negative E=
+MILIA
+   already ships.
+
+For -05 if it clears tonight=E2=80=99s cutoff; otherwise it folds into the =
+next
+revision after Vienna and this stands alongside -04.
+
+Thank you,
+
+Thi
+
+thi.nh@winmagic.com | www.winmagic.com
+
+WinMagic Corp. | 11-80 Galaxy Blvd.
+
+Toronto, ON | M9W 4Y8 | Canada | www.winmagic.com
+
+-----Original Message-----
+
+From: Songbo Bu bluedognull@gmail.com
+
+Sent: Monday, July 6, 2026 2:34 AM
+
+To: Thi Nguyen-Huu thi.nh@winmagic.com
+
+Cc: karthik@glyphzerolabs.com;
+team@emiliaprotocol.ai;
+wimse@ietf.org
+
+Subject: RE: [WIMSE] Re: Condition-bounded credential profile for WIMSE =E2=
+=80=94
+no rotation, no cert lifecycle
+
+CAUTION:This email originated from outside of the organization. Do not
+click links, open attachments or respond unless you recognize the sender
+and know that the content is safe.
+
+Hi Thi,
+
+Your merged row is right to me, with one wording boundary I would keep
+explicit.
+
+I would record it as a possession-under-condition row, not as an
+
+authorization row. The accepted result should be narrow: the relying
+
+party has verified live possession of the enrolled hardware-bound key
+
+under the attested release policy for this connection. It should not
+
+imply delegated authority, human approval, terminal scope, action
+
+sufficiency, or relying-party policy acceptance.
+
+The strongest part of the row is the freshness model. It is not a time
+
+window; it is condition-liveness. The assessor and the stopper are the
+
+same endpoint component, so locally detectable failure removes the key
+
+before the next key operation. I agree with the long-lived-connection
+
+carve-out: key absence guarantees the next key agreement fails, but
+
+immediate termination of an already established connection is a
+
+separate session-management behavior and should be specified
+
+separately if a profile depends on it.
+
+I would also keep the evidence cell exactly as honest as you wrote it:
+
+the verified-human presence-bound path is demonstrated in
+
+WinMagic/LIT; the workload path is not yet implemented. That is a
+
+useful example of why these rows need explicit evidence status rather
+
+than making every row look equally mature.
+
+For my own verifier-matrix draft, I will treat this as a supplied
+
+possession row and fold the same structure into the next revision:
+
+condition-live freshness, separate authorization and acceptance rows,
+
+explicit long-lived-connection behavior, and evidence status for
+
+partial or open implementation paths.
+
+If you post it, I support the merged row with the boundary above preserved.
+
+Best,
+
+Songbo
+
+On Mon, 6 Jul 2026 02:23:12 +0000, Thi Nguyen-Huu thi.nh@winmagic.com wrote=
+:
+
+Hi Songbo,
+
+(I don=E2=80=99t have enough time to check thoroughly. If mistakes, please =
+let me
+know. Thanks).
+
+Karthik asked for a single reconciled possession row from the two of us
+
+=E2=80=94 your verifier restatement and my -04 row merged, with your three
+sharpenings folded in explicitly (the non-claims sentence inside the claim,
+the long-lived-connection carve-out, and the vector shape). Here is
+
+my proposed merge. It reads to me as your row and mine at two levels of
+specificity, made one. If it=E2=80=99s right to you =E2=80=94 or right with=
+ your tweaks =E2=80=94
+either of us can post it before tonight=E2=80=99s cutoff for -05; if we mis=
+s the
+cutoff it folds into the next revision
+
+after Vienna, and the thread stands as the interim record alongside -04. No
+pressure either way; -04 already carries the row.
+
+One cell only I can set, and I=E2=80=99ve set it honestly: the workload pat=
+h is not
+implemented, so the Evidence cell says so. I did not claim a workload
+vector we don=E2=80=99t ship.
+
+Proposed reconciled row:
+
+Possession under condition =E2=80=94 reconciled row (Nguyen-Huu / Bu)
+
+
+   - Claim: the presenter is the genuine attested actor or workload at this
+   hop, and its signing key exists only while its attested release conditio=
+ns
+   currently hold =E2=80=94 right user present, platform sound, workload
+
+genuine. This proves live possession under configured conditions; it does
+not by itself prove delegated authority, human authorization, operation
+scope, or action sufficiency. Not =E2=80=9Ca key answered the handshake,=E2=
+=80=9D but "a
+key whose continued existence is those
+
+conditions answered."
+
+
+   - Carrier: the mTLS possession proof =E2=80=94 the CertificateVerify sig=
+nature
+   over the handshake, on a hardware-bound key registered with the relying
+   party (raw public key or certificate / X.509-SVID, immaterial to
+
+this row) =E2=80=94 together with the enrollment and attestation material b=
+inding
+the actor/workload/environment tuple, the protected key, and the
+key-release policy. The signature is producible only if the release policy
+is satisfied at that instant.
+
+
+   - Verifier and rule: the relying party, sidecar, gateway, or verifier,
+   offline, per connection: validate the key against the enrolled trust bun=
+dle
+   it already holds =E2=80=94 no per-connection issuer call =E2=80=94 and t=
+ake
+
+a completed handshake as possession under the current condition. The
+attestation and enrollment evidence, bound at enrollment and
+re-attestation, explains why that key is usable only while the stated
+conditions hold. A cryptographic fact prepared ahead of
+
+time, not a policy claim made in the moment.
+
+
+   - Binding and freshness: bound to the platform (the key cannot exist
+   outside its boundary), to the enrolled actor/workload/environment tuple =
+and
+   release policy, and, where present, to the verified human at that
+
+platform =E2=80=94 distinct from the approving human in the human-authoriza=
+tion
+row: one is present, the other approved the action. Freshness is
+condition-liveness, not a validity window: the entity that assesses the
+condition and the entity that withdraws the key
+
+are the same =E2=80=94 the endpoint =E2=80=94 so validity ends by absence, =
+with no
+revocation message to travel or go stale. The condition is re-proven at
+every key agreement, and this is airtight at key-agreement granularity: key
+erasure guarantees the next key agreement
+
+fails. At connection granularity it must be stated, not assumed =E2=80=94 a=
+n
+in-flight connection is not torn down by key absence alone, the same
+boundary a rotated certificate has, so immediate termination of a
+long-lived connection after a condition change is a
+
+separately specified behavior, delivered by bounding connection lifetime or
+driven from the event channel.
+
+
+   - Failure behavior: missing or invalid enrollment or attestation
+   evidence, stale lifecycle state beyond the configured bound, local
+   condition failure that makes the key unavailable, or failure to prove
+   possession,
+
+all fail as a possession/condition failure =E2=80=94 independent of
+delegation-chain failure and of human-authorization failure. For locally
+detectable failure no message travels; absence enforces. Distrust of a
+still-sound platform decided elsewhere rides a CAEP-class
+
+channel, as the other rows=E2=80=99 external inputs do.
+
+
+   - Dependency: the hardware or protected key-release mechanism enforcing
+   =E2=80=9Ccannot exist outside its boundary=E2=80=9D; the attestation ver=
+ifier or enrollment
+   authority; and any lifecycle or event channel used for externally
+
+originated change. The row makes no authority claim of its own: it supplies
+the holder proof the delegation-chain and human-authorization rows depend
+on at the transport, and nothing more.
+
+
+   - Evidence: reference implementation at github.com/WinMagic/LIT. The
+   verified-human presence-bound path is demonstrated. The workload path is
+   not yet implemented, and this cell says so. When the workload vectors
+
+publish they will carry this row=E2=80=99s negative analogue in the shape t=
+he
+thread set =E2=80=94 transport attempted, required condition unmet, possess=
+ion
+fails closed =E2=80=94 the possession-layer counterpart to the composition =
+negative
+EMILIA already ships.
+
+If you want your own statement of the row preserved as the verifier-facing
+view rather than merged, say so and I=E2=80=99ll keep both, marked. Otherwi=
+se,
+confirm or mark it up and let=E2=80=99s get it posted.
+
+Thank you
+
+=F0=9F=98=8A
+
+Thi
+
+From: KARTHIK RAMPALLI karthik@glyphzerolabs.com
+
+Sent: Sunday, July 5, 2026 5:51 PM
+
+To: Iman Schrock team@emiliaprotocol.ai
+
+Cc: Thi Nguyen-Huu thi.nh@winmagic.com;
+bluedognull@gmail.com;
+wimse@ietf.org
+
+Subject: Re: [WIMSE] Re: Condition-bounded credential profile for WIMSE =E2=
+=80=94
+no rotation, no cert lifecycle
+
+CAUTION:This email originated from outside of the organization. Do
+
+not click links, open attachments or respond unless you recognize the
+sender and know that the content is safe.
+
+Songbo, Iman, Thi, all,
+
+Songbo, preserved as exactly that. The -04 row is titled and framed as
+possession under condition, it claims no authority of its own, and its
+dependency cell says it supplies the holder proof the chain and
+human-authorization rows depend
+
+on at the transport, and nothing more. Your restatement and Thi=E2=80=99s r=
+ead to
+me as the same row at two levels of specificity, with three additions of
+yours worth folding in explicitly.
+
+First, the non-claims sentence: possession does not by itself prove
+delegated authority, human authorization, operation scope, or action
+sufficiency. Putting the boundary inside the claim itself, rather than only
+in the dependency cell,
+
+is the stronger form.
+
+Second, the long-lived-connection carve-out. Key erasure guarantees the
+next key agreement fails; termination of an in-flight connection after a
+condition change is separate behavior that needs specifying separately.
+That is a real sharpening:
+
+condition-bound validity is airtight at key-agreement granularity, and at
+connection granularity it must be stated, not assumed.
+
+Third, the vector shapes. Iman=E2=80=99s note that the composition negative=
+ already
+runs as a public vector class on the EP side (transport passes, required
+receipt absent or consumed, guarded action refuses) raises the bar in the
+right way: the
+
+cross-row negative is not a thought experiment, it is a test one supplier
+already ships. I would like every supplied row to carry its analogue, the
+chain row included when its vectors publish.
+
+Iman, the boundary sentence is the one the composition section has been
+missing: often the same person, never the same row. It joins two others
+this list has produced in the past week: attribution versus approval (your
+note on the AGTP
+
+thread) and may versus did (the capsule binding). Three boundaries, one
+shape: same action digest, different claims, independent failure. The next
+revision collects them in the composition section as the discipline that
+lets the rows be conjunctive without
+
+inheritance.
+
+Also adopting from Songbo: application acceptance as a separate
+relying-party decision alongside the rows. That is where the final
+conjunctive verdict lives, and it belongs in the composition section rather
+than in any single row.
+
+On the row itself: since its supplier is one organization, the cleanest
+path is a single reconciled row text from Songbo and Thi. If it reaches the
+list before tonight=E2=80=99s cutoff, -05 posts before Vienna carrying it;
+otherwise the amendments fold into the next
+
+revision after the meeting, and this thread stands as the interim record
+alongside -04.
+
+Karthik Rampalli
+
+Glyphzero, Inc.
+
+On Mon, Jul 6, 2026 at 1:11=E2=80=AFAM Iman Schrock team@emiliaprotocol.ai =
+wrote:
+
+Thi, Songbo, Karthik, all,
+
+Thi, from the supplier of the human-authorization row: your reading of it
+is correct, including the distinction that matters most. The verified human
+present at the platform and the named human who approved this operation are
+different claims. Often the same
+
+person, never the same row. A receipt names the approver and the exact
+action digest, so a verifier can check whether the two coincide without
+either row inheriting the other. Presence at the wire never substitutes for
+approval of the action, and approval
+
+never substitutes for presence.
+
+Songbo, your last evidence bullet already exists as a public vector class
+in our suite: transport-level checks pass, the required receipt is absent
+or already consumed, and the guarded action refuses. That is the cross-row
+negative case stated as running
+code,
+
+and it is exactly why the rows can be conjunctive in the final decision
+without inheriting each other=E2=80=99s guarantees.
+
+The condition-bound freshness discipline in Thi=E2=80=99s row, where the as=
+sessor
+of the condition and the stopper of the grant are the same place, is the
+sharpest statement of that property on this list so far.
+
+Iman Schrock
+
+EMILIA Protocol
+
+On Sun, Jul 05, 2026 06:06 AM, Songbo Bu bluedognull@gmail.com wrote:
+
+Hi Karthik, Thi, Iman, all,
+
+Thank you. The -04 direction sounds right to me. For the record, the Live
+Key / condition-bounded credential row I would want preserved is a
+possession-under-conditions row, not an authorization row.
+
+Stated in the same template vocabulary:
+
+
+   - Claim: the presenter possesses an enrolled protected key whose use is
+   gated by an attested key-release policy. This proves live possession und=
+er
+   configured conditions; it does not by itself prove delegated authority,
+   human
+
+authorization, operation scope, or action sufficiency.
+
+
+   - Carrier: the mTLS / X.509-SVID or equivalent transport proof, plus the
+   enrollment and attestation material that binds the actor, workload or no=
+de
+   environment, protected key, and key-release policy.
+
+
+   - Verifier and rule: the relying party, sidecar, gateway, or trusted
+   verifier checks the key identity, the enrollment or attestation binding,
+   the relevant trust anchors, and the freshness or lifecycle state require=
+d
+   by the
+
+profile. The TLS handshake or equivalent proof shows possession of the
+enrolled key; the attestation/enrollment evidence explains why that key is
+usable only while the stated conditions hold.
+
+
+   - Binding and freshness: bound to the enrolled
+   actor/workload/environment tuple, the protected key, and the release
+   policy. Re-attestation, lifecycle withdrawal, posture change, device
+   retirement, or incident response is carried
+
+by CAEP or an equivalent event channel where the deployment relies on
+external state. If a long-lived connection must be terminated immediately
+after a condition change, that behavior needs to be specified separately
+from the possession proof.
+
+
+   - Failure behavior: missing or invalid enrollment evidence, stale
+   attestation or lifecycle state beyond the configured bound, local condit=
+ion
+   failure that makes the key unavailable, or failure to prove possession
+   fails as a
+
+possession/condition failure. That failure remains independent of
+delegation-chain failure and independent of human-authorization failure.
+
+
+   - Dependency: the hardware or protected key-release mechanism, the
+   attestation verifier or enrollment authority, and any lifecycle/event
+   channel used for external changes. Authorization scope, delegation-chain
+   validity, and
+
+human authorization remain separate rows and separate dependencies.
+
+
+   - Evidence: useful vectors should include at least one positive case
+   where the key can sign only under valid conditions, and negative cases
+   where the local condition fails and the next key use fails, where lifecy=
+cle
+   state is
+
+stale or withdrawn, and where possession succeeds but required
+authorization evidence is absent.
+
+That keeps the composed stack diagnostically clean: possession at the wire,
+attenuation along the chain, human authorization at the root, and
+application acceptance as a separate relying-party decision. The rows can
+be conjunctive in the final decision without
+
+inheriting each other=E2=80=99s guarantees.
+
+Best,
+
+Songbo
+
+On Sun, 5 Jul 2026 21:42:17 +0900, KARTHIK RAMPALLI
+karthik@glyphzerolabs.com wrote:
+
+Thi, thank you
+
+The row is in verbatim, and -04 is posted with it, so the document in front
+of Vienna carries all three rows of the composed stack stated by their
+suppliers: possession under condition at the wire (yours), attenuation
+along the chain (mine), human authorization
+
+at the root (Iman=E2=80=99s), each failing independently, all joined on the=
+ same
+action digest. Your framing sentence is recorded above the row as the split
+the rows sit on: one authentication anchor, several authorization inputs
+decided above the key.
+
+Two things in your row that improve the whole table. First, the freshness
+discipline: condition-bound validity rather than time-bound, because the
+assessor of the condition and the stopper of the grant are the same place,
+so absence enforces and no revocation
+
+message has to travel. That is a sharper statement of the property the
+other rows approximate with lifetimes and feeds, and I recorded your
+sentence about it verbatim.
+
+Second, the evidence cell that says the workload path is not yet
+implemented: the chain row=E2=80=99s evidence cell is open too, and a table=
+ where
+empty cells say so is worth more than one where they don=E2=80=99t.
+
+One small correction to your note: the revisions moved quickly this
+weekend, so your row landed in -04 rather than -01; the changelog names
+each contribution and contributor per revision.
+
+Karthik Rampalli
+
+Glyphzero, Inc.
+
+On Sun, Jul 5, 2026 at 8:58=E2=80=AFPM Thi Nguyen-Huu
+
+thi.nh@winmagic.com wrote:
+
+Songbo, Karthik, Iman, all,
+
+I probably won=E2=80=99t have every piece of this thread right =E2=80=94 co=
+rrect me where
+I=E2=80=99m mistaken. Thanks.
+
+The diagnostically-separate rows are the right structure, and the split
+underneath them is the one we=E2=80=99d draw too: one authentication anchor=
+,
+several authorization inputs. Possession-under-condition
+
+is the authentication row =E2=80=94 the genuine, present principal at the w=
+ire.
+Attenuation along the chain, human authorization at the root, external
+lifecycle, terminal scope =E2=80=94 those are authorization, decided above =
+the key.
+They lean on the possession row for
+holder
+
+proof and otherwise fail on their own. So Karthik=E2=80=99s composed line r=
+eads, to
+us, as one anchor plus its authorizations, joined on the action digest.
+
+Here is the possession row in the template=E2=80=99s form, as the supplier:
+
+
+   - Claim: the principal at this hop is the genuine attested
+   actor/workload,
+
+and its signing key exists only while its release conditions currently hold
+=E2=80=94 right user present, platform sound, workload genuine. Not =E2=80=
+=9Ca key answered
+the handshake,=E2=80=9D but =E2=80=9Ca key whose continued existence is tho=
+se conditions
+answered.=E2=80=9D
+
+
+   - Carrier: mTLS with a hardware-bound key registered with the relying
+
+party; the CertificateVerify signature is the possession proof, producible
+only if the release policy is satisfied at that instant. (Raw public key or
+certificate =E2=80=94 immaterial to this row.)
+
+
+   - Verifier and rule: relying party, offline, per connection =E2=80=94 va=
+lidate
+
+the key against the trust bundle it already holds, no per-connection issuer
+call, and take a completed handshake as possession-under-current-condition.
+The condition-gating is made verifier-observable by attestation (RATS
+evidence binding the key=E2=80=99s release
+
+policy to the platform measurement) at enrollment and re-attestation; the
+handshake then proves possession under that attested policy for the
+session. A cryptographic fact prepared ahead of time, not a policy claim
+made in the moment.
+
+
+   - Binding and freshness: bound to the platform =E2=80=94 the key cannot
+
+exist outside its boundary =E2=80=94 and, where present, to the verified hu=
+man at
+that platform (distinct from the approving human in Iman=E2=80=99s row: one=
+ is
+present, the other approved this operation). Freshness is not a validity
+window. Whoever assesses the condition
+
+also stops the grant, in the same place: the endpoint erases the key the
+instant the condition fails, so no revocation message travels and there is
+no gap for the key to outlive the condition. A workload session is a stream
+of mTLS connections, each needing
+
+the key, so the condition is re-proven every connection. Condition-bound
+validity, not time-bound.
+
+
+   - Failure behavior: local condition failure =E2=80=94 lock, posture loss=
+,
+
+user absent, measurement change =E2=80=94 removes the key at the source; th=
+e next
+key agreement cannot complete. A possession/presentation failure,
+independent of chain attenuation and of human authorization. No message
+travels for what the endpoint can see itself;
+
+absence enforces. Distrust of a still-sound platform, decided elsewhere, is
+the authorization case =E2=80=94 it rides a CAEP-class channel, the same co=
+mplement
+the other rows use.
+
+
+   - Dependency: a hardware root of trust enforcing =E2=80=9Ccannot exist
+
+outside its boundary=E2=80=9D =E2=80=94 a TPM for users, a confidential-com=
+puting-anchored
+vTPM with anti-rollback for workloads; enrollment-time attestation binding
+the release policy to the measurement; the RP=E2=80=99s enrolled trust bund=
+le. The
+row makes no authority claim of
+
+its own; it supplies the holder proof the chain and human-authorization
+rows depend on at the transport, and nothing more.
+
+
+   - Evidence: reference implementation at [github.com/WinMagic/LIT](
+   http://github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT)).
+
+The verified-human presence-bound path is demonstrated. We haven=E2=80=99t
+implemented anything for the workload yet, though. An empty evidence cell
+should be allowed to say so, as Karthik noted for the chain row.
+
+Net: possession-under-condition at the wire, attenuation along the chain,
+human authorization at the root =E2=80=94 each failing independently, all j=
+oined on
+the same action digest.
+
+Ours is the row where freshness is liveness rather than a window, because
+the assessor and the stopper are the same place. If it lands before Monday
+it can go into -01 with the others; otherwise it folds to the next revision=
+.
+
+Best,
+
+Thi
+
+From: KARTHIK RAMPALLI karthik@glyphzerolabs.com
+
+Sent: Sunday, July 5, 2026 12:09 AM
+
+To: Iman Schrock team@emiliaprotocol.ai
+
+Cc: bluedognull@gmail.com; Thi Nguyen-Huu
+
+thi.nh@winmagic.com; wimse@ietf.org
+
+Subject: Re: [WIMSE] Re: Condition-bounded credential profile for WIMSE =E2=
+=80=94
+no rotation, no cert lifecycle
+
+You don=E2=80=99t often get email from
+
+karthik@glyphzerolabs.com.
+
+Learn why this is important <https://aka.ms/LearnAboutSenderIdentification>
+
+CAUTION:This email originated from outside of the organization. Do
+
+not click links, open attachments or respond unless you recognize the
+sender and know that the content is safe.
+
+Uploaded it here -
+https://datatracker.ietf.org/doc/draft-rampalli-cross-org-delegation-mappin=
+g/
+
+On Sun, Jul 5, 2026 at 1:07=E2=80=AFPM KARTHIK RAMPALLI
+
+karthik@glyphzerolabs.com wrote:
+
+Dr. Iman, thank you.
+
+The row is stated in exactly the discipline, and it will go in verbatim,
+credited, not trimmed. The two parts I would least want trimmed are the
+ones only the supplier could have written: the one-time-use split,
+offline-verifiable versus enforcement-point
+
+state with the state holder named in the dependency, so the two stay
+visible separately; and the machine-readable refusal, because a refusal
+that names the missing evidence is itself audit material, which is the
+composable-audit property arriving through
+the
+
+failure path.
+
+Given the draft cutoff on Monday, I intend to post the mapping -01 before
+it, so the document in front of Vienna already carries the row. One
+asymmetry the revision states rather than papers over: the chain row does
+not yet cite public
+
+evidence vectors, and its evidence entry reads as open until vectors are
+published. An evidence column is only useful if an empty cell is allowed to
+say so.
+
+Songbo, that makes the possession row the remaining supplied-by-name row.
+If you want to state the Live Key row in the same form and it arrives
+before the cutoff, -01 can carry it too; otherwise it folds into the next
+revision, as would a session-binding
+
+entry from Ramki=E2=80=99s thread.
+
+Karthik Rampalli
+
+Glyphzero, Inc.
+
+On Sun, Jul 5, 2026 at 1:00=E2=80=AFPM Iman Schrock
+
+team@emiliaprotocol.ai wrote:
+
+Karthik, Songbo, Thi, all,
+
+The chain row stated in template terms is the way to do it, and the mapping
+draft posting is noted with thanks: the R5 and R4 corrections read right,
+and pinning verdicts to cited revisions with this list as the canonical
+venue is the discipline that keeps
+
+the document trustworthy.
+
+So the standalone table can carry it in the same form, here is the
+human-authorization row, stated the way you stated the chain row:
+
+
+   - Claim: a named, accountable human (or an M-of-N quorum of distinct
+   humans, optionally ordered) authorized this exact operation before
+   execution. Asserted as human authority, not organizational policy; the r=
+ow
+   names which,
+
+per the -02 direction on Songbo=E2=80=99s
+
+template.
+
+
+   - Carrier: the authorization receipt (EP-RECEIPT-v1, or EP-QUORUM-v1 for
+   multi-party), a self-contained signed JSON artifact conveyed inline or
+   referenced by digest from the host record.
+
+
+   - Verifier and rule: the relying party, offline, no account: Ed25519
+   over the RFC 8785 canonical action bytes against a pinned issuer key. Fo=
+r a
+   quorum: threshold met by distinct principals over the same digest, order
+   enforced
+
+when declared. Verified and accepted
+
+stay separate results, and neither implies sufficiency.
+
+
+   - Binding and freshness: bound to the action digest (the shared join
+   key; digest equality is a join key, never authorization) and to the name=
+d
+   principal. Validity window on the artifact. One-time use is
+   enforcement-point state,
+
+not offline-verifiable; the state
+
+holder is named in the dependency, so the offline part and the enforcement
+part stay visible separately.
+
+
+   - Failure behavior: missing, invalid, stale, replayed, or out-of-scope
+   fails the request as a human-authorization failure, independently of key
+   possession and of chain attenuation. The refusal is machine-readable (HT=
+TP
+   428
+
+challenge naming the missing evidence),
+
+so a refusal is itself evidence, not silence.
+
+
+   - Dependency: relying-party key pinning (a binding from an unpinned
+   issuer must not be accepted); an enforcement point for one-time
+   consumption, deployed by the resource owner; and holder proof at
+   presentation rides the possession
+
+row at the transport, the
+
+same shared dependency your mapping records at R4. The row makes no
+possession claim of its own.
+
+
+   - Evidence: public vectors, positive and negative (receipts and quorum
+   suites in the reference repo); reproducible in one line with npx -y
+   ep-verify or pip install ep-verify.
+
+Your composed-stack sentence is the one I would keep: possession at the
+wire, attenuation along the chain, human authorization at the root, each
+failing independently, all joined on the same action digest. Use this row
+verbatim or trimmed, whichever serves
+
+the document.
+
+Iman
+
+On Sat, Jul 04, 2026 08:39 PM, KARTHIK RAMPALLI karthik@glyphzerolabs.com
+wrote:
+
+Hello Songbo, Iman, Thi, all,
+
+The diagnostically separate rows are the structure I would want as a
+verifier too, and Iman=E2=80=99s human-authorization row belongs in the set=
+: it is
+an input class that fails independently of the key and the chain, and it
+joins on the same action
+
+digest the other rows use.
+
+Taking the framing seriously for the row Songbo labeled =E2=80=9Cinherited
+delegation-chain input=E2=80=9D: under the matrix rules of
+draft-bu-agentproto-security-principal-binding-01, an inherited mechanism
+is not a current guarantee unless its dependency
+
+and failure behavior are stated. So here is that row stated in the
+template=E2=80=99s own terms, with PEDIGREE as the supplier:
+
+
+   - Claim: authority for this exact operation was conveyed from the root
+   principal and narrowed at every hop; the terminal scope covers the
+   operation.
+
+
+   - Carrier: the per-hop delegation tokens, conveyed inline with the
+   request.
+
+
+   - Verifier and rule: the relying party, offline: re-verify each hop=E2=
+=80=99s
+   signature against its issuer key, check per-hop scope subsetting and
+   mandate narrowing, take effective expiry as the minimum over hops, and
+   require the operator-ceiling
+
+conjunct.
+
+
+   - Binding and freshness: bound to the root principal and to the holder=
+=E2=80=99s
+   key; staleness bounded by chain lifetime; cascade revocation rides a
+   CAEP-class channel where one exists.
+
+
+   - Failure behavior: any hop signature failure, subset violation, or
+   expiry fails the request as an authorization failure, independently of k=
+ey
+   possession and of human authorization. A revocation feed older than the
+   configured
+
+bound must
+
+fail closed; making that normative is the pedigree-02 item already flagged
+on Morgan=E2=80=99s thread.
+
+
+   - Dependency: the originating organization=E2=80=99s trust anchor (root =
+only;
+   intermediate hops use self-certifying identifiers), inline conveyance of
+   parent tokens, and the possession row at the transport for holder proof.
+
+Stated that way, nothing is inherited implicitly: the chain row supplies
+the authority path and its attenuation, and it explicitly depends on the
+possession row rather than assuming it. The Live Key profile keeps its
+guarantees, the chain
+
+keeps its own, and a verifier gets a distinct failure class from each.
+
+With Iman=E2=80=99s row added, the composed stack has clean names and clean=
+ failure
+classes: possession at the wire, attenuation along the chain, human
+authorization at the root, each failing independently, all joined on the
+same action digest.
+
+That is the same discipline the combined R1-R9 table on Morgan=E2=80=99s th=
+read
+converged on, so when I cut that table as a standalone doc I will state the
+chain row in exactly this form, and the two threads can reference one
+artifact.
+
+Karthik Rampalli
+
+Glyphzero, Inc.
+
+On Sun, Jul 5, 2026 at 11:22=E2=80=AFAM Iman Schrock
+
+team@emiliaprotocol.ai wrote:
+
+Songbo, Karthik, Thi,
+
+The diagnostically separate rows are the right structure. One addition:
+some operations are human-gated by policy, so there is an input class that
+is neither possession nor delegation:
+
+
+   -
+
+pre-execution human authorization: a named human, or an M-of-N quorum of
+distinct humans, authorized this exact operation, bound to the same action
+digest the other rows join on.
+
+It fails independently of the chain and the key. A live key with a valid,
+sufficiently scoped chain still fails closed if the required human
+authorization is absent, stale, or bound to different action bytes. EMILIA
+supplies this row today (draft-schrock-ep-human-authorization-binding-00,
+
+draft-schrock-ep-receipts-05), and it composes with the Live Key profile
+and PEDIGREE by digest without inheriting or granting either layer=E2=80=99=
+s
+guarantees, per Songbo=E2=80=99s framing.
+
+Dr. I,
+
+On Sat, Jul 4, 2026 at 7:09=E2=80=AFPM Songbo Bu
+
+bluedognull@gmail.com wrote:
+
+Hi Karthik, Thi, all,
+
+Yes =E2=80=94 this is the separation I intended.
+
+For a verifier, the condition-bounded credential and the delegation
+
+chain are two different inputs to the decision:
+
+
+   -
+
+the condition-bounded credential proves possession of a stable key
+
+whose use is gated by an attested key-release policy;
+
+
+   -
+
+the delegation chain proves that authority was conveyed and narrowed
+
+across hops;
+
+
+   -
+
+the authorization decision still needs audience, scope, operation,
+
+time bounds, and relying-party policy to be checked explicitly.
+
+Those inputs should be conjunctive for the final decision, but
+
+diagnostically separate. If the key is live but the terminal scope
+
+does not cover the operation, the request fails as an authorization
+
+failure. If the chain is valid but the holder cannot prove possession
+
+at the transport layer, the request fails as a possession/presentation
+
+failure. If the local release condition fails and the key disappears,
+
+the next key use or handshake fails independently of the delegation
+
+chain.
+
+For the condition-bounded profile, I would therefore keep a small
+
+verifier-facing table with separate rows for:
+
+
+   - enrolled key / actor / workload / environment binding;
+
+
+   - live key possession at connection time;
+
+
+   - local condition failure and key unavailability;
+
+
+   - external lifecycle or policy events, such as CAEP or an equivalent
+   channel;
+
+
+   - authorization inputs: audience, scope, operation, and time bounds;
+
+
+   - inherited delegation-chain input, where PEDIGREE or another chain
+
+mechanism supplies the authority path.
+
+That framing lets the Live Key profile and PEDIGREE compose without
+
+one inheriting guarantees from the other implicitly. It also gives
+
+WIMSE reviewers a clean failure path for each row.
+
+Best,
+
+Songbo
+
+On Sun, 5 Jul 2026 05:39:39 +0900, KARTHIK RAMPALLI
+
+karthik@glyphzerolabs.com wrote:
+
+Hi Songbo, Thi, all,
+
+Songbo=E2=80=99s verifier-processing model draws a line I want to build on:
+authorization stays separate from key possession. Audience, scope,
+operation, and time bounds are authorization inputs, not properties
+inferred from the key.
+
+For agentic actors, that authorization input is often not a single grant
+but a delegation chain. An orchestrator spawns sub-agents, a sub-agent
+calls a tool in another trust domain, and each hop is supposed to carry
+equal or narrower authority than its parent.
+
+Key possession proves which workload is at the wire. It says nothing about
+whether the chain behind the request is intact, whether any hop widened its
+scope, or whether a parent grant was swapped after issuance.
+
+We published an individual draft in April that profiles exactly this layer
+above WIMSE credentials, and refreshed it this week as -01 with a section
+positioning it against WIMSE-ARCH and the workload credentials document:
+
+https://datatracker.ietf.org/doc/draft-rampalli-pedigree/
+
+It defines per-hop delegation tokens with monotonic scope attenuation
+checked both at mint and at verify, strict re-verification of the parent
+token at each hop (which catches parent-swap attacks that append-only
+chains miss), and a dual enforcement model:
+
+an operator ceiling plus per-parent narrowing. The workload identity
+underneath is deliberately not redefined. The draft assumes a SPIFFE or
+WIMSE credential and layers delegation on top.
+
+Three connections to threads on this list:
+
+
+   -
+
+To Thi=E2=80=99s profile: keeping the actor slot generic is the right call,=
+ and a
+delegation chain is one concrete instance of the authorization input the
+Live Key profile deliberately keeps separate from possession. A
+hardware-bound possession proof plus a verifiable
+
+attenuation chain compose cleanly; neither replaces the other.
+
+
+   -
+
+To Yuning=E2=80=99s heterogeneous-credential work: a delegation token is on=
+e more
+typed input to the set-level processing, and its verification result
+normalizes the same way (chain validity, terminal scope, expiry of the
+narrowest hop).
+
+
+   -
+
+To the SCITT Agent Action Capsule work
+(draft-mih-scitt-agent-action-capsule): AAC records what an agent actually
+did and carries the authority that permitted it as an opaque reference. A
+delegation chain is one natural resolution target for that reference,
+
+closing the loop between =E2=80=9Cwas permitted=E2=80=9D and =E2=80=9Cwas d=
+one.=E2=80=9D We posted a short
+binding profile on that composition this week:
+draft-rampalli-scitt-capsule-provenance-binding-00.
+
+If the comparative requirements mapping Morgan invited goes ahead, we would
+be glad to map PEDIGREE against it alongside the others.
+
+Feedback welcome, on-list or off.
+
+Karthik Rampalli
+
+Glyphzero, Inc.
+
+On Wed, Jun 24, 2026 at 12:09=E2=80=AFAM Songbo Bu
+
+king347608@gmail.com wrote:
+
+Hi Thi, all,
+
+Thanks, that framing works for me.
+
+I took a first pass at turning the PDF and the list discussion into an
+
+I-D-shaped outline. The main edit is to keep the document framed as a
+
+condition-bounded workload-credential profile, with =E2=80=9CLive Key=E2=80=
+=9D as the
+
+mechanism inside it.
+
+I also adjusted the verifier model around the point you clarified: the
+
+trust is prepared at enrollment and refreshed by
+
+attestation/re-attestation over time; the handshake then proves live
+
+key presence under that prepared binding. That is cleaner than making
+
+it sound like the verifier needs a fresh condition-evidence exchange
+
+on every key use.
+
+I will send you the working skeleton off-list so we can fill in the
+
+hardware release / condition-gating details before bringing a cleaner
+
+-00 outline back to WIMSE.
+
+Best,
+
+Songbo
+
+On Tue, 23 Jun 2026 13:20:38 +0000, Thi Nguyen-Huu thi.nh@winmagic.com
+wrote:
+
+Hi Songbo,
+
+This is genuinely helpful. You know WIMSE well and I=E2=80=99d be glad for =
+you to
+take the first pass at shaping this into a draft. Our substance is in the
+PDF to draw from, and your
+
+verifier-processing subsection is the most WG-native part of it. I=E2=80=99=
+ll bring
+the mechanism detail (the hardware key-derivation and condition-gating) and
+the reference implementation as you need them.
+
+On your line =E2=80=9Cthe verifier also needs evidence, or a trusted policy
+assertion, that the key is released only while the conditions hold=E2=80=9D=
+: in our
+model that=E2=80=99s not an extra check
+
+at use time. The trust is prepared. At registration, the key is bound -
+hardware-based, non-exfiltratable - to its release conditions, and that
+binding is attested, and re-attested over time. After that, presence is the
+condition-check: the key can only
+
+produce
+
+the handshake signature if its conditions currently hold. The binding
+prepared at enrollment, the presence proven live in the handshake =E2=80=94=
+ rather
+than the verifier needing separate evidence each time.
+
+And I take your naming point =E2=80=9Ccondition-bounded credential=E2=80=9D=
+ as the framing,
+with =E2=80=9CLive Key=E2=80=9D as the name of the mechanism inside. The su=
+bject already
+goes that way: draft-winmagic-wimse-condition-bounded-credentials.
+
+I=E2=80=99ll be glad to have a short call whenever useful. Thank you, this =
+really
+helps.
+
+Thi
+
+WinMagic Corp.
+
+From: Songbo Bu king347608@gmail.com
+
+Sent: Monday, June 22, 2026 9:22 PM
+
+To: Thi Nguyen-Huu thi.nh@winmagic.com;
+
+wimse@ietf.org
+
+Subject: Re: [WIMSE] Re: Condition-bounded credential profile for WIMSE =E2=
+=80=94
+no rotation, no cert lifecycle
+
+CAUTION:This email originated from outside of the organization. Do
+
+not click links, open attachments or respond unless you recognize the
+sender and know that the content is safe.
+
+Hi Thi, all,
+
+Thanks, that works for me.
+
+I would keep the next revision small and implementation-facing.
+
+Here is a candidate verifier-processing subsection that you can use, edit,
+or reject:
+
+Verifier processing model
+
+For this profile, the verifier should treat key possession, attested
+key-release conditions, and authorization scope as separate inputs to the
+decision.
+
+At enrollment, the verifier or its trusted enrollment component records the
+binding between the workload actor, the protected key, the key-release
+policy, the node/environment identity, and the attestation evidence that
+supports those conditions.
+
+During an mTLS connection, the TLS handshake proves possession of the
+enrolled key.
+
+That proof alone is not the complete condition check.
+
+The verifier also needs evidence, or a trusted policy assertion, that the
+key is released only while the configured actor, node, workload
+measurement, and posture conditions hold.
+
+If a local condition fails, the key-release mechanism should make the key
+unavailable.
+
+The next use of the key, including a subsequent mTLS handshake or other key
+operation, fails.
+
+If the deployment requires immediate termination of an already established
+long-lived connection, that behavior should be specified as an additional
+session-management rule or driven by a continuous-evaluation signal.
+
+Externally originated lifecycle changes, such as device retirement, policy
+withdrawal, attestation-root change, or incident response, remain lifecycle
+events.
+
+They can be carried to the verifier through CAEP or an equivalent event
+channel.
+
+This is why the profile reduces rotation pressure for the anti-exfiltration
+property but does not eliminate lifecycle management.
+
+Authorization remains separate from possession of the stable hardware-bound
+key.
+
+Audience, scope, operation, and time bounds should be checked as
+authorization inputs rather than inferred from key possession.
+
+I would also suggest avoiding =E2=80=9Cno lifecycle=E2=80=9D as the main he=
+adline.
+
+=E2=80=9CCondition-bounded stable credential=E2=80=9D or =E2=80=9Clive-key-=
+bound workload
+credential=E2=80=9D may be easier for WIMSE readers to accept.
+
+Best,
+
+Songbo
+
+On Mon, 22 Jun 2026 17:12:41 +0000, Thi Nguyen-Huu thi.nh@winmagic.com
+wrote:
+
+Hi Songbo, and you know wimse much better than I do too, I think. Your help
+would be very good for me. Thanks.
+
+Get
+
+Outlook for iOS <https://aka.ms/o0ukef>
+
+From: Thi Nguyen-Huu thi.nh=3D40winmagic.com@dmarc.ietf.org
+
+Sent: Monday, 22 June 2026 12:12:35
+
+To: Songbo Bu king347608@gmail.com;
+
+wimse@ietf.org wimse@ietf.org
+
+Subject: [WIMSE] Re: Condition-bounded credential profile for WIMSE =E2=80=
+=94 no
+rotation, no cert lifecycle
+
+You don=E2=80=99t often get email from thi.nh=3D40winmagic.com@dmarc.ietf.o=
+rg.
+
+Learn why this is important <https://aka.ms/LearnAboutSenderIdentification>
+
+CAUTION:This email originated from outside of the organization. Do not
+click links, open attachments or respond unless you recognize the sender
+and know that the content is safe.
+
+Thx Songbo. I=E2=80=99m travelling and this will be short.
+
+Yes, if you can help sketch next revision it will be better than mine with
+my bias. And yes, your 5 statements are all correct. Thanks a lot.
+
+Thi
+
+Get
+
+Outlook for iOS <https://aka.ms/o0ukef>
+
+From: Songbo Bu king347608@gmail.com
+
+Sent: Monday, 22 June 2026 11:31:57
+
+To: Thi Nguyen-Huu thi.nh@winmagic.com;
+
+wimse@ietf.org wimse@ietf.org
+
+Subject: RE: [WIMSE] Condition-bounded credential profile for WIMSE =E2=80=
+=94 no
+rotation, no cert lifecycle
+
+[You don=E2=80=99t often get email from king347608@gmail.com. Learn why thi=
+s is
+important at
+
+https://aka.ms/LearnAboutSenderIdentification ]
+
+CAUTION:This email originated from outside of the organization. Do not
+click links, open attachments or respond unless you recognize the sender
+and know that the content is safe.
+
+Hi Thi, all,
+
+Thanks =E2=80=94 this clarifies the profile quite a bit.
+
+The =E2=80=9CLive Key=E2=80=9D / key-disappearance mechanism is the part I =
+would make
+
+very explicit, because it is the piece that makes the profile
+
+different from ordinary long-lived workload identity.
+
+For reviewability, I think the next useful artifact is a small
+
+verifier-facing state model rather than more prose about rotation.
+
+Something like:
+
+
+   -
+
+enrollment binds the key-release policy to the actor, node,
+
+workload measurement, and posture conditions;
+
+
+   -
+
+each mTLS connection proves possession of the same stable key under
+
+that policy;
+
+
+   -
+
+if a local condition fails, the key disappears and the next key use
+
+or handshake fails;
+
+
+   -
+
+if an external condition changes, CAEP or an equivalent channel
+
+carries that policy/lifecycle event to the verifier;
+
+
+   -
+
+authorization scope, audience, and time bounds remain separate from
+
+key possession.
+
+That would keep the profile implementable: the verifier can ask what
+
+state was checked, what event changes that state, and what exact
+
+failure behavior follows.
+
+I also agree that the right claim is not =E2=80=9Cno lifecycle=E2=80=9D, bu=
+t "lower
+
+rotation pressure for the anti-exfiltration property, with
+
+event-driven lifecycle for the remaining cases".
+
+If useful, I can help sketch this as a short verifier-processing
+
+section or checklist for the next revision.
+
+Best,
+
+Songbo
+
+On Mon, 22 Jun 2026 14:05:18 +0000, Thi Nguyen-Huu thi.nh@winmagic.com
+wrote:
+
+Hi Songbo,
+
+Thank you very much =E2=80=94 all your points are correct, and your email i=
+s
+exactly what I=E2=80=99d hoped for
+
+=F0=9F=98=8A.
+
+The non-exfiltrable key removes one rotation reason: limiting exposure
+after theft. But there are more, as you said, and those are handled
+event-driven. When a device retires or a defect surfaces, the IdP/OP
+informs the verifier via push/pull =E2=80=94 which is
+
+what
+
+CAEP (the OpenID Continuous Access Evaluation Protocol) does. In effect,
+that channel can carry the lifecycle changes a CA=E2=80=99s reissue-and-rev=
+oke
+cycle carries today =E2=80=94rarely, in years, not minutes or hours.
+
+A bit more on each point:
+
+Verifier-observable binding. Agreed =E2=80=94 CertificateVerify proves poss=
+ession,
+not conditions. The gating is made observable by attestation: RATS evidence
+binding the key=E2=80=99s release policy to the workload measurement, estab=
+lished
+at enrollment and re-attestation.
+
+The handshake then proves possession-under-that-policy for this session.
+The profile has to carry both.
+
+Mid-session. A workload session is a stream of mTLS connections, each
+needing the key =E2=80=94 so key-disappearance is the live mid-session cont=
+rol: the
+instant a condition fails, the key is gone and the next mTLS key agreement
+can=E2=80=99t complete. That disappearance
+
+is the novelty here. I would be glad to elaborate more in a meeting. The
+key is released only while actor, node, and posture all hold (attached doc
+last time, =C2=A74 Validity), and it can be the same key across connections=
+, not
+just once. CAEP complements it
+
+for
+
+what the node can=E2=80=99t see itself =E2=80=94 an externally-originated c=
+hange, or
+killing a single long-lived connection at once rather than waiting for its
+next handshake.
+
+Key vs authorization lifetime. Fully agreed =E2=80=94 =C2=A74 (Authorizatio=
+n) keeps
+these separate: the hardware key is the stable identity; audience, scope,
+and time bounds stay on the authorization.
+
+So yes =E2=80=94 an optional profile for stable, attestable deployments, wh=
+ere
+non-exfiltration reduces the rotation cadence rather than abolishing
+lifecycle. That=E2=80=99s the right frame, and I=E2=80=99ll write it that w=
+ay.
+
+Happy to walk through the key-disappearance mechanism in more detail, on
+the list or a quick call =E2=80=94 whatever=E2=80=99s easiest for you.
+
+As we go deeper and broader: everything here is the workload actor. The
+same key =E2=80=94 a =E2=80=9CLive Key,=E2=80=9D whose identity is actor + =
+environment + conditions
+and which disappears when that identity disappears =E2=80=94 applies equall=
+y to
+humans, machines, and IoT. We have
+
+an article in Cyber Defense Magazine on this identity if it=E2=80=99s usefu=
+l:
+https://www.cyberdefensemagazine.com/newsletters/march-2026/mobile/index.ht=
+ml#p=3D259
+.
+
+Thi
+
+Cheers
+
+Thi Nguyen-Huu | CEO
+
+Tel: +1 905.502.7000 x 3288 | Toll Free: 888.879.5879
+
+thi.nh@winmagic.com |
+
+[[[www.winmagic.com](http://www.winmagic.com)](http://www.winmagic.com)](
+http://www.winmagic.com)
+
+WinMagic Corp. | 11-80 Galaxy Blvd.
+
+Toronto, ON | M9W 4Y8 | Canada | [[[www.winmagic.com](
+http://www.winmagic.com)](http://www.winmagic.com)](http://www.winmagic.com=
+)
+
+-----Original Message-----
+
+From: Songbo Bu king347608@gmail.com
+
+Sent: Sunday, June 21, 2026 11:33 PM
+
+To: wimse@ietf.org
+
+Subject: [WIMSE] Condition-bounded credential profile for WIMSE =E2=80=94 n=
+o
+rotation, no cert lifecycle
+
+[You don=E2=80=99t often get email from king347608@gmail.com. Learn why thi=
+s is
+important at
+
+https://aka.ms/LearnAboutSenderIdentification ]
+
+CAUTION:This email originated from outside of the organization. Do not
+click links, open attachments or respond unless you recognize the sender
+and know that the content is safe.
+
+Hi Thi, all,
+
+Thanks for sharing this. I think the profile is worth discussing,
+especially as a hardware-bound mTLS/X.509-SVID profile for stable workloads=
+.
+
+The boundary I would tighten is the =E2=80=9Cno rotation / no cert lifecycl=
+e=E2=80=9D
+
+claim. A non-exfiltratable key removes one important reason for short
+
+rotation: limiting exposure after key theft. It does not remove every
+reason for credential lifecycle management.
+
+A few implementation-facing points seem important to me:
+
+
+   -
+
+The verifier needs a fresh, verifier-observable binding between the TLS
+key, the workload measurement/posture, and the current session.
+
+CertificateVerify proves possession of the private key, but the relying
+party also needs to know that the key is currently usable only under the
+stated conditions.
+
+
+   -
+
+Credential expiry and revocation may no longer carry the primary
+anti-exfiltration property, but they still help with algorithm agility,
+attestation-root changes, device retirement, policy withdrawal, incident
+response, and recovery from implementation
+
+defects.
+
+
+   -
+
+=E2=80=9CValidity by presence=E2=80=9D needs clear semantics after a sessio=
+n has started.
+If a posture condition fails mid-session, the profile should say whether
+the next operation fails, the TLS session is terminated, or an external
+continuous-evaluation signal is required.
+
+
+   -
+
+Key protection and authorization lifetime should stay separate. A
+long-lived hardware identity key can authenticate the workload, but task
+authorization may still need audience, scope, and time bounds.
+
+So I would frame this as an optional WIMSE profile where hardware
+non-exfiltration reduces the need for frequent key rotation in stable,
+attestable deployments, rather than as a profile with no credential
+lifecycle. That framing keeps the useful idea while
+
+avoiding a claim that lifecycle controls are unnecessary.
+
+Best,
+
+Songbo
+
+On Sun, 21 Jun 2026 15:22:34 +0000, Thi Nguyen-Huu thi.nh=3D
+40winmagic.com@dmarc.ietf.org wrote:
+
+Hello all,
+
+I=E2=80=99m Thi Nguyen-Huu of WinMagic; Deb Cooley suggested I bring this h=
+ere
+
+=C3=A2=E2=82=AC=E2=80=9D thanks, Deb.
+
+My understanding is that WIMSE leaves credential lifetime to the
+
+implementation: currently short-lived with rotation, because a
+
+software key can be copied. I=E2=80=99d like to contribute one conforming
+
+profile on the mTLS / X.509-SVID path: a binding key generated in
+
+hardware, non-retrievable, and usable only while attested posture
+
+holds. It can=E2=80=99t be exfiltrated, so it needn=E2=80=99t be rotated; i=
+ts presence
+
+becomes its validity =C3=A2=E2=82=AC=E2=80=9D proven live by possession in =
+the handshake,
+
+with
+
+no certificate lifetime or revocation check doing the work.
+
+The profile is attached. Happy to refine toward a draft and present at IETF
+127 if useful.
+
+Thi
+
+Thi Nguyen-Huu
+
+Founder & CEO, WinMagic Corp.
+
+thi.nh@winmagic.com
+
+Reference implementation: [[[github.com/WinMagic/LIT](
+http://github.com/WinMagic/LIT%5D(http://github.com/WinMagic/LIT))
+<http://github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT)%5D(http:/=
+github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT))%5D(http://github=
+.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT))%5D(http:/github.com/Wi=
+nMagic/LIT%5D(http:/github.com/WinMagic/LIT)%5D(http:/github.com/WinMagic/L=
+IT%5D(http:/github.com/WinMagic/LIT)))>
+](
+http://github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT)%5D(%5Bhttp=
+:/github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT))%5D(http:/githu=
+b.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT)%5D(http:/github.com/Wi=
+nMagic/LIT%5D(http:/github.com/WinMagic/LIT))%5D(http:/github.com/WinMagic/=
+LIT%5D(http:/github.com/WinMagic/LIT))%5D(http:/github.com/WinMagic/LIT%5D(=
+http:/github.com/WinMagic/LIT)%5D(http:/github.com/WinMagic/LIT%5D(http:/gi=
+thub.com/WinMagic/LIT))))
+)
+
+=E2=80=93
+
+WIMSE mailing list =E2=80=93 wimse@ietf.org
+
+To unsubscribe send an email to wimse-leave@ietf.org
+
+=E2=80=93
+
+WIMSE mailing list =E2=80=93 wimse@ietf.org
+
+To unsubscribe send an email to wimse-leave@ietf.org
+
+=E2=80=93
+
+WIMSE mailing list =E2=80=93 wimse@ietf.org
+
+To unsubscribe send an email to wimse-leave@ietf.org
+
+=E2=80=93
+
+Iman Schrock
+
+Founder
+
+EMILIA Protocol
+
+[emiliaprotocol.ai](http://emiliaprotocol.ai/) |
+team@emiliaprotocol.ai
+
+--000000000000390fc50656a1b9a8
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><p>Hi Thi, Karthik, all,</p>
+<p>Thank you for spelling out the four possession-side rows. I agree that r=
+ows 1-4 should remain a substrate and authorize nothing by themselves. I at=
+tached a short review and test-vector plan.</p>
+<p>Three corrections are important before treating the rows as a verifier c=
+ontract:</p>
+<ul>
+<li>Row 1 must be limited to attested inputs that are actually measured and=
+ bound to the enrolled key and enrollment record. Key existence alone is no=
+t evidence for every claimed input.</li>
+<li>Row 3 should enumerate the monitored conditions, detection timing, and =
+the governed key operations. Key erasure protects the next relevant key use=
+ or agreement; an established connection still needs its own stated managem=
+ent rule.</li>
+<li>Row 4 needs a re-assessment lease or expiry, delivery and clock assumpt=
+ions, and a grace policy. Non-delivery does not fail closed merely by being=
+ called non-delivery; after the lease, the next governed key use must fail =
+because current status cannot be established.</li>
+</ul>
+<p>The attached vectors cover enrollment binding, live possession, local fa=
+ilure before and after a connection, lifecycle delivery, lease expiry, and =
+replay/stale/wrong-device events. The proposed outcome labels are vector vo=
+cabulary only, not a request for new wire-level errors.</p>
+<p>Best,<br>
+Songbo</p>
+<p>On Tue, 14 Jul 2026 18:45:07 +0000, Thi Nguyen-Huu <a href=3D"mailto:thi=
+.nh@winmagic.com" target=3D"_blank">thi.nh@winmagic.com</a> wrote:</p>
+<blockquote>
+<p>Karthik, Songbo, all,</p>
+<p>To Morgan on the weekend I said I would state the possession-side rows i=
+n Songbo=E2=80=99s template, and here they are.</p>
+<p>The possession row is one of four that belong together. Possession is wh=
+at a verifier checks, but it is not self-supporting: Row 1 says why the key=
+ means anything; Row 3 says<br>
+why its continued existence is an assertion and not an assumption; Row 4 sa=
+ys what happens when the condition is decided somewhere the endpoint cannot=
+ see. Together they are one substrate =E2=80=94 they establish who is prese=
+nt and sound, and they authorize nothing.<br>
+Rows five through seven authorize, join on the action digest per Songbo=E2=
+=80=99s framing, and no row inherits another=E2=80=99s guarantees.</p>
+<p>Row 2 is stated below for continuity with the three that surround it. Wh=
+ere it differs from the reconciled text you have already recorded, yours st=
+ands.</p>
+<p>Row 1 =E2=80=94 Enrollment binding (key, actor, workload, environment).<=
+/p>
+<p>Claim: this key was built inside this hardware anchor, for this actor an=
+d workload, with the required conditions as inputs to the build =E2=80=94 t=
+he key exists, therefore the inputs existed at mint.</p>
+<p>Carrier: attestation evidence at enrollment; the platform key endorsed, =
+the public key registered with the verifier =E2=80=94 as a raw public key (=
+RFC 7250) or in a certificate where one is wanted.</p>
+<p>Verifier and rule: the credential service appraises the attestation at i=
+ssuance and pins the key. The binding is proven by attestation, not asserte=
+d by the workload.</p>
+<p>Binding and freshness: established at mint; re-appraisal per policy. Att=
+estation proves construction and custody at mint =E2=80=94 it does not prov=
+e future soundness. That is Rows 2=E2=80=934.</p>
+<p>Failure behavior: failed appraisal, no enrollment; nothing exists to pre=
+sent later.</p>
+<p>Dependency: the hardware anchor (TPM, secure element, vTPM) and its endo=
+rsement chain.</p>
+<p>Evidence: the attestation record at enrollment.</p>
+<p>Row 2 =E2=80=94 Live key possession at connection.</p>
+<p>Claim: the presenter on this connection holds and can use the enrolled k=
+ey now. The key exists in exactly one place; validity is the successful use=
+.</p>
+<p>Carrier: the mTLS handshake itself. No new wire format.</p>
+<p>Verifier and rule: standard TLS client authentication against the enroll=
+ed key.</p>
+<p>Binding and freshness: fresh per handshake, channel-bound; nothing beare=
+r, nothing replayable.</p>
+<p>Failure behavior: key absent or unusable, the handshake fails. Fails clo=
+sed with no signal.</p>
+<p>Dependency: Row 1 for what the key means. Nothing else =E2=80=94 this ro=
+w leans on no other row.</p>
+<p>Evidence: the connection itself; none retained, by design. Durable evide=
+nce of a decision is Row 7=E2=80=99s job, not this row=E2=80=99s.</p>
+<p>Row 3 =E2=80=94 Local condition failure / key unavailability.</p>
+<p>Claim: the key=E2=80=99s continued existence is itself the assertion tha=
+t the mint conditions still hold. When a locally visible condition fails =
+=E2=80=94 the user departs, posture drops, protection is disabled in place,=
+ the workload ends =E2=80=94 the platform erases the key in real<br>
+time.</p>
+<p>Carrier: none. Absence is the carrier; no message is sent.</p>
+<p>Verifier and rule: the verifier observes nothing except that Row 2 stops=
+ succeeding. There is nothing to fetch and no list to distribute.</p>
+<p>Binding and freshness: real-time at the endpoint; enforcement lands at t=
+he key=E2=80=99s next use. An established connection can outlive a mid-sess=
+ion failure =E2=80=94 bounding connection lifetime is the fix, and it is th=
+e same fix rotation needs for the same gap.</p>
+<p>Failure behavior: fail-stop by absence. Zero-message revocation for the =
+locally visible class.</p>
+<p>Dependency: Row 1=E2=80=99s anchor, and the property that the key is ava=
+ilable nowhere else =E2=80=94 hardware holds that property for the key=E2=
+=80=99s life; software holds it only briefly.</p>
+<p>Evidence: none, by design; the diagnostic is possession ceasing. The con=
+dition inputs are software-observed posture readings feeding hardware-held =
+keys =E2=80=94 deterministic cryptography on sensor-grade inputs, stated he=
+re so the cell is honest.</p>
+<p>Row 4 =E2=80=94 External lifecycle events.</p>
+<p>Claim: conditions decided where the endpoint cannot see them =E2=80=94 a=
+ role removed, a workload no longer trusted, quarantine, retirement =E2=80=
+=94 are carried as an event to the platform, which erases the key. An exter=
+nal decision becomes Row 3=E2=80=99s local absence: one event<br>
+per device, and the fan-out to relying parties happens by absence rather th=
+an by notification.</p>
+<p>Carrier: a continuous-evaluation event (CAEP / Shared Signals); one even=
+t type, aligned with the naming in Iman=E2=80=99s drafts.</p>
+<p>Verifier and rule: the relying party=E2=80=99s check remains Row 2; noth=
+ing is distributed per relying party.</p>
+<p>Binding and freshness: bound at delivery. Where the device is unreachabl=
+e, the key=E2=80=99s liveness requirement fails closed =E2=80=94 no re-asse=
+ssment within the window, no key.</p>
+<p>Failure behavior: fail closed on non-delivery.</p>
+<p>Dependency: a signals channel to the platform, and Row 3=E2=80=99s erasu=
+re mechanism.</p>
+<p>Evidence: the event record at the transmitter.</p>
+<p>Two seams to the authorizing rows, offered rather than claimed: Row 2 is=
+ the possession dependency the mapping=E2=80=99s R4 names, and the endpoint=
+ platform is a candidate for the<br>
+trusted display surface Row 7=E2=80=99s rendering residual asks for. Test v=
+ectors for Rows 2 and 3 to follow to the list.</p>
+<p>Cheers</p>
+<p>Thi</p>
+<p>From: KARTHIK RAMPALLI <a href=3D"mailto:karthik@glyphzerolabs.com" targ=
+et=3D"_blank">karthik@glyphzerolabs.com</a></p>
+<p>Sent: Monday, July 6, 2026 6:13 AM</p>
+<p>To: Thi Nguyen-Huu <a href=3D"mailto:thi.nh@winmagic.com" target=3D"_bla=
+nk">thi.nh@winmagic.com</a></p>
+<p>Cc: Songbo Bu <a href=3D"mailto:bluedognull@gmail.com" target=3D"_blank"=
+>bluedognull@gmail.com</a>; <a href=3D"mailto:team@emiliaprotocol.ai" targe=
+t=3D"_blank">team@emiliaprotocol.ai</a>; <a href=3D"mailto:wimse@ietf.org" =
+target=3D"_blank">wimse@ietf.org</a></p>
+<p>Subject: Re: [WIMSE] Re: Condition-bounded credential profile for WIMSE =
+=E2=80=94 no rotation, no cert lifecycle</p>
+<p>CAUTION:This email originated from outside of the organization. Do<br>
+not click links, open attachments or respond unless you recognize the sende=
+r and know that the content is safe.</p>
+<p>Thi, Songbo, all:</p>
+<p>Reconciled row is in, verbatim, and -05 is posted. Section 3.3 now carri=
+es it as reconciled, including the relying-party-acceptance non-claim Songb=
+o asked to keep explicit and the key-agreement-versus-connection granularit=
+y distinction,<br>
+which is the sharpest freshness statement on the list. The workload-path ne=
+gative vector is recorded in the evidence cell in the shape the thread set,=
+ so when it publishes it drops in as this row=E2=80=99s analogue to the com=
+position negative the root layer already<br>
+ships.</p>
+<p>Two composition-section additions come with it. Application acceptance n=
+ow sits as a separate relying-party input alongside the rows, which is wher=
+e the final conjunctive verdict lives. And the three cross-row boundaries t=
+his list produced<br>
+are recorded together as one discipline: presence versus approval, attribut=
+ion versus approval, may versus did, all the same shape, same action digest=
+, different claims, independent failure. That paragraph is the reason the r=
+ows can be conjunctive in the final<br>
+decision without inheriting each other=E2=80=99s guarantees, and it is now =
+in the document rather than only in the threads.</p>
+<p>With this, every row of the composed stack is stated and reconciled by i=
+ts supplier. Thank you both.</p>
+<p>Karthik Rampalli</p>
+<p>Glyphzero, Inc.</p>
+<p>On Mon, Jul 6, 2026 at 7:04=E2=80=AFPM Thi Nguyen-Huu <a href=3D"mailto:=
+thi.nh@winmagic.com" target=3D"_blank">thi.nh@winmagic.com</a> wrote:</p>
+<p>All,</p>
+<p>Confirming the reconciled possession row (Nguyen-Huu / Bu) that Songbo p=
+ut on-list. I=E2=80=99ve folded in the one boundary he asked to keep explic=
+it =E2=80=94 relying-party acceptance stays separate from possession =E2=80=
+=94 directly in the Claim, so nothing further is needed to<br>
+carry it. Songbo, if you=E2=80=99d word the acceptance clause differently, =
+change it; I put in what I understood.</p>
+<p>The only change from the version Songbo posted is the added clause in th=
+e Claim=E2=80=99s non-claims sentence (=E2=80=9C=E2=80=A6or relying-party a=
+cceptance of the action=E2=80=9D). Everything else stands as reconciled.</p=
+>
+<p>Possession under condition =E2=80=94 reconciled row (Nguyen-Huu / Bu)</p=
+>
+<ul>
+<li>
+<p>Claim: the presenter is the genuine attested actor or workload at this h=
+op, and its signing key exists only while its attested release conditions c=
+urrently hold =E2=80=94 right user present, platform sound, workload genuin=
+e. This proves live possession under configured<br>
+conditions; it does not by itself prove delegated authority, human authoriz=
+ation, operation scope, action sufficiency, or relying-party acceptance of =
+the action. Not =E2=80=9Ca key answered the handshake,=E2=80=9D but =E2=80=
+=9Ca key whose continued existence is those conditions answered.=E2=80=9D</=
+p>
+</li>
+<li>
+<p>Carrier: the mTLS possession proof =E2=80=94 the CertificateVerify signa=
+ture over the handshake, on a hardware-bound key registered with the relyin=
+g party (raw public key or certificate / X.509-SVID, immaterial to this row=
+) =E2=80=94 together with the enrollment and attestation<br>
+material binding the actor/workload/environment tuple, the protected key, a=
+nd the key-release policy. The signature is producible only if the release =
+policy is satisfied at that instant.</p>
+</li>
+<li>
+<p>Verifier and rule: the relying party, sidecar, gateway, or verifier, off=
+line, per connection: validate the key against the enrolled trust bundle it=
+ already holds =E2=80=94 no per-connection issuer call =E2=80=94 and take a=
+ completed handshake as possession under the current<br>
+condition. The attestation and enrollment evidence, bound at enrollment and=
+ re-attestation, explains why that key is usable only while the stated cond=
+itions hold. A cryptographic fact prepared ahead of time, not a policy clai=
+m made in the moment.</p>
+</li>
+<li>
+<p>Binding and freshness: bound to the platform (the key cannot exist outsi=
+de its boundary), to the enrolled actor/workload/environment tuple and rele=
+ase policy, and, where present, to the verified human at that platform =E2=
+=80=94 distinct from the approving human in<br>
+the human-authorization row: one is present, the other approved the action.=
+ Freshness is condition-liveness, not a validity window: the entity that as=
+sesses the condition and the entity that withdraws the key are the same =E2=
+=80=94 the endpoint =E2=80=94 so validity ends<br>
+by absence, with no revocation message to travel or go stale. The condition=
+ is re-proven at every key agreement, and this is airtight at key-agreement=
+ granularity: key erasure guarantees the next key agreement fails. At conne=
+ction granularity it must be stated,<br>
+not assumed =E2=80=94 an in-flight connection is not torn down by key absen=
+ce alone, the same boundary a rotated certificate has, so immediate termina=
+tion of a long-lived connection after a condition change is a separately sp=
+ecified behavior, delivered by bounding<br>
+connection lifetime or driven from the event channel.</p>
+</li>
+<li>
+<p>Failure behavior: missing or invalid enrollment or attestation evidence,=
+ stale lifecycle state beyond the configured bound, local condition failure=
+ that makes the key unavailable, or failure to prove possession, all fail a=
+s a possession/condition failure<br>
+=E2=80=94 independent of delegation-chain failure and of human-authorizatio=
+n failure. For locally detectable failure no message travels; absence enfor=
+ces. Distrust of a still-sound platform decided elsewhere rides a CAEP-clas=
+s channel, as the other rows=E2=80=99 external<br>
+inputs do.</p>
+</li>
+<li>
+<p>Dependency: the hardware or protected key-release mechanism enforcing =
+=E2=80=9Ccannot exist outside its boundary=E2=80=9D; the attestation verifi=
+er or enrollment authority; and any lifecycle or event channel used for ext=
+ernally originated change. The row makes no authority<br>
+claim of its own: it supplies the holder proof the delegation-chain and hum=
+an-authorization rows depend on at the transport, and nothing more.</p>
+</li>
+<li>
+<p>Evidence: reference implementation at <a href=3D"http://github.com/WinMa=
+gic/LIT" target=3D"_blank">github.com/WinMagic/LIT</a>. The verified-human =
+presence-bound path is demonstrated. The workload path is not yet implement=
+ed, and this cell says so. When the workload vectors publish they will carr=
+y this row=E2=80=99s negative analogue in the shape the thread set<br>
+=E2=80=94 transport attempted, required condition unmet, possession fails c=
+losed =E2=80=94 the possession-layer counterpart to the composition negativ=
+e EMILIA already ships.</p>
+</li>
+</ul>
+<p>For -05 if it clears tonight=E2=80=99s cutoff; otherwise it folds into t=
+he next revision after Vienna and this stands alongside -04.</p>
+<p>Thank you,</p>
+<p>Thi</p>
+<p><a href=3D"mailto:thi.nh@winmagic.com" target=3D"_blank">thi.nh@winmagic=
+.com</a> | <a href=3D"http://www.winmagic.com" target=3D"_blank">www.winmag=
+ic.com</a></p>
+<p>WinMagic Corp. | 11-80 Galaxy Blvd.</p>
+<p>Toronto, ON | M9W 4Y8 | Canada | <a href=3D"http://www.winmagic.com" tar=
+get=3D"_blank">www.winmagic.com</a></p>
+<p>-----Original Message-----</p>
+<p>From: Songbo Bu <a href=3D"mailto:bluedognull@gmail.com" target=3D"_blan=
+k">bluedognull@gmail.com</a></p>
+<p>Sent: Monday, July 6, 2026 2:34 AM</p>
+<p>To: Thi Nguyen-Huu <a href=3D"mailto:thi.nh@winmagic.com" target=3D"_bla=
+nk">thi.nh@winmagic.com</a></p>
+<p>Cc: <a href=3D"mailto:karthik@glyphzerolabs.com" target=3D"_blank">karth=
+ik@glyphzerolabs.com</a>;<br>
+<a href=3D"mailto:team@emiliaprotocol.ai" target=3D"_blank">team@emiliaprot=
+ocol.ai</a>;<br>
+<a href=3D"mailto:wimse@ietf.org" target=3D"_blank">wimse@ietf.org</a></p>
+<p>Subject: RE: [WIMSE] Re: Condition-bounded credential profile for WIMSE =
+=E2=80=94 no rotation, no cert lifecycle</p>
+<p>CAUTION:This email originated from outside of the organization. Do not c=
+lick links, open attachments or respond unless you recognize the sender and=
+ know that the content is safe.</p>
+<p>Hi Thi,</p>
+<p>Your merged row is right to me, with one wording boundary I would keep e=
+xplicit.</p>
+<p>I would record it as a possession-under-condition row, not as an</p>
+<p>authorization row. The accepted result should be narrow: the relying</p>
+<p>party has verified live possession of the enrolled hardware-bound key</p=
+>
+<p>under the attested release policy for this connection. It should not</p>
+<p>imply delegated authority, human approval, terminal scope, action</p>
+<p>sufficiency, or relying-party policy acceptance.</p>
+<p>The strongest part of the row is the freshness model. It is not a time</=
+p>
+<p>window; it is condition-liveness. The assessor and the stopper are the</=
+p>
+<p>same endpoint component, so locally detectable failure removes the key</=
+p>
+<p>before the next key operation. I agree with the long-lived-connection</p=
+>
+<p>carve-out: key absence guarantees the next key agreement fails, but</p>
+<p>immediate termination of an already established connection is a</p>
+<p>separate session-management behavior and should be specified</p>
+<p>separately if a profile depends on it.</p>
+<p>I would also keep the evidence cell exactly as honest as you wrote it:</=
+p>
+<p>the verified-human presence-bound path is demonstrated in</p>
+<p>WinMagic/LIT; the workload path is not yet implemented. That is a</p>
+<p>useful example of why these rows need explicit evidence status rather</p=
+>
+<p>than making every row look equally mature.</p>
+<p>For my own verifier-matrix draft, I will treat this as a supplied</p>
+<p>possession row and fold the same structure into the next revision:</p>
+<p>condition-live freshness, separate authorization and acceptance rows,</p=
+>
+<p>explicit long-lived-connection behavior, and evidence status for</p>
+<p>partial or open implementation paths.</p>
+<p>If you post it, I support the merged row with the boundary above preserv=
+ed.</p>
+<p>Best,</p>
+<p>Songbo</p>
+<p>On Mon, 6 Jul 2026 02:23:12 +0000, Thi Nguyen-Huu <a href=3D"mailto:thi.=
+nh@winmagic.com" target=3D"_blank">thi.nh@winmagic.com</a> wrote:</p>
+<blockquote>
+<p>Hi Songbo,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>(I don=E2=80=99t have enough time to check thoroughly. If mistakes, plea=
+se let me know. Thanks).</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Karthik asked for a single reconciled possession row from the two of us<=
+/p>
+</blockquote>
+<blockquote>
+<p>=E2=80=94 your verifier restatement and my -04 row merged, with your thr=
+ee sharpenings folded in explicitly (the non-claims sentence inside the cla=
+im, the long-lived-connection carve-out, and the vector shape). Here is</p>
+</blockquote>
+<blockquote>
+<p>my proposed merge. It reads to me as your row and mine at two levels of =
+specificity, made one. If it=E2=80=99s right to you =E2=80=94 or right with=
+ your tweaks =E2=80=94 either of us can post it before tonight=E2=80=99s cu=
+toff for -05; if we miss the cutoff it folds into the next revision</p>
+</blockquote>
+<blockquote>
+<p>after Vienna, and the thread stands as the interim record alongside -04.=
+ No pressure either way; -04 already carries the row.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>One cell only I can set, and I=E2=80=99ve set it honestly: the workload =
+path is not implemented, so the Evidence cell says so. I did not claim a wo=
+rkload vector we don=E2=80=99t ship.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Proposed reconciled row:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Possession under condition =E2=80=94 reconciled row (Nguyen-Huu / Bu)</p=
+>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Claim: the presenter is the genuine attested actor or workload at this =
+hop, and its signing key exists only while its attested release conditions =
+currently hold =E2=80=94 right user present, platform sound, workload</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>genuine. This proves live possession under configured conditions; it doe=
+s not by itself prove delegated authority, human authorization, operation s=
+cope, or action sufficiency. Not =E2=80=9Ca key answered the handshake,=E2=
+=80=9D but &quot;a key whose continued existence is those</p>
+</blockquote>
+<blockquote>
+<p>conditions answered.&quot;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Carrier: the mTLS possession proof =E2=80=94 the CertificateVerify sign=
+ature over the handshake, on a hardware-bound key registered with the relyi=
+ng party (raw public key or certificate / X.509-SVID, immaterial to</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>this row) =E2=80=94 together with the enrollment and attestation materia=
+l binding the actor/workload/environment tuple, the protected key, and the =
+key-release policy. The signature is producible only if the release policy =
+is satisfied at that instant.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Verifier and rule: the relying party, sidecar, gateway, or verifier, of=
+fline, per connection: validate the key against the enrolled trust bundle i=
+t already holds =E2=80=94 no per-connection issuer call =E2=80=94 and take<=
+/li>
+</ul>
+</blockquote>
+<blockquote>
+<p>a completed handshake as possession under the current condition. The att=
+estation and enrollment evidence, bound at enrollment and re-attestation, e=
+xplains why that key is usable only while the stated conditions hold. A cry=
+ptographic fact prepared ahead of</p>
+</blockquote>
+<blockquote>
+<p>time, not a policy claim made in the moment.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Binding and freshness: bound to the platform (the key cannot exist outs=
+ide its boundary), to the enrolled actor/workload/environment tuple and rel=
+ease policy, and, where present, to the verified human at that</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>platform =E2=80=94 distinct from the approving human in the human-author=
+ization row: one is present, the other approved the action. Freshness is co=
+ndition-liveness, not a validity window: the entity that assesses the condi=
+tion and the entity that withdraws the key</p>
+</blockquote>
+<blockquote>
+<p>are the same =E2=80=94 the endpoint =E2=80=94 so validity ends by absenc=
+e, with no revocation message to travel or go stale. The condition is re-pr=
+oven at every key agreement, and this is airtight at key-agreement granular=
+ity: key erasure guarantees the next key agreement</p>
+</blockquote>
+<blockquote>
+<p>fails. At connection granularity it must be stated, not assumed =E2=80=
+=94 an in-flight connection is not torn down by key absence alone, the same=
+ boundary a rotated certificate has, so immediate termination of a long-liv=
+ed connection after a condition change is a</p>
+</blockquote>
+<blockquote>
+<p>separately specified behavior, delivered by bounding connection lifetime=
+ or driven from the event channel.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Failure behavior: missing or invalid enrollment or attestation evidence=
+, stale lifecycle state beyond the configured bound, local condition failur=
+e that makes the key unavailable, or failure to prove possession,</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>all fail as a possession/condition failure =E2=80=94 independent of dele=
+gation-chain failure and of human-authorization failure. For locally detect=
+able failure no message travels; absence enforces. Distrust of a still-soun=
+d platform decided elsewhere rides a CAEP-class</p>
+</blockquote>
+<blockquote>
+<p>channel, as the other rows=E2=80=99 external inputs do.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Dependency: the hardware or protected key-release mechanism enforcing =
+=E2=80=9Ccannot exist outside its boundary=E2=80=9D; the attestation verifi=
+er or enrollment authority; and any lifecycle or event channel used for ext=
+ernally</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>originated change. The row makes no authority claim of its own: it suppl=
+ies the holder proof the delegation-chain and human-authorization rows depe=
+nd on at the transport, and nothing more.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Evidence: reference implementation at <a href=3D"http://github.com/WinM=
+agic/LIT" target=3D"_blank">github.com/WinMagic/LIT</a>. The verified-human=
+ presence-bound path is demonstrated. The workload path is not yet implemen=
+ted, and this cell says so. When the workload vectors</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>publish they will carry this row=E2=80=99s negative analogue in the shap=
+e the thread set =E2=80=94 transport attempted, required condition unmet, p=
+ossession fails closed =E2=80=94 the possession-layer counterpart to the co=
+mposition negative EMILIA already ships.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>If you want your own statement of the row preserved as the verifier-faci=
+ng view rather than merged, say so and I=E2=80=99ll keep both, marked. Othe=
+rwise, confirm or mark it up and let=E2=80=99s get it posted.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thank you</p>
+</blockquote>
+<blockquote>
+<p>=F0=9F=98=8A</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>From: KARTHIK RAMPALLI <a href=3D"mailto:karthik@glyphzerolabs.com" targ=
+et=3D"_blank">karthik@glyphzerolabs.com</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Sent: Sunday, July 5, 2026 5:51 PM</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>To: Iman Schrock <a href=3D"mailto:team@emiliaprotocol.ai" target=3D"_bl=
+ank">team@emiliaprotocol.ai</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Cc: Thi Nguyen-Huu <a href=3D"mailto:thi.nh@winmagic.com" target=3D"_bla=
+nk">thi.nh@winmagic.com</a>;<br>
+<a href=3D"mailto:bluedognull@gmail.com" target=3D"_blank">bluedognull@gmai=
+l.com</a>;<br>
+<a href=3D"mailto:wimse@ietf.org" target=3D"_blank">wimse@ietf.org</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Subject: Re: [WIMSE] Re: Condition-bounded credential profile for WIMSE =
+=E2=80=94 no rotation, no cert lifecycle</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>CAUTION:This email originated from outside of the organization. Do</p>
+</blockquote>
+<blockquote>
+<p>not click links, open attachments or respond unless you recognize the se=
+nder and know that the content is safe.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo, Iman, Thi, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>Songbo, preserved as exactly that. The -04 row is titled and framed as p=
+ossession under condition, it claims no authority of its own, and its depen=
+dency cell says it supplies the holder proof the chain and human-authorizat=
+ion rows depend</p>
+</blockquote>
+</blockquote>
+</blockquote>
+<blockquote>
+<p>on at the transport, and nothing more. Your restatement and Thi=E2=80=99=
+s read to me as the same row at two levels of specificity, with three addit=
+ions of yours worth folding in explicitly.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>First, the non-claims sentence: possession does not by itself prove dele=
+gated authority, human authorization, operation scope, or action sufficienc=
+y. Putting the boundary inside the claim itself, rather than only in the de=
+pendency cell,</p>
+</blockquote>
+<blockquote>
+<p>is the stronger form.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Second, the long-lived-connection carve-out. Key erasure guarantees the =
+next key agreement fails; termination of an in-flight connection after a co=
+ndition change is separate behavior that needs specifying separately. That =
+is a real sharpening:</p>
+</blockquote>
+<blockquote>
+<p>condition-bound validity is airtight at key-agreement granularity, and a=
+t connection granularity it must be stated, not assumed.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Third, the vector shapes. Iman=E2=80=99s note that the composition negat=
+ive already runs as a public vector class on the EP side (transport passes,=
+ required receipt absent or consumed, guarded action refuses) raises the ba=
+r in the right way: the</p>
+</blockquote>
+<blockquote>
+<p>cross-row negative is not a thought experiment, it is a test one supplie=
+r already ships. I would like every supplied row to carry its analogue, the=
+ chain row included when its vectors publish.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>Iman, the boundary sentence is the one the composition section has been =
+missing: often the same person, never the same row. It joins two others thi=
+s list has produced in the past week: attribution versus approval (your not=
+e on the AGTP</p>
+</blockquote>
+</blockquote>
+</blockquote>
+<blockquote>
+<p>thread) and may versus did (the capsule binding). Three boundaries, one =
+shape: same action digest, different claims, independent failure. The next =
+revision collects them in the composition section as the discipline that le=
+ts the rows be conjunctive without</p>
+</blockquote>
+<blockquote>
+<p>inheritance.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Also adopting from Songbo: application acceptance as a separate relying-=
+party decision alongside the rows. That is where the final conjunctive verd=
+ict lives, and it belongs in the composition section rather than in any sin=
+gle row.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On the row itself: since its supplier is one organization, the cleanest =
+path is a single reconciled row text from Songbo and Thi. If it reaches the=
+ list before tonight=E2=80=99s cutoff, -05 posts before Vienna carrying it;=
+ otherwise the amendments fold into the next</p>
+</blockquote>
+<blockquote>
+<p>revision after the meeting, and this thread stands as the interim record=
+ alongside -04.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Karthik Rampalli</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Glyphzero, Inc.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Mon, Jul 6, 2026 at 1:11=E2=80=AFAM Iman Schrock <a href=3D"mailto:te=
+am@emiliaprotocol.ai" target=3D"_blank">team@emiliaprotocol.ai</a> wrote:</=
+p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi, Songbo, Karthik, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi, from the supplier of the human-authorization row: your reading of i=
+t is correct, including the distinction that matters most. The verified hum=
+an present at the platform and the named human who approved this operation =
+are different claims. Often the same</p>
+</blockquote>
+<blockquote>
+<p>person, never the same row. A receipt names the approver and the exact a=
+ction digest, so a verifier can check whether the two coincide without eith=
+er row inheriting the other. Presence at the wire never substitutes for app=
+roval of the action, and approval</p>
+</blockquote>
+<blockquote>
+<p>never substitutes for presence.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo, your last evidence bullet already exists as a public vector clas=
+s in our suite: transport-level checks pass, the required receipt is absent=
+ or already consumed, and the guarded action refuses. That is the cross-row=
+ negative case stated as running<br>
+code,</p>
+</blockquote>
+<blockquote>
+<p>and it is exactly why the rows can be conjunctive in the final decision =
+without inheriting each other=E2=80=99s guarantees.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The condition-bound freshness discipline in Thi=E2=80=99s row, where the=
+ assessor of the condition and the stopper of the grant are the same place,=
+ is the sharpest statement of that property on this list so far.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Iman Schrock</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>EMILIA Protocol</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Sun, Jul 05, 2026 06:06 AM, Songbo Bu <a href=3D"mailto:bluedognull@g=
+mail.com" target=3D"_blank">bluedognull@gmail.com</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hi Karthik, Thi, Iman, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thank you. The -04 direction sounds right to me. For the record, the Liv=
+e Key / condition-bounded credential row I would want preserved is a posses=
+sion-under-conditions row, not an authorization row.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Stated in the same template vocabulary:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Claim: the presenter possesses an enrolled protected key whose use is g=
+ated by an attested key-release policy. This proves live possession under c=
+onfigured conditions; it does not by itself prove delegated authority, huma=
+n</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>authorization, operation scope, or action sufficiency.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Carrier: the mTLS / X.509-SVID or equivalent transport proof, plus the =
+enrollment and attestation material that binds the actor, workload or node =
+environment, protected key, and key-release policy.</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Verifier and rule: the relying party, sidecar, gateway, or trusted veri=
+fier checks the key identity, the enrollment or attestation binding, the re=
+levant trust anchors, and the freshness or lifecycle state required by the<=
+/li>
+</ul>
+</blockquote>
+<blockquote>
+<p>profile. The TLS handshake or equivalent proof shows possession of the e=
+nrolled key; the attestation/enrollment evidence explains why that key is u=
+sable only while the stated conditions hold.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Binding and freshness: bound to the enrolled actor/workload/environment=
+ tuple, the protected key, and the release policy. Re-attestation, lifecycl=
+e withdrawal, posture change, device retirement, or incident response is ca=
+rried</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>by CAEP or an equivalent event channel where the deployment relies on ex=
+ternal state. If a long-lived connection must be terminated immediately aft=
+er a condition change, that behavior needs to be specified separately from =
+the possession proof.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Failure behavior: missing or invalid enrollment evidence, stale attesta=
+tion or lifecycle state beyond the configured bound, local condition failur=
+e that makes the key unavailable, or failure to prove possession fails as a=
+</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>possession/condition failure. That failure remains independent of delega=
+tion-chain failure and independent of human-authorization failure.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Dependency: the hardware or protected key-release mechanism, the attest=
+ation verifier or enrollment authority, and any lifecycle/event channel use=
+d for external changes. Authorization scope, delegation-chain validity, and=
+</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>human authorization remain separate rows and separate dependencies.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Evidence: useful vectors should include at least one positive case wher=
+e the key can sign only under valid conditions, and negative cases where th=
+e local condition fails and the next key use fails, where lifecycle state i=
+s</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>stale or withdrawn, and where possession succeeds but required authoriza=
+tion evidence is absent.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>That keeps the composed stack diagnostically clean: possession at the wi=
+re, attenuation along the chain, human authorization at the root, and appli=
+cation acceptance as a separate relying-party decision. The rows can be con=
+junctive in the final decision without</p>
+</blockquote>
+<blockquote>
+<p>inheriting each other=E2=80=99s guarantees.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Best,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Sun, 5 Jul 2026 21:42:17 +0900, KARTHIK RAMPALLI <a href=3D"mailto:ka=
+rthik@glyphzerolabs.com" target=3D"_blank">karthik@glyphzerolabs.com</a> wr=
+ote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi, thank you</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The row is in verbatim, and -04 is posted with it, so the document in fr=
+ont of Vienna carries all three rows of the composed stack stated by their =
+suppliers: possession under condition at the wire (yours), attenuation alon=
+g the chain (mine), human authorization</p>
+</blockquote>
+<blockquote>
+<p>at the root (Iman=E2=80=99s), each failing independently, all joined on =
+the same action digest. Your framing sentence is recorded above the row as =
+the split the rows sit on: one authentication anchor, several authorization=
+ inputs decided above the key.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Two things in your row that improve the whole table. First, the freshnes=
+s discipline: condition-bound validity rather than time-bound, because the =
+assessor of the condition and the stopper of the grant are the same place, =
+so absence enforces and no revocation</p>
+</blockquote>
+<blockquote>
+<p>message has to travel. That is a sharper statement of the property the o=
+ther rows approximate with lifetimes and feeds, and I recorded your sentenc=
+e about it verbatim.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Second, the evidence cell that says the workload path is not yet impleme=
+nted: the chain row=E2=80=99s evidence cell is open too, and a table where =
+empty cells say so is worth more than one where they don=E2=80=99t.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>One small correction to your note: the revisions moved quickly this week=
+end, so your row landed in -04 rather than -01; the changelog names each co=
+ntribution and contributor per revision.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Karthik Rampalli</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Glyphzero, Inc.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Sun, Jul 5, 2026 at 8:58=E2=80=AFPM Thi Nguyen-Huu</p>
+</blockquote>
+<blockquote>
+<p><a href=3D"mailto:thi.nh@winmagic.com" target=3D"_blank">thi.nh@winmagic=
+.com</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo, Karthik, Iman, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>I probably won=E2=80=99t have every piece of this thread right =E2=80=94=
+ correct me where I=E2=80=99m mistaken. Thanks.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The diagnostically-separate rows are the right structure, and the split =
+underneath them is the one we=E2=80=99d draw too: one authentication anchor=
+, several authorization inputs. Possession-under-condition</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>is the authentication row =E2=80=94 the genuine, present principal at th=
+e wire. Attenuation along the chain, human authorization at the root, exter=
+nal lifecycle, terminal scope =E2=80=94 those are authorization, decided ab=
+ove the key. They lean on the possession row for<br>
+holder</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>proof and otherwise fail on their own. So Karthik=E2=80=99s composed lin=
+e reads, to us, as one anchor plus its authorizations, joined on the action=
+ digest.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Here is the possession row in the template=E2=80=99s form, as the suppli=
+er:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Claim: the principal at this hop is the genuine attested actor/workload=
+,</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>and its signing key exists only while its release conditions currently h=
+old =E2=80=94 right user present, platform sound, workload genuine. Not =E2=
+=80=9Ca key answered the handshake,=E2=80=9D but =E2=80=9Ca key whose conti=
+nued existence is those conditions answered.=E2=80=9D</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Carrier: mTLS with a hardware-bound key registered with the relying</li=
+>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>party; the CertificateVerify signature is the possession proof, producib=
+le only if the release policy is satisfied at that instant. (Raw public key=
+ or certificate =E2=80=94 immaterial to this row.)</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Verifier and rule: relying party, offline, per connection =E2=80=94 val=
+idate</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>the key against the trust bundle it already holds, no per-connection iss=
+uer call, and take a completed handshake as possession-under-current-condit=
+ion. The condition-gating is made verifier-observable by attestation (RATS =
+evidence binding the key=E2=80=99s release</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>policy to the platform measurement) at enrollment and re-attestation; th=
+e handshake then proves possession under that attested policy for the sessi=
+on. A cryptographic fact prepared ahead of time, not a policy claim made in=
+ the moment.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Binding and freshness: bound to the platform =E2=80=94 the key cannot</=
+li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>exist outside its boundary =E2=80=94 and, where present, to the verified=
+ human at that platform (distinct from the approving human in Iman=E2=80=99=
+s row: one is present, the other approved this operation). Freshness is not=
+ a validity window. Whoever assesses the condition</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>also stops the grant, in the same place: the endpoint erases the key the=
+ instant the condition fails, so no revocation message travels and there is=
+ no gap for the key to outlive the condition. A workload session is a strea=
+m of mTLS connections, each needing</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>the key, so the condition is re-proven every connection. Condition-bound=
+ validity, not time-bound.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Failure behavior: local condition failure =E2=80=94 lock, posture loss,=
+</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>user absent, measurement change =E2=80=94 removes the key at the source;=
+ the next key agreement cannot complete. A possession/presentation failure,=
+ independent of chain attenuation and of human authorization. No message tr=
+avels for what the endpoint can see itself;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>absence enforces. Distrust of a still-sound platform, decided elsewhere,=
+ is the authorization case =E2=80=94 it rides a CAEP-class channel, the sam=
+e complement the other rows use.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Dependency: a hardware root of trust enforcing =E2=80=9Ccannot exist</l=
+i>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>outside its boundary=E2=80=9D =E2=80=94 a TPM for users, a confidential-=
+computing-anchored vTPM with anti-rollback for workloads; enrollment-time a=
+ttestation binding the release policy to the measurement; the RP=E2=80=99s =
+enrolled trust bundle. The row makes no authority claim of</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>its own; it supplies the holder proof the chain and human-authorization =
+rows depend on at the transport, and nothing more.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Evidence: reference implementation at [<a href=3D"http://github.com/Win=
+Magic/LIT" target=3D"_blank">github.com/WinMagic/LIT</a>](<a href=3D"http:/=
+/github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT)" target=3D"_blan=
+k">http://github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT)</a>).</=
+li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The verified-human presence-bound path is demonstrated. We haven=E2=80=
+=99t implemented anything for the workload yet, though. An empty evidence c=
+ell should be allowed to say so, as Karthik noted for the chain row.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Net: possession-under-condition at the wire, attenuation along the chain=
+, human authorization at the root =E2=80=94 each failing independently, all=
+ joined on the same action digest.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Ours is the row where freshness is liveness rather than a window, becaus=
+e the assessor and the stopper are the same place. If it lands before Monda=
+y it can go into -01 with the others; otherwise it folds to the next revisi=
+on.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Best,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>From: KARTHIK RAMPALLI <a href=3D"mailto:karthik@glyphzerolabs.com" targ=
+et=3D"_blank">karthik@glyphzerolabs.com</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Sent: Sunday, July 5, 2026 12:09 AM</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>To: Iman Schrock <a href=3D"mailto:team@emiliaprotocol.ai" target=3D"_bl=
+ank">team@emiliaprotocol.ai</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Cc: <a href=3D"mailto:bluedognull@gmail.com" target=3D"_blank">bluedognu=
+ll@gmail.com</a>; Thi Nguyen-Huu</p>
+</blockquote>
+<blockquote>
+<p><a href=3D"mailto:thi.nh@winmagic.com" target=3D"_blank">thi.nh@winmagic=
+.com</a>; <a href=3D"mailto:wimse@ietf.org" target=3D"_blank">wimse@ietf.or=
+g</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Subject: Re: [WIMSE] Re: Condition-bounded credential profile for WIMSE =
+=E2=80=94 no rotation, no cert lifecycle</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>You don=E2=80=99t often get email from</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"mailto:karthik@glyphzerolabs.com" target=3D"_blank">karthik@g=
+lyphzerolabs.com</a>.</p>
+</blockquote>
+<blockquote>
+<p><a href=3D"https://aka.ms/LearnAboutSenderIdentification" target=3D"_bla=
+nk">Learn why this is important</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>CAUTION:This email originated from outside of the organization. Do</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>not click links, open attachments or respond unless you recognize the se=
+nder and know that the content is safe.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Uploaded it here - <a href=3D"https://datatracker.ietf.org/doc/draft-ram=
+palli-cross-org-delegation-mapping/" target=3D"_blank">https://datatracker.=
+ietf.org/doc/draft-rampalli-cross-org-delegation-mapping/</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Sun, Jul 5, 2026 at 1:07=E2=80=AFPM KARTHIK RAMPALLI</p>
+</blockquote>
+<blockquote>
+<p><a href=3D"mailto:karthik@glyphzerolabs.com" target=3D"_blank">karthik@g=
+lyphzerolabs.com</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Dr. Iman, thank you.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The row is stated in exactly the discipline, and it will go in verbatim,=
+ credited, not trimmed. The two parts I would least want trimmed are the on=
+es only the supplier could have written: the one-time-use split, offline-ve=
+rifiable versus enforcement-point</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>state with the state holder named in the dependency, so the two stay vis=
+ible separately; and the machine-readable refusal, because a refusal that n=
+ames the missing evidence is itself audit material, which is the composable=
+-audit property arriving through<br>
+the</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>failure path.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Given the draft cutoff on Monday, I intend to post the mapping -01 befor=
+e it, so the document in front of Vienna already carries the row. One asymm=
+etry the revision states rather than papers over: the chain row does not ye=
+t cite public</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>evidence vectors, and its evidence entry reads as open until vectors are=
+ published. An evidence column is only useful if an empty cell is allowed t=
+o say so.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo, that makes the possession row the remaining supplied-by-name row=
+. If you want to state the Live Key row in the same form and it arrives bef=
+ore the cutoff, -01 can carry it too; otherwise it folds into the next revi=
+sion, as would a session-binding</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>entry from Ramki=E2=80=99s thread.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Karthik Rampalli</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Glyphzero, Inc.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Sun, Jul 5, 2026 at 1:00=E2=80=AFPM Iman Schrock</p>
+</blockquote>
+<blockquote>
+<p><a href=3D"mailto:team@emiliaprotocol.ai" target=3D"_blank">team@emiliap=
+rotocol.ai</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Karthik, Songbo, Thi, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The chain row stated in template terms is the way to do it, and the mapp=
+ing draft posting is noted with thanks: the R5 and R4 corrections read righ=
+t, and pinning verdicts to cited revisions with this list as the canonical =
+venue is the discipline that keeps</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>the document trustworthy.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>So the standalone table can carry it in the same form, here is the human=
+-authorization row, stated the way you stated the chain row:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Claim: a named, accountable human (or an M-of-N quorum of distinct huma=
+ns, optionally ordered) authorized this exact operation before execution. A=
+sserted as human authority, not organizational policy; the row names which,=
+</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>per the -02 direction on Songbo=E2=80=99s</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>template.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Carrier: the authorization receipt (EP-RECEIPT-v1, or EP-QUORUM-v1 for =
+multi-party), a self-contained signed JSON artifact conveyed inline or refe=
+renced by digest from the host record.</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Verifier and rule: the relying party, offline, no account: Ed25519 over=
+ the RFC 8785 canonical action bytes against a pinned issuer key. For a quo=
+rum: threshold met by distinct principals over the same digest, order enfor=
+ced</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>when declared. Verified and accepted</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>stay separate results, and neither implies sufficiency.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Binding and freshness: bound to the action digest (the shared join key;=
+ digest equality is a join key, never authorization) and to the named princ=
+ipal. Validity window on the artifact. One-time use is enforcement-point st=
+ate,</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>not offline-verifiable; the state</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>holder is named in the dependency, so the offline part and the enforceme=
+nt part stay visible separately.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Failure behavior: missing, invalid, stale, replayed, or out-of-scope fa=
+ils the request as a human-authorization failure, independently of key poss=
+ession and of chain attenuation. The refusal is machine-readable (HTTP 428<=
+/li>
+</ul>
+</blockquote>
+<blockquote>
+<p>challenge naming the missing evidence),</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>so a refusal is itself evidence, not silence.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Dependency: relying-party key pinning (a binding from an unpinned issue=
+r must not be accepted); an enforcement point for one-time consumption, dep=
+loyed by the resource owner; and holder proof at presentation rides the pos=
+session</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>row at the transport, the</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>same shared dependency your mapping records at R4. The row makes no poss=
+ession claim of its own.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Evidence: public vectors, positive and negative (receipts and quorum su=
+ites in the reference repo); reproducible in one line with npx -y ep-verify=
+ or pip install ep-verify.</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Your composed-stack sentence is the one I would keep: possession at the =
+wire, attenuation along the chain, human authorization at the root, each fa=
+iling independently, all joined on the same action digest. Use this row ver=
+batim or trimmed, whichever serves</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>the document.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Iman</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Sat, Jul 04, 2026 08:39 PM, KARTHIK RAMPALLI <a href=3D"mailto:karthi=
+k@glyphzerolabs.com" target=3D"_blank">karthik@glyphzerolabs.com</a> wrote:=
+</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hello Songbo, Iman, Thi, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The diagnostically separate rows are the structure I would want as a ver=
+ifier too, and Iman=E2=80=99s human-authorization row belongs in the set: i=
+t is an input class that fails independently of the key and the chain, and =
+it joins on the same action</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>digest the other rows use.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Taking the framing seriously for the row Songbo labeled =E2=80=9Cinherit=
+ed delegation-chain input=E2=80=9D: under the matrix rules of draft-bu-agen=
+tproto-security-principal-binding-01, an inherited mechanism is not a curre=
+nt guarantee unless its dependency</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>and failure behavior are stated. So here is that row stated in the templ=
+ate=E2=80=99s own terms, with PEDIGREE as the supplier:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Claim: authority for this exact operation was conveyed from the root pr=
+incipal and narrowed at every hop; the terminal scope covers the operation.=
+</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Carrier: the per-hop delegation tokens, conveyed inline with the reques=
+t.</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Verifier and rule: the relying party, offline: re-verify each hop=E2=80=
+=99s signature against its issuer key, check per-hop scope subsetting and m=
+andate narrowing, take effective expiry as the minimum over hops, and requi=
+re the operator-ceiling</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>conjunct.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Binding and freshness: bound to the root principal and to the holder=E2=
+=80=99s key; staleness bounded by chain lifetime; cascade revocation rides =
+a CAEP-class channel where one exists.</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Failure behavior: any hop signature failure, subset violation, or expir=
+y fails the request as an authorization failure, independently of key posse=
+ssion and of human authorization. A revocation feed older than the configur=
+ed</li>
+</ul>
+</blockquote>
+<blockquote>
+<p>bound must</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>fail closed; making that normative is the pedigree-02 item already flagg=
+ed on Morgan=E2=80=99s thread.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>Dependency: the originating organization=E2=80=99s trust anchor (root o=
+nly; intermediate hops use self-certifying identifiers), inline conveyance =
+of parent tokens, and the possession row at the transport for holder proof.=
+</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Stated that way, nothing is inherited implicitly: the chain row supplies=
+ the authority path and its attenuation, and it explicitly depends on the p=
+ossession row rather than assuming it. The Live Key profile keeps its guara=
+ntees, the chain</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>keeps its own, and a verifier gets a distinct failure class from each.</=
+p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>With Iman=E2=80=99s row added, the composed stack has clean names and cl=
+ean failure classes: possession at the wire, attenuation along the chain, h=
+uman authorization at the root, each failing independently, all joined on t=
+he same action digest.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>That is the same discipline the combined R1-R9 table on Morgan=E2=80=99s=
+ thread converged on, so when I cut that table as a standalone doc I will s=
+tate the chain row in exactly this form, and the two threads can reference =
+one artifact.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Karthik Rampalli</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Glyphzero, Inc.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Sun, Jul 5, 2026 at 11:22=E2=80=AFAM Iman Schrock</p>
+</blockquote>
+<blockquote>
+<p><a href=3D"mailto:team@emiliaprotocol.ai" target=3D"_blank">team@emiliap=
+rotocol.ai</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo, Karthik, Thi,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The diagnostically separate rows are the right structure. One addition: =
+some operations are human-gated by policy, so there is an input class that =
+is neither possession nor delegation:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote>
+<p>pre-execution human authorization: a named human, or an M-of-N quorum of=
+ distinct humans, authorized this exact operation, bound to the same action=
+ digest the other rows join on.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>It fails independently of the chain and the key. A live key with a valid=
+, sufficiently scoped chain still fails closed if the required human author=
+ization is absent, stale, or bound to different action bytes. EMILIA suppli=
+es this row today (draft-schrock-ep-human-authorization-binding-00,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>draft-schrock-ep-receipts-05), and it composes with the Live Key profile=
+ and PEDIGREE by digest without inheriting or granting either layer=E2=80=
+=99s guarantees, per Songbo=E2=80=99s framing.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Dr. I,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Sat, Jul 4, 2026 at 7:09=E2=80=AFPM Songbo Bu</p>
+</blockquote>
+<blockquote>
+<p><a href=3D"mailto:bluedognull@gmail.com" target=3D"_blank">bluedognull@g=
+mail.com</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hi Karthik, Thi, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Yes =E2=80=94 this is the separation I intended.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>For a verifier, the condition-bounded credential and the delegation</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>chain are two different inputs to the decision:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote>
+<p>the condition-bounded credential proves possession of a stable key</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>whose use is gated by an attested key-release policy;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote>
+<p>the delegation chain proves that authority was conveyed and narrowed</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>across hops;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote>
+<p>the authorization decision still needs audience, scope, operation,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>time bounds, and relying-party policy to be checked explicitly.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Those inputs should be conjunctive for the final decision, but</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>diagnostically separate. If the key is live but the terminal scope</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>does not cover the operation, the request fails as an authorization</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>failure. If the chain is valid but the holder cannot prove possession</p=
+>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>at the transport layer, the request fails as a possession/presentation</=
+p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>failure. If the local release condition fails and the key disappears,</p=
+>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>the next key use or handshake fails independently of the delegation</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>chain.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>For the condition-bounded profile, I would therefore keep a small</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>verifier-facing table with separate rows for:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>enrolled key / actor / workload / environment binding;</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>live key possession at connection time;</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>local condition failure and key unavailability;</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>external lifecycle or policy events, such as CAEP or an equivalent chan=
+nel;</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>authorization inputs: audience, scope, operation, and time bounds;</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li>inherited delegation-chain input, where PEDIGREE or another chain</li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>mechanism supplies the authority path.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>That framing lets the Live Key profile and PEDIGREE compose without</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>one inheriting guarantees from the other implicitly. It also gives</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>WIMSE reviewers a clean failure path for each row.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Best,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Sun, 5 Jul 2026 05:39:39 +0900, KARTHIK RAMPALLI</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"mailto:karthik@glyphzerolabs.com" target=3D"_blank">karthik@g=
+lyphzerolabs.com</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hi Songbo, Thi, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo=E2=80=99s verifier-processing model draws a line I want to build =
+on: authorization stays separate from key possession. Audience, scope, oper=
+ation, and time bounds are authorization inputs, not properties inferred fr=
+om the key.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>For agentic actors, that authorization input is often not a single grant=
+ but a delegation chain. An orchestrator spawns sub-agents, a sub-agent cal=
+ls a tool in another trust domain, and each hop is supposed to carry equal =
+or narrower authority than its parent.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Key possession proves which workload is at the wire. It says nothing abo=
+ut whether the chain behind the request is intact, whether any hop widened =
+its scope, or whether a parent grant was swapped after issuance.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>We published an individual draft in April that profiles exactly this lay=
+er above WIMSE credentials, and refreshed it this week as -01 with a sectio=
+n positioning it against WIMSE-ARCH and the workload credentials document:<=
+/p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"https://datatracker.ietf.org/doc/draft-rampalli-pedigree/" ta=
+rget=3D"_blank">https://datatracker.ietf.org/doc/draft-rampalli-pedigree/</=
+a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>It defines per-hop delegation tokens with monotonic scope attenuation ch=
+ecked both at mint and at verify, strict re-verification of the parent toke=
+n at each hop (which catches parent-swap attacks that append-only chains mi=
+ss), and a dual enforcement model:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>an operator ceiling plus per-parent narrowing. The workload identity und=
+erneath is deliberately not redefined. The draft assumes a SPIFFE or WIMSE =
+credential and layers delegation on top.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Three connections to threads on this list:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote>
+<p>To Thi=E2=80=99s profile: keeping the actor slot generic is the right ca=
+ll, and a delegation chain is one concrete instance of the authorization in=
+put the Live Key profile deliberately keeps separate from possession. A har=
+dware-bound possession proof plus a verifiable</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>attenuation chain compose cleanly; neither replaces the other.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote>
+<p>To Yuning=E2=80=99s heterogeneous-credential work: a delegation token is=
+ one more typed input to the set-level processing, and its verification res=
+ult normalizes the same way (chain validity, terminal scope, expiry of the =
+narrowest hop).</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote>
+<p>To the SCITT Agent Action Capsule work (draft-mih-scitt-agent-action-cap=
+sule): AAC records what an agent actually did and carries the authority tha=
+t permitted it as an opaque reference. A delegation chain is one natural re=
+solution target for that reference,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>closing the loop between =E2=80=9Cwas permitted=E2=80=9D and =E2=80=9Cwa=
+s done.=E2=80=9D We posted a short binding profile on that composition this=
+ week: draft-rampalli-scitt-capsule-provenance-binding-00.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>If the comparative requirements mapping Morgan invited goes ahead, we wo=
+uld be glad to map PEDIGREE against it alongside the others.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Feedback welcome, on-list or off.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Karthik Rampalli</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Glyphzero, Inc.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Wed, Jun 24, 2026 at 12:09=E2=80=AFAM Songbo Bu</p>
+</blockquote>
+<blockquote>
+<p><a href=3D"mailto:king347608@gmail.com" target=3D"_blank">king347608@gma=
+il.com</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hi Thi, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thanks, that framing works for me.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>I took a first pass at turning the PDF and the list discussion into an</=
+p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>I-D-shaped outline. The main edit is to keep the document framed as a</p=
+>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>condition-bounded workload-credential profile, with =E2=80=9CLive Key=E2=
+=80=9D as the</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>mechanism inside it.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>I also adjusted the verifier model around the point you clarified: the</=
+p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>trust is prepared at enrollment and refreshed by</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>attestation/re-attestation over time; the handshake then proves live</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>key presence under that prepared binding. That is cleaner than making</p=
+>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>it sound like the verifier needs a fresh condition-evidence exchange</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>on every key use.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>I will send you the working skeleton off-list so we can fill in the</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>hardware release / condition-gating details before bringing a cleaner</p=
+>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>-00 outline back to WIMSE.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Best,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Tue, 23 Jun 2026 13:20:38 +0000, Thi Nguyen-Huu <a href=3D"mailto:thi=
+.nh@winmagic.com" target=3D"_blank">thi.nh@winmagic.com</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hi Songbo,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>This is genuinely helpful. You know WIMSE well and I=E2=80=99d be glad f=
+or you to take the first pass at shaping this into a draft. Our substance i=
+s in the PDF to draw from, and your</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>verifier-processing subsection is the most WG-native part of it. I=E2=80=
+=99ll bring the mechanism detail (the hardware key-derivation and condition=
+-gating) and the reference implementation as you need them.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On your line =E2=80=9Cthe verifier also needs evidence, or a trusted pol=
+icy assertion, that the key is released only while the conditions hold=E2=
+=80=9D: in our model that=E2=80=99s not an extra check</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>at use time. The trust is prepared. At registration, the key is bound - =
+hardware-based, non-exfiltratable - to its release conditions, and that bin=
+ding is attested, and re-attested over time. After that, presence is the co=
+ndition-check: the key can only</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>produce</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>the handshake signature if its conditions currently hold. The binding pr=
+epared at enrollment, the presence proven live in the handshake =E2=80=94 r=
+ather than the verifier needing separate evidence each time.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>And I take your naming point =E2=80=9Ccondition-bounded credential=E2=80=
+=9D as the framing, with =E2=80=9CLive Key=E2=80=9D as the name of the mech=
+anism inside. The subject already goes that way: draft-winmagic-wimse-condi=
+tion-bounded-credentials.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>I=E2=80=99ll be glad to have a short call whenever useful. Thank you, th=
+is really helps.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>WinMagic Corp.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>From: Songbo Bu <a href=3D"mailto:king347608@gmail.com" target=3D"_blank=
+">king347608@gmail.com</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Sent: Monday, June 22, 2026 9:22 PM</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>To: Thi Nguyen-Huu <a href=3D"mailto:thi.nh@winmagic.com" target=3D"_bla=
+nk">thi.nh@winmagic.com</a>;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"mailto:wimse@ietf.org" target=3D"_blank">wimse@ietf.org</a></=
+p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Subject: Re: [WIMSE] Re: Condition-bounded credential profile for WIMSE =
+=E2=80=94 no rotation, no cert lifecycle</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>CAUTION:This email originated from outside of the organization. Do</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>not click links, open attachments or respond unless you recognize the se=
+nder and know that the content is safe.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hi Thi, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thanks, that works for me.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>I would keep the next revision small and implementation-facing.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Here is a candidate verifier-processing subsection that you can use, edi=
+t, or reject:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Verifier processing model</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>For this profile, the verifier should treat key possession, attested key=
+-release conditions, and authorization scope as separate inputs to the deci=
+sion.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>At enrollment, the verifier or its trusted enrollment component records =
+the binding between the workload actor, the protected key, the key-release =
+policy, the node/environment identity, and the attestation evidence that su=
+pports those conditions.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>During an mTLS connection, the TLS handshake proves possession of the en=
+rolled key.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>That proof alone is not the complete condition check.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The verifier also needs evidence, or a trusted policy assertion, that th=
+e key is released only while the configured actor, node, workload measureme=
+nt, and posture conditions hold.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>If a local condition fails, the key-release mechanism should make the ke=
+y unavailable.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The next use of the key, including a subsequent mTLS handshake or other =
+key operation, fails.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>If the deployment requires immediate termination of an already establish=
+ed long-lived connection, that behavior should be specified as an additiona=
+l session-management rule or driven by a continuous-evaluation signal.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Externally originated lifecycle changes, such as device retirement, poli=
+cy withdrawal, attestation-root change, or incident response, remain lifecy=
+cle events.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>They can be carried to the verifier through CAEP or an equivalent event =
+channel.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>This is why the profile reduces rotation pressure for the anti-exfiltrat=
+ion property but does not eliminate lifecycle management.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Authorization remains separate from possession of the stable hardware-bo=
+und key.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Audience, scope, operation, and time bounds should be checked as authori=
+zation inputs rather than inferred from key possession.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>I would also suggest avoiding =E2=80=9Cno lifecycle=E2=80=9D as the main=
+ headline.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>=E2=80=9CCondition-bounded stable credential=E2=80=9D or =E2=80=9Clive-k=
+ey-bound workload credential=E2=80=9D may be easier for WIMSE readers to ac=
+cept.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Best,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Mon, 22 Jun 2026 17:12:41 +0000, Thi Nguyen-Huu <a href=3D"mailto:thi=
+.nh@winmagic.com" target=3D"_blank">thi.nh@winmagic.com</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hi Songbo, and you know wimse much better than I do too, I think. Your h=
+elp would be very good for me. Thanks.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Get</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"https://aka.ms/o0ukef" target=3D"_blank">Outlook for iOS</a><=
+/p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>From: Thi Nguyen-Huu thi.nh=3D<a href=3D"mailto:40winmagic.com@dmarc.iet=
+f.org" target=3D"_blank">40winmagic.com@dmarc.ietf.org</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Sent: Monday, 22 June 2026 12:12:35</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>To: Songbo Bu <a href=3D"mailto:king347608@gmail.com" target=3D"_blank">=
+king347608@gmail.com</a>;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"mailto:wimse@ietf.org" target=3D"_blank">wimse@ietf.org</a> <=
+a href=3D"mailto:wimse@ietf.org" target=3D"_blank">wimse@ietf.org</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Subject: [WIMSE] Re: Condition-bounded credential profile for WIMSE =E2=
+=80=94 no rotation, no cert lifecycle</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>You don=E2=80=99t often get email from thi.nh=3D<a href=3D"mailto:40winm=
+agic.com@dmarc.ietf.org" target=3D"_blank">40winmagic.com@dmarc.ietf.org</a=
+>.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"https://aka.ms/LearnAboutSenderIdentification" target=3D"_bla=
+nk">Learn why this is important</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>CAUTION:This email originated from outside of the organization. Do not c=
+lick links, open attachments or respond unless you recognize the sender and=
+ know that the content is safe.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thx Songbo. I=E2=80=99m travelling and this will be short.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Yes, if you can help sketch next revision it will be better than mine wi=
+th my bias. And yes, your 5 statements are all correct. Thanks a lot.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Get</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"https://aka.ms/o0ukef" target=3D"_blank">Outlook for iOS</a><=
+/p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>From: Songbo Bu <a href=3D"mailto:king347608@gmail.com" target=3D"_blank=
+">king347608@gmail.com</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Sent: Monday, 22 June 2026 11:31:57</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>To: Thi Nguyen-Huu <a href=3D"mailto:thi.nh@winmagic.com" target=3D"_bla=
+nk">thi.nh@winmagic.com</a>;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"mailto:wimse@ietf.org" target=3D"_blank">wimse@ietf.org</a> <=
+a href=3D"mailto:wimse@ietf.org" target=3D"_blank">wimse@ietf.org</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Subject: RE: [WIMSE] Condition-bounded credential profile for WIMSE =E2=
+=80=94 no rotation, no cert lifecycle</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>[You don=E2=80=99t often get email from <a href=3D"mailto:king347608@gma=
+il.com" target=3D"_blank">king347608@gmail.com</a>. Learn why this is impor=
+tant at</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"https://aka.ms/LearnAboutSenderIdentification" target=3D"_bla=
+nk">https://aka.ms/LearnAboutSenderIdentification</a> ]</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>CAUTION:This email originated from outside of the organization. Do not c=
+lick links, open attachments or respond unless you recognize the sender and=
+ know that the content is safe.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hi Thi, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thanks =E2=80=94 this clarifies the profile quite a bit.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The =E2=80=9CLive Key=E2=80=9D / key-disappearance mechanism is the part=
+ I would make</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>very explicit, because it is the piece that makes the profile</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>different from ordinary long-lived workload identity.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>For reviewability, I think the next useful artifact is a small</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>verifier-facing state model rather than more prose about rotation.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Something like:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>enrollment binds the key-release policy to the actor, node,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>workload measurement, and posture conditions;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>each mTLS connection proves possession of the same stable key under</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>that policy;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>if a local condition fails, the key disappears and the next key use</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>or handshake fails;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>if an external condition changes, CAEP or an equivalent channel</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>carries that policy/lifecycle event to the verifier;</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>authorization scope, audience, and time bounds remain separate from</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>key possession.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>That would keep the profile implementable: the verifier can ask what</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>state was checked, what event changes that state, and what exact</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>failure behavior follows.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>I also agree that the right claim is not =E2=80=9Cno lifecycle=E2=80=9D,=
+ but &quot;lower</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>rotation pressure for the anti-exfiltration property, with</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>event-driven lifecycle for the remaining cases&quot;.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>If useful, I can help sketch this as a short verifier-processing</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>section or checklist for the next revision.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Best,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Mon, 22 Jun 2026 14:05:18 +0000, Thi Nguyen-Huu <a href=3D"mailto:thi=
+.nh@winmagic.com" target=3D"_blank">thi.nh@winmagic.com</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hi Songbo,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thank you very much =E2=80=94 all your points are correct, and your emai=
+l is exactly what I=E2=80=99d hoped for</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>=F0=9F=98=8A.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The non-exfiltrable key removes one rotation reason: limiting exposure a=
+fter theft. But there are more, as you said, and those are handled event-dr=
+iven. When a device retires or a defect surfaces, the IdP/OP informs the ve=
+rifier via push/pull =E2=80=94 which is</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>what</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>CAEP (the OpenID Continuous Access Evaluation Protocol) does. In effect,=
+ that channel can carry the lifecycle changes a CA=E2=80=99s reissue-and-re=
+voke cycle carries today =E2=80=94rarely, in years, not minutes or hours.</=
+p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>A bit more on each point:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Verifier-observable binding. Agreed =E2=80=94 CertificateVerify proves p=
+ossession, not conditions. The gating is made observable by attestation: RA=
+TS evidence binding the key=E2=80=99s release policy to the workload measur=
+ement, established at enrollment and re-attestation.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The handshake then proves possession-under-that-policy for this session.=
+ The profile has to carry both.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Mid-session. A workload session is a stream of mTLS connections, each ne=
+eding the key =E2=80=94 so key-disappearance is the live mid-session contro=
+l: the instant a condition fails, the key is gone and the next mTLS key agr=
+eement can=E2=80=99t complete. That disappearance</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>is the novelty here. I would be glad to elaborate more in a meeting. The=
+ key is released only while actor, node, and posture all hold (attached doc=
+ last time, =C2=A74 Validity), and it can be the same key across connection=
+s, not just once. CAEP complements it</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>for</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>what the node can=E2=80=99t see itself =E2=80=94 an externally-originate=
+d change, or killing a single long-lived connection at once rather than wai=
+ting for its next handshake.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Key vs authorization lifetime. Fully agreed =E2=80=94 =C2=A74 (Authoriza=
+tion) keeps these separate: the hardware key is the stable identity; audien=
+ce, scope, and time bounds stay on the authorization.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>So yes =E2=80=94 an optional profile for stable, attestable deployments,=
+ where non-exfiltration reduces the rotation cadence rather than abolishing=
+ lifecycle. That=E2=80=99s the right frame, and I=E2=80=99ll write it that =
+way.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Happy to walk through the key-disappearance mechanism in more detail, on=
+ the list or a quick call =E2=80=94 whatever=E2=80=99s easiest for you.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>As we go deeper and broader: everything here is the workload actor. The =
+same key =E2=80=94 a =E2=80=9CLive Key,=E2=80=9D whose identity is actor + =
+environment + conditions and which disappears when that identity disappears=
+ =E2=80=94 applies equally to humans, machines, and IoT. We have</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>an article in Cyber Defense Magazine on this identity if it=E2=80=99s us=
+eful: <a href=3D"https://www.cyberdefensemagazine.com/newsletters/march-202=
+6/mobile/index.html#p=3D259" target=3D"_blank">https://www.cyberdefensemaga=
+zine.com/newsletters/march-2026/mobile/index.html#p=3D259</a>.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Cheers</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi Nguyen-Huu | CEO</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Tel: +1 905.502.7000 x 3288 | Toll Free: 888.879.5879</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"mailto:thi.nh@winmagic.com" target=3D"_blank">thi.nh@winmagic=
+.com</a> |</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>[[[<a href=3D"http://www.winmagic.com" target=3D"_blank">www.winmagic.co=
+m</a>](<a href=3D"http://www.winmagic.com" target=3D"_blank">http://www.win=
+magic.com</a>)](<a href=3D"http://www.winmagic.com" target=3D"_blank">http:=
+//www.winmagic.com</a>)](<a href=3D"http://www.winmagic.com" target=3D"_bla=
+nk">http://www.winmagic.com</a>)</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>WinMagic Corp. | 11-80 Galaxy Blvd.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Toronto, ON | M9W 4Y8 | Canada | [[[<a href=3D"http://www.winmagic.com" =
+target=3D"_blank">www.winmagic.com</a>](<a href=3D"http://www.winmagic.com"=
+ target=3D"_blank">http://www.winmagic.com</a>)](<a href=3D"http://www.winm=
+agic.com" target=3D"_blank">http://www.winmagic.com</a>)](<a href=3D"http:/=
+/www.winmagic.com" target=3D"_blank">http://www.winmagic.com</a>)</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>-----Original Message-----</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>From: Songbo Bu <a href=3D"mailto:king347608@gmail.com" target=3D"_blank=
+">king347608@gmail.com</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Sent: Sunday, June 21, 2026 11:33 PM</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>To: <a href=3D"mailto:wimse@ietf.org" target=3D"_blank">wimse@ietf.org</=
+a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Subject: [WIMSE] Condition-bounded credential profile for WIMSE =E2=80=
+=94 no rotation, no cert lifecycle</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>[You don=E2=80=99t often get email from <a href=3D"mailto:king347608@gma=
+il.com" target=3D"_blank">king347608@gmail.com</a>. Learn why this is impor=
+tant at</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"https://aka.ms/LearnAboutSenderIdentification" target=3D"_bla=
+nk">https://aka.ms/LearnAboutSenderIdentification</a> ]</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>CAUTION:This email originated from outside of the organization. Do not c=
+lick links, open attachments or respond unless you recognize the sender and=
+ know that the content is safe.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hi Thi, all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thanks for sharing this. I think the profile is worth discussing, especi=
+ally as a hardware-bound mTLS/X.509-SVID profile for stable workloads.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The boundary I would tighten is the =E2=80=9Cno rotation / no cert lifec=
+ycle=E2=80=9D</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>claim. A non-exfiltratable key removes one important reason for short</p=
+>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>rotation: limiting exposure after key theft. It does not remove every re=
+ason for credential lifecycle management.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>A few implementation-facing points seem important to me:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The verifier needs a fresh, verifier-observable binding between the TLS =
+key, the workload measurement/posture, and the current session.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>CertificateVerify proves possession of the private key, but the relying =
+party also needs to know that the key is currently usable only under the st=
+ated conditions.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Credential expiry and revocation may no longer carry the primary anti-ex=
+filtration property, but they still help with algorithm agility, attestatio=
+n-root changes, device retirement, policy withdrawal, incident response, an=
+d recovery from implementation</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>defects.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>=E2=80=9CValidity by presence=E2=80=9D needs clear semantics after a ses=
+sion has started. If a posture condition fails mid-session, the profile sho=
+uld say whether the next operation fails, the TLS session is terminated, or=
+ an external continuous-evaluation signal is required.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<ul>
+<li></li>
+</ul>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Key protection and authorization lifetime should stay separate. A long-l=
+ived hardware identity key can authenticate the workload, but task authoriz=
+ation may still need audience, scope, and time bounds.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>So I would frame this as an optional WIMSE profile where hardware non-ex=
+filtration reduces the need for frequent key rotation in stable, attestable=
+ deployments, rather than as a profile with no credential lifecycle. That f=
+raming keeps the useful idea while</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>avoiding a claim that lifecycle controls are unnecessary.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Best,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Songbo</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>On Sun, 21 Jun 2026 15:22:34 +0000, Thi Nguyen-Huu thi.nh=3D<a href=3D"m=
+ailto:40winmagic.com@dmarc.ietf.org" target=3D"_blank">40winmagic.com@dmarc=
+.ietf.org</a> wrote:</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Hello all,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>I=E2=80=99m Thi Nguyen-Huu of WinMagic; Deb Cooley suggested I bring thi=
+s here</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>=C3=A2=E2=82=AC=E2=80=9D thanks, Deb.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>My understanding is that WIMSE leaves credential lifetime to the</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>implementation: currently short-lived with rotation, because a</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>software key can be copied. I=E2=80=99d like to contribute one conformin=
+g</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>profile on the mTLS / X.509-SVID path: a binding key generated in</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>hardware, non-retrievable, and usable only while attested posture</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>holds. It can=E2=80=99t be exfiltrated, so it needn=E2=80=99t be rotated=
+; its presence</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>becomes its validity =C3=A2=E2=82=AC=E2=80=9D proven live by possession =
+in the handshake,</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>with</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>no certificate lifetime or revocation check doing the work.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>The profile is attached. Happy to refine toward a draft and present at I=
+ETF 127 if useful.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Thi Nguyen-Huu</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Founder &amp; CEO, WinMagic Corp.</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p><a href=3D"mailto:thi.nh@winmagic.com" target=3D"_blank">thi.nh@winmagic=
+.com</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Reference implementation: [[[<a href=3D"http://github.com/WinMagic/LIT" =
+target=3D"_blank">github.com/WinMagic/LIT</a>](<a href=3D"http://github.com=
+/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT)%5D(http:/github.com/WinMagi=
+c/LIT%5D(http:/github.com/WinMagic/LIT))%5D(http://github.com/WinMagic/LIT%=
+5D(http:/github.com/WinMagic/LIT))%5D(http:/github.com/WinMagic/LIT%5D(http=
+:/github.com/WinMagic/LIT)%5D(http:/github.com/WinMagic/LIT%5D(http:/github=
+.com/WinMagic/LIT)))" target=3D"_blank">http://github.com/WinMagic/LIT%5D(h=
+ttp://github.com/WinMagic/LIT))</a>](<a href=3D"http://github.com/WinMagic/=
+LIT%5D(http:/github.com/WinMagic/LIT)%5D(%5Bhttp:/github.com/WinMagic/LIT%5=
+D(http:/github.com/WinMagic/LIT))%5D(http:/github.com/WinMagic/LIT%5D(http:=
+/github.com/WinMagic/LIT)%5D(http:/github.com/WinMagic/LIT%5D(http:/github.=
+com/WinMagic/LIT))%5D(http:/github.com/WinMagic/LIT%5D(http:/github.com/Win=
+Magic/LIT))%5D(http:/github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/L=
+IT)%5D(http:/github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT))))" =
+target=3D"_blank">http://github.com/WinMagic/LIT%5D(http:/github.com/WinMag=
+ic/LIT)%5D(%5Bhttp:/github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LI=
+T))%5D(http:/github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT)%5D(h=
+ttp:/github.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT))%5D(http:/gi=
+thub.com/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT))%5D(http:/github.co=
+m/WinMagic/LIT%5D(http:/github.com/WinMagic/LIT)%5D(http:/github.com/WinMag=
+ic/LIT%5D(http:/github.com/WinMagic/LIT))))</a>)</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>=E2=80=93</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>WIMSE mailing list =E2=80=93 <a href=3D"mailto:wimse@ietf.org" target=3D=
+"_blank">wimse@ietf.org</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>To unsubscribe send an email to <a href=3D"mailto:wimse-leave@ietf.org" =
+target=3D"_blank">wimse-leave@ietf.org</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>=E2=80=93</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>WIMSE mailing list =E2=80=93 <a href=3D"mailto:wimse@ietf.org" target=3D=
+"_blank">wimse@ietf.org</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>To unsubscribe send an email to <a href=3D"mailto:wimse-leave@ietf.org" =
+target=3D"_blank">wimse-leave@ietf.org</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>=E2=80=93</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>WIMSE mailing list =E2=80=93 <a href=3D"mailto:wimse@ietf.org" target=3D=
+"_blank">wimse@ietf.org</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>To unsubscribe send an email to <a href=3D"mailto:wimse-leave@ietf.org" =
+target=3D"_blank">wimse-leave@ietf.org</a></p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>=E2=80=93</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Iman Schrock</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>Founder</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>EMILIA Protocol</p>
+</blockquote>
+<blockquote></blockquote>
+<blockquote>
+<p>[<a href=3D"http://emiliaprotocol.ai" target=3D"_blank">emiliaprotocol.a=
+i</a>](<a href=3D"http://emiliaprotocol.ai/" target=3D"_blank">http://emili=
+aprotocol.ai/</a>) |<br>
+<a href=3D"mailto:team@emiliaprotocol.ai" target=3D"_blank">team@emiliaprot=
+ocol.ai</a></p>
+</blockquote>
+</blockquote>
+</div>
+
+--000000000000390fc50656a1b9a8--
+
+--000000000000390fc70656a1b9aa
+Content-Type: text/x-markdown; charset="US-ASCII";
+	name="wimse-condition-bounded-rows-1-4-review-2026-07-15.md"
+Content-Disposition: attachment;
+	filename="wimse-condition-bounded-rows-1-4-review-2026-07-15.md"
+Content-Transfer-Encoding: base64
+Content-ID: <>
+X-Attachment-Id: 
+
+IyBXSU1TRSBjb25kaXRpb24tYm91bmRlZCBjcmVkZW50aWFsIHByb2ZpbGU6IHJldmlldyBvZiBy
+b3dzIDEtNAoKIyMgU2NvcGUKClRoaXMgcmV2aWV3IGFkZHJlc3NlcyBUaGkgTmd1eWVuLUh1dSdz
+IDE1IEp1bHkgMjAyNiBwcm9wb3NhbCBmb3IgdGhlIGZvdXIKcG9zc2Vzc2lvbi1zaWRlIHJvd3Mu
+ICBJdCBhY2NlcHRzIHRoZSB1c2VmdWwgZGl2aXNpb24gYmV0d2VlbiBzdWJzdHJhdGUKKHJvd3Mg
+MS00KSBhbmQgYXV0aG9yaXphdGlvbiAocm93cyA1LTcpLCBidXQgdGlnaHRlbnMgdGhlIGV2aWRl
+bmNlIGFuZApmYWlsdXJlIHNlbWFudGljcyByZXF1aXJlZCBmb3IgYSB2ZXJpZmllciB0byByZWx5
+IG9uIHRoZSBmaXJzdCBmb3VyIHJvd3MuCgojIyBSZXZpZXcgY29uY2x1c2lvbgoKVGhlIHJvd3Mg
+YXJlIGEgd29ya2FibGUgc3RhcnRpbmcgc3RydWN0dXJlIGlmIHRoZXkgYXJlIHN0YXRlZCBhcyBi
+b3VuZGVkCnZlcmlmaWVyIHJlc3VsdHMsIG5vdCBhcyBnZW5lcmFsIHN0YXRlbWVudHMgYWJvdXQg
+ZnV0dXJlIHN5c3RlbSBzb3VuZG5lc3MuClRoZSBwcm9maWxlIG5lZWRzIGFuIGV4cGxpY2l0IGVu
+cm9sbG1lbnQgbWVhc3VyZW1lbnQgcnVsZSwgY29uZGl0aW9uIGNvdmVyYWdlLAphbmQgYW4gZXh0
+ZXJuYWwtZXZlbnQgbGVhc2UuICBXaXRob3V0IHRob3NlLCB0aGUgcHJvcG9zZWQgcm93IG91dGNv
+bWVzIGNhbm5vdApiZSByZXByb2R1Y2VkIG9yIHNhZmVseSBjb25zdW1lZCBieSBhIHJlbHlpbmcg
+cGFydHkuCgojIyBSZXF1aXJlZCBjbGFyaWZpY2F0aW9ucwoKfCBSb3cgfCBQcm9wb3NlZCByZXN1
+bHQgfCBSZXF1aXJlZCBjb3JyZWN0aW9uIHwKfCAtLS0gfCAtLS0gfCAtLS0gfAp8IDEuIEF0dGVz
+dGF0aW9uIC8gZW5yb2xsbWVudCB8IElucHV0cyBleGlzdGVkIHdoZW4gYSBrZXkgd2FzIG1pbnRl
+ZC4gfCBUaGlzIGhvbGRzIG9ubHkgZm9yIGlucHV0cyBleHBsaWNpdGx5IG1lYXN1cmVkIGJ5IHRo
+ZSBhdHRlc3RhdGlvbiBldmlkZW5jZSBhbmQgY3J5cHRvZ3JhcGhpY2FsbHkgYm91bmQgdG8gdGhl
+IGVucm9sbGVkIGtleSBhbmQgZW5yb2xsbWVudCByZWNvcmQuIEtleSBleGlzdGVuY2UgYWxvbmUg
+ZG9lcyBub3QgZXN0YWJsaXNoIHRoYXQgZXZlcnkgY2xhaW1lZCBpbnB1dCBleGlzdGVkIG9yIHdh
+cyBhY2NlcHRlZCBieSB2ZXJpZmllciBwb2xpY3kuIHwKfCAyLiBMaXZlIHBvc3Nlc3Npb24gfCBU
+aGUgcGVlciBob2xkcyB0aGUgZW5yb2xsZWQga2V5IG9uIHRoaXMgY29ubmVjdGlvbi4gfCBTdGF0
+ZSB0aGUgY2hhbGxlbmdlLCB0cmFuc2NyaXB0IG9yIGNoYW5uZWwgYmluZGluZywgdmVyaWZpZXIs
+IGFuZCB0aGUgZXhhY3Qgc2NvcGUgb2YgdGhlIHJlc3VsdC4gVGhpcyBpcyBhIHBvc3Nlc3Npb24g
+cmVzdWx0LCBub3QgYW4gYXV0aG9yaXphdGlvbiBvciBhIGdlbmVyYWwgZGV2aWNlLWhlYWx0aCBy
+ZXN1bHQuIHwKfCAzLiBMb2NhbCBjb25kaXRpb24gZmFpbHVyZSB8IEEgZmFpbGVkIGxvY2FsIGNv
+bmRpdGlvbiBlcmFzZXMgdGhlIGtleS4gfCBFbnVtZXJhdGUgdGhlIG1vbml0b3JlZCBjb25kaXRp
+b25zLCBkZXRlY3Rpb24gdGltaW5nLCByZWxlYXNlL2VyYXNlIG1lY2hhbmlzbSwgYW5kIHdoYXQg
+a2V5IG9wZXJhdGlvbnMgYXJlIHN0b3BwZWQuIENvbnRpbnVlZCBrZXkgZXhpc3RlbmNlIGlzIG5v
+dCBhbiBhc3NlcnRpb24gdGhhdCBhIGZ1dHVyZSBjb25kaXRpb24gcmVtYWlucyB0cnVlLiBLZXkg
+ZXJhc3VyZSBwcm90ZWN0cyB0aGUgbmV4dCByZWxldmFudCBrZXkgdXNlIG9yIGtleSBhZ3JlZW1l
+bnQ7IGl0IGRvZXMgbm90IHRlcm1pbmF0ZSBhbiBlc3RhYmxpc2hlZCBjb25uZWN0aW9uIHVubGVz
+cyBhIHNlcGFyYXRlIGNvbm5lY3Rpb24tbWFuYWdlbWVudCBydWxlIGRvZXMgc28uIHwKfCA0LiBF
+eHRlcm5hbCBsaWZlY3ljbGUgZXZlbnQgfCBBIHJlbW90ZSBsaWZlY3ljbGUgZXZlbnQgY2F1c2Vz
+IHRoZSBrZXkgdG8gYmUgdW5hdmFpbGFibGUuIHwgIkZhaWwgY2xvc2VkIiBuZWVkcyBhIGRlZmlu
+ZWQgcmUtYXNzZXNzbWVudCBsZWFzZSBvciBleHBpcnkgY2xvY2ssIGRlbGl2ZXJ5IGFuZCBjbG9j
+ayBhc3N1bXB0aW9ucywgYW5kIGEgZ3JhY2UgcG9saWN5LiBOb24tZGVsaXZlcnkgYnkgaXRzZWxm
+IGlzIG5vdCBhIHByb29mIG9mIGZhaWx1cmUuIElmIHRoZSBkZXZpY2UgaXMgdW5yZWFjaGFibGUg
+YmV5b25kIHRoZSBsZWFzZSwgdGhlIG5leHQga2V5IHVzZSBtdXN0IGZhaWwgYmVjYXVzZSB0aGUg
+cmVxdWlyZWQgY3VycmVudCBzdGF0dXMgY2Fubm90IGJlIGVzdGFibGlzaGVkLiB8CgojIyBNaW5p
+bXVtIHZlcmlmaWVyIG91dHB1dHMKClRoZSBkcmFmdCBuZWVkIG5vdCBhbGxvY2F0ZSB3aXJlLWxl
+dmVsIGVycm9yIGNvZGVzIG5vdywgYnV0IHZlY3RvcnMgc2hvdWxkCmRpc3Rpbmd1aXNoIGF0IGxl
+YXN0IHRoZXNlIG91dGNvbWVzOgoKLSBgZW5yb2xsbWVudF9ldmlkZW5jZV9pbmNvbXBsZXRlYDog
+YW4gYXNzZXJ0ZWQgZW5yb2xsbWVudCBpbnB1dCB3YXMgbm90IG1lYXN1cmVkIG9yIGJvdW5kIHRv
+IHRoZSBlbnJvbGxlZCBrZXkuCi0gYGxpdmVfcG9zc2Vzc2lvbl92ZXJpZmllZGA6IGEgbGl2ZSwg
+dHJhbnNjcmlwdC1ib3VuZCBrZXktcG9zc2Vzc2lvbiBjaGVjayBzdWNjZWVkZWQgZm9yIHRoZSBz
+dGF0ZWQgY29ubmVjdGlvbi4KLSBgbG9jYWxfY29uZGl0aW9uX2ZhaWxlZGA6IGEgbmFtZWQgbG9j
+YWwgY29uZGl0aW9uIGZhaWxlZCBhbmQgdGhlIHByb2ZpbGUgcHJldmVudGVkIHRoZSBuZXh0IGdv
+dmVybmVkIGtleSBvcGVyYXRpb24uCi0gYGV4dGVybmFsX3N0YXR1c19zdGFsZWA6IG5vIGFjY2Vw
+dGFibGUgbGlmZWN5Y2xlIHJlLWFzc2Vzc21lbnQgd2FzIHJlY2VpdmVkIGJlZm9yZSB0aGUgbGVh
+c2UgZXhwaXJlZC4KLSBgY29ubmVjdGlvbl9wb2xpY3lfcmVxdWlyZWRgOiBwb3NzZXNzaW9uIHN0
+YXRlIGNoYW5nZWQgYWZ0ZXIgYSBjb25uZWN0aW9uIHdhcyBlc3RhYmxpc2hlZDsgc2Vzc2lvbiBj
+b250aW51YXRpb24gbXVzdCBiZSBkZWNpZGVkIGJ5IGEgc2VwYXJhdGUsIHN0YXRlZCBwb2xpY3ku
+CgpUaGVzZSBhcmUgcHJvcG9zZWQgdmVjdG9yIG91dGNvbWVzLCBub3QgYSByZXF1ZXN0IHRvIHN0
+YW5kYXJkaXplIGFuIGVycm9yCnZvY2FidWxhcnkuCgojIyBUZXN0LXZlY3RvciBwbGFuCgp8IFZl
+Y3RvciB8IFNldHVwIHwgRXhwZWN0ZWQgcmVzdWx0IHwKfCAtLS0gfCAtLS0gfCAtLS0gfAp8IEVu
+cm9sbG1lbnQgYmluZGluZyB8IEVucm9sbG1lbnQgcmVjb3JkIG9taXRzIGEgY2xhaW1lZCBpbnB1
+dCBtZWFzdXJlbWVudCBvciBkb2VzIG5vdCBiaW5kIGl0IHRvIHRoZSBrZXkuIHwgUmVqZWN0IHRo
+ZSBlbnJvbGxtZW50IGNsYWltOyBkbyBub3QgaW5mZXIgdGhlIG1pc3NpbmcgaW5wdXQgZnJvbSBr
+ZXkgZXhpc3RlbmNlLiB8CnwgTGl2ZSBwb3NzZXNzaW9uIHwgVGhlIGhvbGRlciBjb21wbGV0ZXMg
+YSBmcmVzaCwgdHJhbnNjcmlwdC1ib3VuZCBwcm9vZiB1c2luZyB0aGUgZW5yb2xsZWQga2V5LiB8
+IFJldHVybiBhIHBvc3Nlc3Npb24tb25seSByZXN1bHQgZm9yIHRoYXQgY29ubmVjdGlvbi4gfAp8
+IExvY2FsIGZhaWx1cmUgYmVmb3JlIG5leHQgdXNlIHwgQSBuYW1lZCBjb25kaXRpb24gZmFpbHMg
+YmVmb3JlIGEgbmV3IGNvbm5lY3Rpb24gb3IgZ292ZXJuZWQga2V5IG9wZXJhdGlvbi4gfCBFcmFz
+ZSBvciBvdGhlcndpc2UgcmVsZWFzZS1ibG9jayB0aGUga2V5OyBuZXh0IGdvdmVybmVkIHVzZSBm
+YWlscy4gfAp8IExvY2FsIGZhaWx1cmUgYWZ0ZXIgY29ubmVjdGlvbiB8IEEgY29uZGl0aW9uIGZh
+aWxzIGFmdGVyIGEgY29ubmVjdGlvbiBoYXMgYmVlbiBlc3RhYmxpc2hlZC4gfCBEbyBub3QgY2xh
+aW0gYXV0b21hdGljIHRlYXJkb3duLiBSZXF1aXJlIHRoZSBzdGF0ZWQgc2Vzc2lvbi1tYW5hZ2Vt
+ZW50IHJ1bGUgb3IgcmV0dXJuIGBjb25uZWN0aW9uX3BvbGljeV9yZXF1aXJlZGAuIHwKfCBEZWxp
+dmVyZWQgbGlmZWN5Y2xlIGV2ZW50IHwgQSBjb3JyZWN0bHkgYXV0aGVudGljYXRlZCwgY3VycmVu
+dCBldmVudCB0YXJnZXRzIHRoZSBlbnJvbGxlZCBkZXZpY2UuIHwgQXBwbHkgdGhlIHNwZWNpZmll
+ZCBsaWZlY3ljbGUgY2hhbmdlIGFuZCByZWplY3Qgc3Vic2VxdWVudCBnb3Zlcm5lZCBrZXkgdXNl
+IGlmIHRoZSBwb2xpY3kgcmVxdWlyZXMgaXQuIHwKfCBMZWFzZSBleHBpcnkgLyBub24tZGVsaXZl
+cnkgfCBUaGUgZGV2aWNlIGNhbm5vdCBiZSByZWFjaGVkIGFuZCBubyBhY2NlcHRlZCByZWFzc2Vz
+c21lbnQgYXJyaXZlcyBiZWZvcmUgdGhlIGxlYXNlIGV4cGlyZXMuIHwgRmFpbCB0aGUgbmV4dCBn
+b3Zlcm5lZCBrZXkgdXNlIGR1ZSB0byBzdGFsZSBleHRlcm5hbCBzdGF0dXMuIHwKfCBSZXBsYXks
+IHN0YWxlLCBvciB3cm9uZy1kZXZpY2UgZXZlbnQgfCBFdmVudCBub25jZSwgc2VxdWVuY2UsIGF1
+ZGllbmNlLCBvciBleHBpcnkgZG9lcyBub3QgbWF0Y2ggdGhlIGVucm9sbG1lbnQgcmVjb3JkLiB8
+IFJlamVjdCB0aGUgZXZlbnQgYW5kIG1ha2Ugbm8ga2V5LXN0YXRlIGNoYW5nZS4gfAoKIyMgQm91
+bmRhcnkgdG8gcmV0YWluCgpSb3dzIDEtNCBjYW4gZXN0YWJsaXNoIGEgYm91bmRlZCBlbnJvbGxt
+ZW50LCBwb3NzZXNzaW9uLCBhbmQgY29uZGl0aW9uLXN0YXR1cwpzdWJzdHJhdGUuICBUaGV5IGRv
+IG5vdCBhdXRob3JpemUgYW4gYWN0aW9uLCBlc3RhYmxpc2ggYSBodW1hbiBwcmluY2lwYWwsIG9y
+CnR1cm4ga2V5IHN1cnZpdmFsIGludG8gYSBwcm9vZiBvZiBvbmdvaW5nIHNhZmV0eS4gIFJvd3Mg
+NS03IHNob3VsZCBjb25zdW1lIHRoZQpib3VuZGVkIG91dHB1dHMgZXhwbGljaXRseSwgdG9nZXRo
+ZXIgd2l0aCB0aGVpciBvd24gYWN0aW9uIGRpZ2VzdCBhbmQgcG9saWN5CnJ1bGVzLgo=
+--000000000000390fc70656a1b9aa--
+

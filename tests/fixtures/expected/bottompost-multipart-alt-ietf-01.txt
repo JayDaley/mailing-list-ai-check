@@ -1,0 +1,7 @@
+This is definitely a bug.
+Please create an issue on https://github.com/ietf-tools/red/issues and
+include the list of RFCs that have problems.
+
+Feel free to submit UI improvement suggestions there as well.
+
+Nick

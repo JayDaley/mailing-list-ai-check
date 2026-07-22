@@ -1,0 +1,155 @@
+Return-Path: <olivier.bonaventure@gmail.com>
+X-Original-To: quic@mail2.ietf.org
+Delivered-To: quic@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 02878111C03DB
+	for <quic@mail2.ietf.org>; Tue,  7 Jul 2026 02:09:53 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1783415393; bh=fpfrX+ktwojVbV1iUAkMuionFFFRdnRnV0tWMgeHHwk=;
+	h=References:In-Reply-To:From:Date:Subject:To;
+	b=oWuSplBRhLGTXG3t6HzrJT86LlOTC0n786uHQ9XmN2zbrkeO6LypdVr+hSOx9omzY
+	 xNoG0K/e4jgxWNrbbpchmVUURFRBF7d7uvTDy9auiZ7wkjUuCZAS3F9r+tU/GqbKu4
+	 wxqM0tdST1pn06U4j+JrsSdKm7L/YNBaXEs55fLg=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.099
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.099 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, FREEMAIL_FROM=0.001,
+	RCVD_IN_DNSWL_NONE=-0.0001, SPF_HELO_NONE=0.001, SPF_PASS=-0.001]
+	autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=gmail.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id M96FnkZQcYxQ for <quic@mail2.ietf.org>;
+	Tue,  7 Jul 2026 02:09:52 -0700 (PDT)
+Received: from mail-qk1-x733.google.com (mail-qk1-x733.google.com
+ [IPv6:2607:f8b0:4864:20::733])
+	(using TLSv1.3 with cipher TLS_AES_128_GCM_SHA256 (128/128 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 9BDA7111C03D6
+	for <quic@ietf.org>; Tue,  7 Jul 2026 02:09:52 -0700 (PDT)
+Received: by mail-qk1-x733.google.com with SMTP id
+ af79cd13be357-92e5d5c2572so27890485a.0
+        for <quic@ietf.org>; Tue, 07 Jul 2026 02:09:52 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1783415386; cv=none;
+        d=google.com; s=arc-20260327;
+        b=ApusGFnZNIxevkF16ZTyaFh2Hq0fc0GAoUgsUvVJ+O6xAlKyUpnrB4jrs4gy86eu2i
+         LDgks8757Vnp/9xtGnDBntFFOPNXYbWGynXLIFxl0ENQ1CvrbvUFBtHONG3PszRLJCYE
+         XGpwT7QLd6oSzTgOvGsO6Eyg+JsJSDTt9vn0whh2QMS+y1CP97uCg3QpwXjk5uFH8VrJ
+         DcesT4T7RMbIRS+ccRGBpMUlwxYmxBTc1EDKKDQ3+GBWyDDkLboE21fWaRszJSnILDbx
+         8xefJ9+8f6ORdsDkf5VNpOoZvlzoGcvIEYBsZuN+2AZk/PIWOzrH/Q//iDSINBgB6CSB
+         uDuA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com;
+ s=arc-20260327;
+        h=to:subject:message-id:date:from:in-reply-to:references:mime-version
+         :dkim-signature;
+        bh=fpfrX+ktwojVbV1iUAkMuionFFFRdnRnV0tWMgeHHwk=;
+        fh=vuhP74vxgWEoidm7lqJ7NXwOTlJt3QrGQRK+ohMMgiE=;
+        b=PpAiB4iCzpfVvwoJbBZv6TA5s7PIMuTM0vCkgaPsZcgJrqSQyjA+JiHanbpVfqY6Ho
+         PkgguiK96QRdPW1XsC6BrCjeX0nT7q8McieeiafbtyqY/zxJ0thh1ewNpwrlhtQnLjHl
+         aWvvS13lyKUSlTZEjGfdYL1a5HqzdmaLxJ59bT8DMY89uc70bnxmH5F2bILwVM1pRl6K
+         MJMlshHxqINla0ia3wfengEgsjASwFfncsbr+OO5yA3l6Cmxg0/LQWrJ/Gp7uvAVuc0P
+         DrUBcDtXzaWxjtzI5AYIfK1McUE3gGTr34wD9WzKJDTZhwA6HoBaAGxMea6yCvjkMNPR
+         n/mw==;
+        darn=ietf.org
+ARC-Authentication-Results: i=1; mx.google.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=gmail.com; s=20251104; t=1783415386; x=1784020186; darn=ietf.org;
+        h=content-type:to:subject:message-id:date:from:in-reply-to:references
+         :mime-version:from:to:cc:subject:date:message-id:reply-to
+         :content-type;
+        bh=fpfrX+ktwojVbV1iUAkMuionFFFRdnRnV0tWMgeHHwk=;
+        b=SdJ9MCbWcZP4aOAzi6R4nOgSodE9Br25R5ubkYhTB3tCjQ5qr5b7zfTn9aW6dwhkVq
+         2Lf4/G8PPk3A660ujQ5uTAg7bBERjrmSnEUY0XWjO8CrWSXK9Zta6FxSfYqPuotvzvfh
+         YSsNor/dHpV+XUqBc2Vuljn6VoNFS6VGk9bPMHRUN8v9//pCyBmtynsf8EeJVYOlgshl
+         tDnMzwA7oiLQrJkb0EQEDgl3izAI3b3SOrDe/bLWXhd9E1krKMx20slpn9Jxn1RFvRhn
+         yuD1i3QMzkZPP1QjPD+zUrKTZd68RZ4Fqbs7vsfe6lL8BcliG+aEoX12Knwy2PD8It31
+         9z5A==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1783415386; x=1784020186;
+        h=content-type:to:subject:message-id:date:from:in-reply-to:references
+         :mime-version:x-gm-gg:x-gm-message-state:from:to:cc:subject:date
+         :message-id:reply-to:content-type;
+        bh=fpfrX+ktwojVbV1iUAkMuionFFFRdnRnV0tWMgeHHwk=;
+        b=e2H+5+dlg+wLPgUKIst/uEubWhOii9E6J9Bo8KdPE7KovgErGDi+AVbWy7nM9xIdR1
+         mbYwpvI2ISntqATvba8GPrPtBrNI63tIBGcAvi0MCQaiECkoY1NcD/MhAyRuyvxa6Ib4
+         1QCBDyNYEk74Lo0kS6njS2qJtxyCBR4hkaT2RFUmddLkpQokBvN86EU3rWszQdH4ZMYx
+         /QvsYIUXiPi/Q9Hb7Ppn7GvxHmIyx6PvarCNhZOSbBd/nHZAl5XHYn5n2E98hBk94P0L
+         tLEkMkNq+BbdLr9p9fH5pvPsqUaMpK2Zm8IrLR85LYKFr+t5zmMP9+qC+ymsl+ytGzNN
+         1opQ==
+X-Gm-Message-State: AOJu0YxPfQhjqH56iOj4/X7QxhwHaUQvRhvD2Nj5vBdUMlTEcG1Boffs
+	NUFe6mU1zUFBfzdtcKODjgJWusfvY3tB5X0XXxyV6x9cbWN7LxDZW7pFBPKk/NTH7tyZFkWSr4U
+	Itb4sbD7muQtWyThzt3U2JjlU13X8SvV2Hjw7
+X-Gm-Gg: AfdE7ckeXGQpz1mpYsUWuzgrlbdUgGgeTxYb7F8vkZlROgtF0/vUibRmBcvLMghBCH9
+	1DztU/YCA5qW8PaT5D7wACB+dT13PsXXQ99h9aTVJka2z/lL8DaIJDDIByNG2EuA5P+tuX4ao6x
+	T6xZiR2CXEa5a523FphO9hOOXeLsP3OfvAB+GMDvZt2p70ywo3Kb9Wxb2fmXaTdcbQ7KAulHNKO
+	SZdaUz1Q3VWGokI5DOHdg8lomtp3j4qS5KRg/S5MNbDSUoV7am3y30uUD0L7dwpGyPHQUfhCdFp
+	ZwyomCAQFZNG5hdlXIkjOnLnnsYPCijxuPloHxHzsgDt6J8Q2X6TQ29hnTzq2kTMYpWwlg2sP5q
+	9wYtnDxNBucLn0DFtma/h
+X-Received: by 2002:a05:6214:2522:b0:8f5:8ba0:6bd9 with SMTP id
+ 6a1803df08f44-8fd31f646fbmr13947546d6.8.1783415385851; Tue, 07 Jul 2026
+ 02:09:45 -0700 (PDT)
+MIME-Version: 1.0
+References: <178339253758.2608.15413727542646439268@mail2.ietf.org>
+In-Reply-To: <178339253758.2608.15413727542646439268@mail2.ietf.org>
+From: Olivier Bonaventure <olivier.bonaventure@gmail.com>
+Date: Tue, 7 Jul 2026 11:09:34 +0200
+X-Gm-Features: AVVi8Cctb_DFODy1gMd9ppn_1z9kXi8Z1z1vMo6vMRBE1xfpp7rIFBC3C4_0wJk
+Message-ID: 
+ <CAC+FH4P=mFMWHm3K4ZP3xq0L1U5ESxj_xKnsrCOE3pPp3DCmKA@mail.gmail.com>
+Subject: Re: QUIC Digest, Vol 123, Issue 5
+To: quic@ietf.org, "stefanoduo@google.com" <stefanoduo@google.com>
+Content-Type: text/plain; charset="UTF-8"
+Message-ID-Hash: ZCYIHYC2QFGTWAJU7FI7OTLZXYF57QWW
+X-Message-ID-Hash: ZCYIHYC2QFGTWAJU7FI7OTLZXYF57QWW
+X-MailFrom: olivier.bonaventure@gmail.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-quic.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+List-Id: Main mailing list of the IETF QUIC working group <quic.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/quic/DRgTBE4FMhivJpOQ5B61TmpQuQw>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/quic>
+List-Help: <mailto:quic-request@ietf.org?subject=help>
+List-Owner: <mailto:quic-owner@ietf.org>
+List-Post: <mailto:quic@ietf.org>
+List-Subscribe: <mailto:quic-join@ietf.org>
+List-Unsubscribe: <mailto:quic-leave@ietf.org>
+
+Stefano,
+
+
+> Subject: QUIC connection migration to an IPv4-only network when connected to a server's IPv6 address
+>
+> Hi all,
+>
+>
+> I'm trying to solve the following common scenario: a client has a QUIC connection to a server's IPv6 address and has to migrate the connection to an IPv4-only network.
+>
+>
+> Currently, our implementation will attempt to connect to the server's IPv6 address via the IPv4-only network and will (expectedly) fail.
+>
+>
+> I can think of two main solutions, the client could instead migrate to the IPv4:
+>
+> Provided in the preferred_address extension, during the initial TLS handshake
+>
+> Returned by the A query, that was sent alongside the AAAA query that contained the IPv6 address currently being used by the client
+>
+
+
+The best approach is to standardize a QUIC extension that indicates
+that the server has several IP addresses. This would be an excellent
+use case for
+https://datatracker.ietf.org/doc/html/draft-piraux-quic-additional-addresses-04
+
+
+Olivier
+

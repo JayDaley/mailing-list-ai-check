@@ -1,0 +1,13 @@
+All,
+
+Three quick questions for everyone, since the thread is working through where the artifacts sit:
+
+1) How does your work function without identity? If identity was a part of something else, how would this work?
+
+2) Can this work validate external scope, or does it define its own?
+
+3) How would this work in an open market with available web traffic and development?
+
+One note of point, this thread feels more like an application design as opposed to a standards review.
+
+Chris

@@ -1,0 +1,65 @@
+(..)
+This is Ok. Note that here the term "random bit generator" (RBG) is used.
+Of course we wouldn't expect a RBG to give any information about other
+outputs or the state, since it is a RBG (see below), but it may as well be
+mentioned.
+
+
+Obviously the mentioned reveal also applies to hybrids such as
+X25519MLKEM768 as well ( the hybrid key derivation is not a black box to
+the recipient. )
+Here the text talks of a "raw random number generator" which it
+abbreviates refers
+to as PRNG ("P" is for pseudo.). This is not a well defined term, and I
+agree with Quynh that it is better adjusted as  “The disclosure of the
+output(s) of an insecure random number generator (RNG) when used in TLS and
+other protocols can be used in an attack to compromise the state of the
+insecure RNG itself as described in [DUALEC-TLS]."
+The term "raw RNG" here seems ok -- it is undefined but I guess it means
+"insecure RNG."
+Here, the term PRNG makes a comeback. Perhaps change it to RNG for
+consistency. FIPS 203 does not offer PRNG guidance, but RBG guidance. An
+RBG may or may not be deterministic.
+
+
+To recap: RNG is an incredibly vague term as it implies no clearly defined
+security properties -- but this is what the IETF has been using. As noted,
+FIPS land talks of RBGs (and defines what they are), as does a part of the
+CC land. CC also uses the AIS 20/31 terminology and classification, in
+which RNG is essentially a catch-all, and protection profiles impose
+additional, more detailed requirements for entropy generation and
+post-processing.
+
+
+FIPS 203 actually asks for an RBG, which implies:
+
+- seeding from a sufficient amount of entropy, and also
+
+- cryptographically secure post-processing where any number of output bits
+do not offer an advantage in predicting or determining unrevealed output
+bits, assuming cryptographic security of SHA2 or AES, etc.
+
+
+The more casual mathematical term PRNG implies neither cryptographic
+security nor sufficient entropy seeding — simply determinism. Often PRNGs
+are distinguished from RNGs specifically because they do not have
+sufficient seeding.
+
+
+American standard terminology has a class of RBGs called DRBGs
+(Deterministic Random Bit Generators). Because DRBGs are deteministic,
+technically they are PRNGs, but they are also RBGs -- when instantiated,
+the standards (and testing labs) require adequate seeding and an
+appropriate level of security in post-processing components (for example, a
+DRBG based on AES-128 is not sufficient for a 256-bit security level).
+
+There is also the "CRA land" in Europe, and ECCG & ENISA is searching for a
+suitable compromise for entropy in lower-assurance products (non-CC.). But
+at this point acceptable DRBGs are listed in the ACM (they all have
+cryptographically secure post-processing). It has been of course proposed
+that, e.g., Linux Random would be considered ok as an entropy source for
+consumer products, for obvious practical reasons.
+
+
+Best Regards,
+-markku

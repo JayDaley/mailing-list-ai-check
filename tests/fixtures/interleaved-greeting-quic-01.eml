@@ -1,0 +1,234 @@
+Return-Path: <lucas@lucaspardue.com>
+X-Original-To: quic@mail2.ietf.org
+Delivered-To: quic@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id CF62E11189956
+	for <quic@mail2.ietf.org>; Mon,  6 Jul 2026 19:48:53 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1783392533; bh=UOpN8FZtdcabrFjI2QYNhN02Jj0s1lJY9PQ8WpxLcL8=;
+	h=Date:From:To:Cc:In-Reply-To:References:Subject;
+	b=hoyeZGDT26QaeIrFbR0q3KtXqYedCb/2fFP23eaXRqZDkMDyuhjgQGzdD9N039RPx
+	 jEHmZmWUz2BgOfMGrnw20FGOWJlQ5lLmrXhrS080vqh6f/STpCqEsIO7RFO51DmBHc
+	 0ChoeVnMizgATv1jkpRv0nolKluDWmDF86Eeyqz0=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.798
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.798 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, HTML_MESSAGE=0.001,
+	RCVD_IN_DNSWL_LOW=-0.7, RCVD_IN_VALIDITY_CERTIFIED_BLOCKED=0.001,
+	RCVD_IN_VALIDITY_RPBL_BLOCKED=0.001, SPF_PASS=-0.001]
+	autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=lucaspardue.com header.b="hRipSIiF"; dkim=pass (2048-bit key)
+	header.d=messagingengine.com header.b="o/UfjF4u"
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id dbya9xgGWnxX for <quic@mail2.ietf.org>;
+	Mon,  6 Jul 2026 19:48:53 -0700 (PDT)
+Received: from fhigh-a7-smtp.messagingengine.com
+ (fhigh-a7-smtp.messagingengine.com [103.168.172.158])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id D4B99111894BE
+	for <quic@ietf.org>; Mon,  6 Jul 2026 19:46:19 -0700 (PDT)
+Received: from phl-compute-02.internal (phl-compute-02.internal [10.202.2.42])
+	by mailfhigh.phl.internal (Postfix) with ESMTP id 9C5B51400082;
+	Mon,  6 Jul 2026 22:46:13 -0400 (EDT)
+Received: from phl-imap-03 ([10.202.2.93])
+  by phl-compute-02.internal (MEProxy); Mon, 06 Jul 2026 22:46:13 -0400
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=lucaspardue.com;
+	 h=cc:cc:content-type:content-type:date:date:from:from
+	:in-reply-to:in-reply-to:message-id:mime-version:references
+	:reply-to:subject:subject:to:to; s=fm3; t=1783392373; x=
+	1783478773; bh=TtnOScglvt1NRAbJ5rL50auWT7Q0v+Y6uSd+FWeRCtc=; b=h
+	RipSIiFNCVCW1uyb+agzzO2WdW27yOYQ8TiOVKOZLP4/dsl+8b0D9fNyytnLUn3p
+	KGgm4VuPmnOui33Glbs8/WmTuDLWCuY83MZQEHMPmnD1LyeXBD6UFuJ0qvL0BgE+
+	LT6s08bkIH65LEDQB/V0JwucQ2LSuYNA43hJSQkN6IHvcxTPWFwdOh0Q/guV04JU
+	+HyaEQCnSRnUhEIU4aYSY0Lb+X09ceTisaEQ4+KTD3hmBg/Sw19qRKtsFa1TcdZm
+	jTxAURSGXFFeXhgLtma8pa93U9zd5FZUSM/KGnqKRU0gOZYUhSVYL266Ct0yjtBu
+	6UcUa5Y325nZ679A4tVhg==
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=
+	messagingengine.com; h=cc:cc:content-type:content-type:date:date
+	:feedback-id:feedback-id:from:from:in-reply-to:in-reply-to
+	:message-id:mime-version:references:reply-to:subject:subject:to
+	:to:x-me-proxy:x-me-sender:x-me-sender:x-sasl-enc; s=fm2; t=
+	1783392373; x=1783478773; bh=TtnOScglvt1NRAbJ5rL50auWT7Q0v+Y6uSd
+	+FWeRCtc=; b=o/UfjF4uShW3ICC9IJP37SoBKAA5ea0uI5D37J7tg+c1TkTNySw
+	oJpbb8cmjb0NwvqNOeCMVS33xoys2VqJ/HepkLiJEIHzKhmZ89cojBWq0dEhcytO
+	CRrci+7iZO418uhAyxn3p4ePuvU4Y5THgJPPsfyvaDfQ5kmteNbbDB1q8+9cd0Oj
+	CzYyUkSW1FK9DeiVu1v392iiOx51TtlAE4j0mvzRKNDwJtcjGeDNLdGOhw3pAV6o
+	1Y0NyLdMVi5GHERGXwFxERuyiyYJqMj49yzHnqbI2c+HykHSsTGuuflE/NOIJEHb
+	/eWUDklfc6r0HmYPzxAR0kOuJ58l+FxtAog==
+X-ME-Sender: <xms:dWhMajGyyYA3NSZuhnIEOkDFqbhhI1p7HNBzEzEvQjiCVSkGhfPdIQ>
+    <xme:dWhMarK4s6p83GkQ3VRNcCKVCWQp83cBOhXA-RDYAaTWQSMS-qbGx6IEa_J_XzKMx
+    LXc_Q7B02Y86lehK2e4SdsTMOYburK2l_YIO83oW88KSPoOSkl4YCE>
+X-ME-Proxy-Cause: 
+ dmFkZTGjCdQFgLq1F3VvUOtsGk2ZRvSn8Vk4kLbhb207W5PkR9YHr9DvgNp0JV0PhSeCwA
+    ErRfn/BX9oQPcKapRzVYe/MuNP+Efmq7cjLzQ41Gz3K3taE0MWx2mfdgXzy/jPfkOqBE3d
+    yfS+z6M97fyzqWgRAkuuWATs1QfPFSCQzDixDdRtPDyyY1SO502d2oZ6QKloR1l9lgyqAY
+    sjYYWLt9W3HvqxFG/GqzScxxgfOpNNg8FZa/r+Qdpc1rd/kPIwBaf9EukRlJRY4EqQ35xO
+    SCqblNu1lhThoP1WaAS/pii8vEGI7OCxBk1FMdBntIIB6d4juzT7dlCwH4ixHOGQ7bQzgS
+    rloIAQxpeM40F2F2VL/FYVAJVEnYtHtR3RHv0c22eKyfBltFAnvxW7LVkt1ujjJTiAWWDI
+    KzQa8LEcC90TVmjXtfnjB9mXqehokk6hMxHONWE+cdYeW2P1kgmvh6wM6h4o6rfvKTAire
+    w/QdjQUTXbMOC8SEG0ika56BpHEtXf7Hs4gEAeoeYw1Nw+Mxzj/mViFGPB9BaAcIwOUMlB
+    kZAx1KZK2sSHO1+kWuYzqtx35oa4Xwp/bYbTCY6E1VElbpdRYSoz99h/xqefJDl1u08HSx
+    196tiw3pUwTCmHHPl9JmKAtiZddQw3brkT0bMopO7whycOOGkvZhIqIxzksg
+X-ME-Proxy: <xmx:dWhMakAyQegAcsOcLwSpWM8gH3OWFu4UHDec5Q_HDJjrESJbmNtRFQ>
+    <xmx:dWhMauRosjLBOVl3M42ThHwHaYYJ2rUnRf-Oi5WIsXkMZmWgwD7b7w>
+    <xmx:dWhMaqr8xLS3rduqCaZcV7LMJCXUeT8xLS-mCZ0JsE3t5ZUwn5JOsQ>
+    <xmx:dWhMaozRKVZ4L524BN5bTPh0ssD1s52yDvuHRUzRbIOJNrr6xJyz7Q>
+    <xmx:dWhMarXylUL-_rzoZ_OzmnRxLgY_q5LePu6Qo5AJXmh6e7HOcizWwr0i>
+Feedback-ID: i23b94938:Fastmail
+Received: by mailuser.phl.internal (Postfix, from userid 501)
+	id 71BED18E006C; Mon,  6 Jul 2026 22:46:13 -0400 (EDT)
+X-Mailer: MessagingEngine.com Webmail Interface
+MIME-Version: 1.0
+X-ThreadId: AOwfdMoI-fAR
+Date: Tue, 07 Jul 2026 03:45:51 +0100
+From: "Lucas Pardue" <lucas@lucaspardue.com>
+To: "Dan Wing" <danwing@gmail.com>,
+ "Stefano Duo" <stefanoduo=40google.com@dmarc.ietf.org>
+Message-Id: <b53cc5bc-fa09-4f91-9d4d-75bb1672c0ae@app.fastmail.com>
+In-Reply-To: <37F38481-7B3F-44FF-B57A-95745B2C0790@gmail.com>
+References: 
+ <CAHQSLdph4g-EWaS92V1b5+_Xugzpdp_ivj_nEa3SOU1shB=uBQ@mail.gmail.com>
+ <37F38481-7B3F-44FF-B57A-95745B2C0790@gmail.com>
+Subject: Re: QUIC connection migration to an IPv4-only network when connected
+ to a
+ server's IPv6 address
+Content-Type: multipart/alternative;
+ boundary=1984a27df7332c8d2a34757817a2307d82e70517
+Message-ID-Hash: 4NL4GRMWYGGOA6PGBHYTI3GM7QASZZ5G
+X-Message-ID-Hash: 4NL4GRMWYGGOA6PGBHYTI3GM7QASZZ5G
+X-MailFrom: lucas@lucaspardue.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-quic.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+CC: quic@ietf.org
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+List-Id: Main mailing list of the IETF QUIC working group <quic.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/quic/Mwo6ZbD6sOL8cUhlWOXJ5Jbpw7c>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/quic>
+List-Help: <mailto:quic-request@ietf.org?subject=help>
+List-Owner: <mailto:quic-owner@ietf.org>
+List-Post: <mailto:quic@ietf.org>
+List-Subscribe: <mailto:quic-join@ietf.org>
+List-Unsubscribe: <mailto:quic-leave@ietf.org>
+
+--1984a27df7332c8d2a34757817a2307d82e70517
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Hi
+
+On Tue, Jul 7, 2026, at 03:25, Dan Wing wrote:
+> It seems this should mimic what we would do for TCP, and may well be p=
+urview of the Happy WG (https://datatracker.ietf.org/group/happy/about/).
+>=20
+> I would lean heavily towards your solution (2), but using SVCB and HTT=
+PS resource records (rather than solely AAAA), as those have more robust=
+ semantics.  Somewhat related to your question, see also Erik's recent p=
+ost about draft-nygren-dnsop-ipv6only-indicator sent to several working =
+groups, https://mailarchive.ietf.org/arch/msg/v6ops/VaaERK1-riWFauEqbuoZ=
+zPZx_x4.
+>=20
+> -d
+>=20
+>=20
+> > On Jul 6, 2026, at 6:23=E2=80=AFAM, Stefano Duo <stefanoduo=3D40goog=
+le.com@dmarc.ietf.org> wrote:
+> >=20
+> > Hi all,
+> >=20
+> > I'm trying to solve the following common scenario: a client has a QU=
+IC connection to a server's IPv6 address and has to migrate the connecti=
+on to an IPv4-only network.
+> >=20
+> > Currently, our implementation will attempt to connect to the server'=
+s IPv6 address via the IPv4-only network and will (expectedly) fail.
+> >=20
+> > I can think of two main solutions, the client could instead migrate =
+to the IPv4:
+> >     =E2=80=A2 Provided in the preferred_address extension, during th=
+e initial TLS handshake
+> >     =E2=80=A2 Returned by the A query, that was sent alongside the A=
+AAA query that contained the IPv6 address currently being used by the cl=
+ient
+> >=20
+> > From past discussions in the archive, I understand that preferred_ad=
+dress's main intent is to support a one-time only, server-initiated migr=
+ation for anycast deployments that do not support connection ID-based ro=
+uting. It's not clear to me whether #1 would be an abuse of preferred_ad=
+dress.
+> >=20
+> > As per #2, there are no technical guarantees that the A result will =
+lead us to a machine that has the necessary state to migrate successfull=
+y. It is also explicitly not covered by section 9 of RFC 9000.
+> >=20
+> > Has this scenario been discussed before? Is there any guidance on ho=
+w to handle this correctly?
+You might also be interested in Marco and Marten's draft https://datatra=
+cker.ietf.org/doc/draft-munizaga-quic-alternative-server-address/
+
+> >=20
+> > Thank you,
+> > Stefano
+>=20
+>=20
+
+--1984a27df7332c8d2a34757817a2307d82e70517
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<!DOCTYPE html><html><head><title></title></head><body><div>Hi</div><div=
+><br></div><div>On Tue, Jul 7, 2026, at 03:25, Dan Wing wrote:</div><blo=
+ckquote type=3D"cite" id=3D"qt" style=3D""><div>It seems this should mim=
+ic what we would do for TCP, and may well be purview of the Happy WG (<a=
+ href=3D"https://datatracker.ietf.org/group/happy/about/">https://datatr=
+acker.ietf.org/group/happy/about/</a>).</div><div><br></div><div>I would=
+ lean heavily towards your solution (2), but using SVCB and HTTPS resour=
+ce records (rather than solely AAAA), as those have more robust semantic=
+s.&nbsp; Somewhat related to your question, see also Erik's recent post =
+about draft-nygren-dnsop-ipv6only-indicator sent to several working grou=
+ps,&nbsp;<a href=3D"https://mailarchive.ietf.org/arch/msg/v6ops/VaaERK1-=
+riWFauEqbuoZzPZx_x4">https://mailarchive.ietf.org/arch/msg/v6ops/VaaERK1=
+-riWFauEqbuoZzPZx_x4</a>.</div><div><br></div><div>-d</div><div><br></di=
+v><div><br></div><div>&gt; On Jul 6, 2026, at 6:23=E2=80=AFAM, Stefano D=
+uo &lt;stefanoduo=3D<a href=3D"mailto:40google.com@dmarc.ietf.org">40goo=
+gle.com@dmarc.ietf.org</a>&gt; wrote:</div><div>&gt;&nbsp;</div><div>&gt=
+; Hi all,</div><div>&gt;&nbsp;</div><div>&gt; I'm trying to solve the fo=
+llowing common scenario: a client has a QUIC connection to a server's IP=
+v6 address and has to migrate the connection to an IPv4-only network.</d=
+iv><div>&gt;&nbsp;</div><div>&gt; Currently, our implementation will att=
+empt to connect to the server's IPv6 address via the IPv4-only network a=
+nd will (expectedly) fail.</div><div>&gt;&nbsp;</div><div>&gt; I can thi=
+nk of two main solutions, the client could instead migrate to the IPv4:<=
+/div><div>&gt;&nbsp;&nbsp;&nbsp;&nbsp; =E2=80=A2 Provided in the preferr=
+ed_address extension, during the initial TLS handshake</div><div>&gt;&nb=
+sp;&nbsp;&nbsp;&nbsp; =E2=80=A2 Returned by the A query, that was sent a=
+longside the AAAA query that contained the IPv6 address currently being =
+used by the client</div><div>&gt;&nbsp;</div><div>&gt; From past discuss=
+ions in the archive, I understand that preferred_address's main intent i=
+s to support a one-time only, server-initiated migration for anycast dep=
+loyments that do not support connection ID-based routing. It's not clear=
+ to me whether #1 would be an abuse of preferred_address.</div><div>&gt;=
+&nbsp;</div><div>&gt; As per #2, there are no technical guarantees that =
+the A result will lead us to a machine that has the necessary state to m=
+igrate successfully. It is also explicitly not covered by section 9 of R=
+FC 9000.</div><div>&gt;&nbsp;</div><div>&gt; Has this scenario been disc=
+ussed before? Is there any guidance on how to handle this correctly?</di=
+v></blockquote><div>You might also be interested in Marco and Marten's d=
+raft&nbsp;<a href=3D"https://datatracker.ietf.org/doc/draft-munizaga-qui=
+c-alternative-server-address/" class=3D"">https://datatracker.ietf.org/d=
+oc/draft-munizaga-quic-alternative-server-address/</a></div><div><br></d=
+iv><blockquote type=3D"cite" id=3D"qt" style=3D""><div>&gt;&nbsp;</div><=
+div>&gt; Thank you,</div><div>&gt; Stefano</div><div><br></div><div><br>=
+</div></blockquote><div><br></div></body></html>
+--1984a27df7332c8d2a34757817a2307d82e70517--
+

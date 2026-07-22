@@ -1,0 +1,5 @@
+Minor nit:
+[...]
+When reading "the Delegation Type RRsets and NSEC (or NSEC3) records can be replaced", I was briefly confused regarding what about their RRSIGs.
+
+Suggest adding "signed" before "Delegation Type RRsets", or "and their signatures" after "records".

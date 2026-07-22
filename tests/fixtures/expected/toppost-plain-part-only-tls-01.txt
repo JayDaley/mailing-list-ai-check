@@ -1,0 +1,16 @@
+Thanks Joe,
+
+As with most industry, I would like to see this standardized and supported by libraries so that I can potentially enable it in the future. European cybersecurity agencies such as ANSSI has a high confidence in ML-KEM [1].
+
+The value of hybridization with quantum-vulnerable cryptography is clearly temporary, especially if one believes that nation-state attackers will have CRQCs in 2029 [2].
+
+The campaign by Bernstein et al. against the IETF and ML-KEM is a waste of everybody's time and resources and is likely to have a significant negative impact on cybersecurity. Can the IETF please take action before we lose more brilliant researchers, such as Nadim Kobeissi, from the community? [3]
+
+Cheers,
+John Preuß Mattsson
+
+[1] https://na.eventscloud.com/file_uploads/b635298de1c10be6d3732863e8b1beca_Day2-1600-ANSSI.pdf
+
+[2] https://cr.yp.to/talks/2023.06.15/slides-djb-20230615-pqrisk-4x3.pdf
+
+[3] https://mailarchive.ietf.org/arch/msg/tls/7HNihlgf0I8Mpe-0nqGb56dnON8/

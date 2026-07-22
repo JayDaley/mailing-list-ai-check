@@ -1,0 +1,106 @@
+I hope you are doing well. I am new to the list. It is amazing to see such
+good work going on in the AI Agent domain. A little background on where my
+comments come from: I work on on-device threat defense and enterprise
+identity at Samsung Research America, and previously worked on Universal
+Logout at Okta. My comments revolve around revocation and the
+human-in-the-loop section, and build in part on Yaron's review of the
+2026-06-01 editor's copy.
+
+1) I see a possible tension between Section 8 and Section 11 on revocation
+
+Section 8 states that short-lived credentials provide "an alternative to
+explicit revocation mechanisms."
+Section 11 states that recipients of SSF/CAEP/RISC signals "MUST ensure
+that revoked or downgraded authorization is enforced without undue delay,"
+and that cached tokens "MUST NOT continue to be used after a revocation or
+risk notification is received."
+
+I may be misreading, but these seem to pull in different directions:
+Section 8 positions expiry as a substitute for revocation, while Section 11
+treats revocation as a live, mandatory obligation. The distinction may be
+threat-model dependent. Expiry works well for credential theft. It works
+poorly for a compromised agent - one that is correctly attested and holds
+an unexpired credential, but whose behavior has been subverted (e.g. via
+indirect prompt injection). In that case the credential remains valid and
+correct for its full lifetime while the agent acts outside its intended
+scope, and typical credential lifetimes exceed the time needed to act.
+
+Would it be worth either reconciling these two sections explicitly, or
+scoping Section 8's claim to the credential-exposure threat model rather
+than compromise generally?
+
+2) Section 11 makes subscription optional but enforcement mandatory
+
+Section 11 says participants "MAY subscribe" to SSF with CAEP or RISC, but
+that recipients "MUST" enforce on receipt. The MUST is therefore
+conditional on the MAY. A deployment that does not subscribe has no
+revocation path at all, and silently falls back to the Section 8 expiry
+model without the document saying so.
+
+Would the working group consider whether subscription should be SHOULD, or
+MUST, for agents authorized to access sensitive resources? It is entirely
+possible this is deliberate deployment latitude, in which case it may still
+be worth stating the consequence.
+
+3) Section 10.7: same-device deployments weaken the out-of-band property
+
+Yaron notes in TECH-8 that CIBA assumes a push notification to a separate
+device, while the agent flow may already be running on a mobile device. I
+would like to extend that from the device-security side, as it is where
+most of my work sits.
+
+CIBA's value in Section 10.7 rests on the interaction being genuinely
+out-of-band - the approval channel is assumed to be independent of the
+requesting client. When an on-device agent and the authenticator
+application share a device, that independence is gone: a device compromise
+takes both the agent and the approval channel, and the confirmation is
+in-band in all but name. This is not hypothetical - on-device agents
+running alongside the user's authenticator are becoming common.
+
+This does not invalidate the CIBA guidance, but the assumption seems worth
+stating, along with what deployments can do when it does not hold (e.g.
+relying on platform-level isolation for the approval path, or requiring a
+distinct device for higher-risk operations).
+
+4) Section 10.7 Note: RFC 9470 as a possible input to the mid-execution case
+
+The Note in the Human in the Loop section observes that CIBA only accounts
+for client initiation and does not map well to User confirmation occurring
+mid-execution. Yaron's TECH-8 raises a related concern about the threat
+model. I do not see RFC 9470 (OAuth 2.0 Step Up Authentication Challenge)
+in Section 18, so offering it as a possible input rather than a correction:
+
+9470's model is resource-server-initiated - the RS inspects the
+authentication context behind the presented token and returns
+insufficient_user_authentication with acr_values / max_age. That addresses
+the initiation direction the Note identifies, and it places the trigger at
+the resource, where the sensitivity of the specific action is known. The
+obvious obstacle is that 9470 assumes the client can direct a user agent to
+the AS, which an autonomous agent does not have. But 9470 is agnostic about
+the grant used to satisfy the challenge, so a composition may be possible:
+a 9470-style challenge from the resource server as the trigger, with CIBA
+as the out-of-band grant that satisfies it.
+
+One wrinkle if this were pursued: 9470's acr and auth_time reflect the
+original user authentication event and do not change on token renewal,
+which may need thought for long-running agent sessions.
+
+Was 9470 considered for this case? If it was ruled out, I would find the
+reasoning useful, and would rather understand it than reopen settled ground.
+
+5) Section 14 and agent-specific threats
+
+Section 14 defers to the security considerations of each referenced
+specification, plus OAuth BCP and FAPI 2.0. Given the goal in Section 1 of
+identifying gaps to guide future standardization, is agent-specific threat
+analysis in scope for this document - in particular the
+compromised-but-attested agent, where posture assessment at issuance
+(Section 8) establishes what an agent is, but not what it is doing at
+request time? If that is in scope and useful, I would be glad to help draft
+text.
+
+Thanks for the document. The consolidation framing in Section 1 is very
+useful, and the prior-art mapping is more complete than most work I have
+seen in this area.
+
+Happy to upload any of these as GitHub issues if the authors prefer.

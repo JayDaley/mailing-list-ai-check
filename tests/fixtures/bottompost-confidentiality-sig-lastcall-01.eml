@@ -1,0 +1,209 @@
+Return-Path: <bcampbell@pingidentity.com>
+X-Original-To: last-call@mail2.ietf.org
+Delivered-To: last-call@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 0069E11B4511D
+	for <last-call@mail2.ietf.org>; Tue, 21 Jul 2026 03:58:33 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784631513; bh=D6vaIsi0ppdXlG5WuaFUbIWOVk0K/cVAP7xacJHDjIs=;
+	h=References:In-Reply-To:From:Date:Subject:To:Cc;
+	b=kFHADkccA8Ul1NfBnU/rjjW3nG00VrG/2j+XJBfWHUWDC1qUlX5nwibkv+c+gWa8z
+	 MGj9hFisndksRBfScwDlHi0+e/lZh/Rr2ssbVqbK0MNx9G7Rc7eRs0OqzO3lYas9w6
+	 0+AmSf+HjkKHhRI8euXz9J8rqyINA9vkwGIPf23c=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.097
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.097 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, HTML_MESSAGE=0.001,
+	RCVD_IN_DNSWL_NONE=-0.0001, SPF_HELO_NONE=0.001, SPF_NONE=0.001]
+	autolearn=unavailable autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=pingidentity.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id NxNzliJw9B5C for <last-call@mail2.ietf.org>;
+	Tue, 21 Jul 2026 03:58:32 -0700 (PDT)
+Received: from mail-ua1-x92e.google.com (mail-ua1-x92e.google.com
+ [IPv6:2607:f8b0:4864:20::92e])
+	(using TLSv1.3 with cipher TLS_AES_128_GCM_SHA256 (128/128 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id C23F411B45100
+	for <last-call@ietf.org>; Tue, 21 Jul 2026 03:58:31 -0700 (PDT)
+Received: by mail-ua1-x92e.google.com with SMTP id
+ a1e0cc1a2514c-96944741eaeso2741836241.1
+        for <last-call@ietf.org>; Tue, 21 Jul 2026 03:58:31 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1784631505; cv=none;
+        d=google.com; s=arc-20260327;
+        b=Wy4dmdtsLy8VOowVb81NDho5Eh3j7UuFeh7sF2Kax3tRnQ22SjV3IT06i8pRK880sA
+         J1lE4PtR+5v6L1peWNlwgjAuBQZ1D0vuOPnBJ/SqYj0uXVccjq8FBRB2aQ8NXSEE9OgU
+         91RxqyABPdNf7BVnK2WtU+9oUzaS8w+RCvNifhBzgrSgarJ5BgxjtF8JOZ8NjlxgAAyC
+         QEytUf7PD1ETURhcZRpZx/7KmoPenMLbxgW/B/RxYXwiIdm5G5r+0CJffH+0JMsTAowY
+         12OCgz0FIk+1YDQIBpF/IFbudHsAH2tf+TLN4WoO3dLl78s6eBVpT4i2vFzMJ9mVpLj9
+         aPHw==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com;
+ s=arc-20260327;
+        h=cc:to:subject:message-id:date:from:in-reply-to:references
+         :mime-version:dkim-signature;
+        bh=D6vaIsi0ppdXlG5WuaFUbIWOVk0K/cVAP7xacJHDjIs=;
+        fh=cQDApWxUXlrOrMPLNe9CTzfHHv3hZGIN+s8rGvmtLuo=;
+        b=KQqBKvtYiSebw33aABqQ4eBYjpypljKXOb8BQffHXcymIXcOPTFQCaAbkQhI9bgeOv
+         8jIg7fChMONePPuvHfsDGR7DjuXBIWK+3jb3KKXQDnhJCcjaQyfQhGxmr6Liy4Y9LTCW
+         Z8vLbr4TLbtQZrVeoZxUQQE74eaBiTio8MucLJd4L5XZrYWdDAk4n+HYFUjl+kgPRtvZ
+         VoaisuFoiE1Ewp0XhWc+mmKDEP7ZzdNYKDLTWC8uQEEqNd1WmEGhn9X8n4rw5Vd647vu
+         O43DR68eueIimZNSANQ28OF0nqtUlDAsmld+FTZQMBonjF2QwhU+TTLJJZnsJGzLpfuy
+         ishA==;
+        darn=ietf.org
+ARC-Authentication-Results: i=1; mx.google.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=pingidentity.com; s=google; t=1784631505; x=1785236305;
+ darn=ietf.org;
+        h=content-type:cc:to:subject:message-id:date:from:in-reply-to
+         :references:mime-version:from:to:cc:subject:date:message-id:reply-to
+         :content-type;
+        bh=D6vaIsi0ppdXlG5WuaFUbIWOVk0K/cVAP7xacJHDjIs=;
+        b=PcfCH8OZzyrDE5A8YOiStXFSpM4X4jROZI4vzA3xoPwVZRb0DIiXGzjS3AV14giX+j
+         OHE7u9M+3uSxgNQvRm8kd39PGA40lffZhtnoE9o77omBcUetiE9oJgbeamsbHGRRek4t
+         eZCu0WJ5tfiN2Gcu+N/PGxm1cIXe+Jr3+xThZ+MFiRgEtURM3SNYDtGgZVn5lJcL86Gb
+         e35ML/zjkO1megpWCn23lZa7oRsGW74fzzOIOdbu+AbsLiywuMLOyRnXcM02GCUgUyTy
+         u31arzS4hazQDarpPHWNvZ8LRYNOZcm0tRoQUu9pasB6fiAgZ557lvNxfNEC4QdQXoua
+         HABA==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1784631505; x=1785236305;
+        h=content-type:cc:to:subject:message-id:date:from:in-reply-to
+         :references:mime-version:x-gm-gg:x-gm-message-state:from:to:cc
+         :subject:date:message-id:reply-to:content-type;
+        bh=D6vaIsi0ppdXlG5WuaFUbIWOVk0K/cVAP7xacJHDjIs=;
+        b=UzEyY0tf6mylpowUxeD6YWl5nMXSV+YBN/XnpOheMP8sUQBephqGSjRkmcK7uqJULW
+         GglLCg+kz1YdjmgUK0OnBiVDeWIncQQqObtwQgR7ttA8uLlVs1vFJ5+KQui8RMHoSnBu
+         0ALYHxnQiLyHbIlUVvIaNgl5+wM474aeliKRz1O4LJD1OJXnCxkRBwzzY1lagf6LEgVc
+         I3G6ErXr4UWyp2EG6esbScq6HwO5jvJ+QCyEZ108bll49Dh3UdLQfDg0nJTM1EeS6qra
+         FiEzz51+j19KFiXP0GWSfldkfbrh72NL1bs6FyJx7/Xtti/B5FNWTTiwuJNDLBKm9UIy
+         O11Q==
+X-Forwarded-Encrypted: i=1;
+ AHgh+Ro2yFwo8ReFoZuyAnWuLtW2EvhTmSXQ0Fv2DotlAGlyXPlKnwe+ENPddiLnae1etC9GKcV7Ko8PpC8=@ietf.org
+X-Gm-Message-State: AOJu0YwhQjwwhJ3Zuq+UywbU9dYEpNrvM8sV8PgyS0tNuU9JXCG3BDiu
+	8611LAwlkFFR32TcGLGaw/wKRry+adv71K3UooBQIc93OXEhgPwSeNZnPWomO11CX9YJBEVb8xV
+	UAsLtZlW4ilZ6TzhRVyTInuHo66epBdmLIA1+j5vmqdlvEXnF2SWZCV/6zcXjQqTKPdJAf6t+Tg
+	EZ5T7O1g+QTBR4vz5Jams=
+X-Gm-Gg: AR+sD12YHUAvJVRWLohD+B/s30IQAAupP10E1MdQX+YZb84LUSD9w3Ntj7m5t560qqH
+	czYVs8Qb5R5kuDWDJTiRPf9XuVXg7MN+Hik46jWDTNeMTSp9wFDn0LaEU4+k+eLS7gt4Y9eQBF3
+	j54W3N8kkfAlgyKvWM3wA285HmQlg69i/EMHKShegPuE3kkqAlhYDVAYDCY19JJ+uLGIojL74uv
+	hTlpMYlrxR0eT/lzw8g5A8NbhFZWsxwfTyAk2okmTIVvbb8084i7/Mm8OgjyomJaNWN0CoN1WJo
+	/BMjWaRIcFJRYS70OoLmSoX8bBg1u/NJrqBxMruaq1vXfRl48A==
+X-Received: by 2002:a05:6102:94c:b0:6d9:a0bb:9095 with SMTP id
+ ada2fe7eead31-74753625d8amr5044337137.13.1784631504934; Tue, 21 Jul 2026
+ 03:58:24 -0700 (PDT)
+MIME-Version: 1.0
+References: 
+ <CA+k3eCSNbyx9NZ=PanXXoLrH1J4bREV07erHM0zFhLPJ1L0XUw@mail.gmail.com>
+ <BL1PR12MB5189532BAAD4A0BDCC1411FEB7C52@BL1PR12MB5189.namprd12.prod.outlook.com>
+ <CA+k3eCTQG7XjYu1B9=zB=5Fiw-KmvOr7do18Sg0VogB-rnLhwA@mail.gmail.com>
+In-Reply-To: 
+ <CA+k3eCTQG7XjYu1B9=zB=5Fiw-KmvOr7do18Sg0VogB-rnLhwA@mail.gmail.com>
+From: Brian Campbell <bcampbell@pingidentity.com>
+Date: Tue, 21 Jul 2026 04:57:58 -0600
+X-Gm-Features: AUfX_myP5izDtLRSqHhOZDzXis8sCwcBPXo4H1V5uQdYwDQiZ3uqbCo6qzpXOCI
+Message-ID: 
+ <CA+k3eCQ4btY74stpT2ErsSQ+qv+Q6QxAFHDDVpmD+rv4MstLMg@mail.gmail.com>
+To: Brian Campbell <bcampbell=40pingidentity.com@dmarc.ietf.org>
+Content-Type: multipart/alternative; boundary="000000000000e8313306571ce6af"
+Message-ID-Hash: UJMOJYY627ALKCKM57B7IPVIAYMEWLRL
+X-Message-ID-Hash: UJMOJYY627ALKCKM57B7IPVIAYMEWLRL
+X-MailFrom: bcampbell@pingidentity.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; nonmember-moderation; administrivia;
+ implicit-dest; max-recipients; max-size; news-moderation; no-subject;
+ digests; suspicious-header
+CC: Michael Jones <michael_b_jones@hotmail.com>,
+ Neil Madden <neil.e.madden@runbox.eu>, Orie <orie@or13.io>,
+ "debcooley1@gmail.com" <debcooley1@gmail.com>,
+ "last-call@ietf.org" <last-call@ietf.org>, The IESG <iesg@ietf.org>,
+ "draft-ietf-jose-hpke-encrypt@ietf.org"
+ <draft-ietf-jose-hpke-encrypt@ietf.org>,
+ "jose-chairs@ietf.org" <jose-chairs@ietf.org>,
+ "jose@ietf.org" <jose@ietf.org>,
+ "michael.p1@ncsc.gov.uk" <michael.p1@ncsc.gov.uk>
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BLast-Call=5D_Re=3A_=5Bjose=5D_Re=3A_for_-22=3A_Re=3A_Re=3A_Last?=
+ =?utf-8?q?_Call=3A_=3Cdraft-ietf-jose-hpke-encrypt-**=3E_=28Use_of_Hybrid_P?=
+ =?utf-8?q?ublic_Key_Encryption_=28HPKE=29_with_JSON_Web_Encryption_=28JWE?=
+ =?utf-8?q?=29=29_to_Proposed_Standard?=
+List-Id: IETF Last Calls  <last-call.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/last-call/RLYSMc1S5Ct6cMnUR1nP3FypTro>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/last-call>
+List-Help: <mailto:last-call-request@ietf.org?subject=help>
+List-Owner: <mailto:last-call-owner@ietf.org>
+List-Post: <mailto:last-call@ietf.org>
+List-Subscribe: <mailto:last-call-join@ietf.org>
+List-Unsubscribe: <mailto:last-call-leave@ietf.org>
+
+--000000000000e8313306571ce6af
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+On Tue, Jul 21, 2026 at 12:45=E2=80=AFPM Brian Campbell <bcampbell=3D
+40pingidentity.com@dmarc.ietf.org> wrote:
+
+> Again, the capacity to participate gets exhausted. But even then and in D=
+E
+> review there were questions about HPKE-4-KE and HPKE-6 inclusion that wer=
+e
+> unanswered other than deeming the question itself inappropriate due to
+> timing.
+>
+
+Apologies, copy+paste mistake on my part there. It should say "... about
+HPKE-4 and HPKE-6 inclusion ..."
+
+--=20
+_CONFIDENTIALITY NOTICE: This email may contain confidential and privileged=
+=20
+material for the sole use of the intended recipient(s). Any review, use,=20
+distribution or disclosure by others is strictly prohibited.=C2=A0 If you h=
+ave=20
+received this communication in error, please notify the sender immediately=
+=20
+by e-mail and delete the message and any file attachments from your=20
+computer. Thank you._
+
+--000000000000e8313306571ce6af
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><div dir=3D"ltr"><br></div><br><div class=3D"gmail_quote g=
+mail_quote_container"><div dir=3D"ltr" class=3D"gmail_attr">On Tue, Jul 21,=
+ 2026 at 12:45=E2=80=AFPM Brian Campbell &lt;bcampbell=3D<a href=3D"mailto:=
+40pingidentity.com@dmarc.ietf.org">40pingidentity.com@dmarc.ietf.org</a>&gt=
+; wrote:<br></div><blockquote class=3D"gmail_quote" style=3D"margin:0px 0px=
+ 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex"><div di=
+r=3D"ltr"><div dir=3D"ltr"><div dir=3D"ltr"><div dir=3D"ltr"><div class=3D"=
+gmail_quote">Again, the capacity to participate gets exhausted. But even th=
+en and in DE review there were questions about HPKE-4-KE and HPKE-6 inclusi=
+on that were unanswered other than deeming the question itself inappropriat=
+e due to timing.=C2=A0</div></div></div></div></div></blockquote><div><br><=
+/div><div>Apologies, copy+paste mistake on my part there. It should say &qu=
+ot;... about HPKE-4 and HPKE-6 inclusion ...&quot;</div><div>=C2=A0</div></=
+div></div>
+
+<br>
+<i style=3D"margin:0px;padding:0px;border:0px;outline:0px;vertical-align:ba=
+seline;background:rgb(255,255,255);font-family:proxima-nova-zendesk,system-=
+ui,-apple-system,system-ui,&quot;Segoe UI&quot;,Roboto,Oxygen-Sans,Ubuntu,C=
+antarell,&quot;Helvetica Neue&quot;,Arial,sans-serif;color:rgb(85,85,85)"><=
+span style=3D"margin:0px;padding:0px;border:0px;outline:0px;vertical-align:=
+baseline;background:transparent;font-family:proxima-nova-zendesk,system-ui,=
+-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,Roboto,Oxygen-Sans,Ub=
+untu,Cantarell,&quot;Helvetica Neue&quot;,Arial,sans-serif;font-weight:600"=
+><font size=3D"2">CONFIDENTIALITY NOTICE: This email may contain confidenti=
+al and privileged material for the sole use of the intended recipient(s). A=
+ny review, use, distribution or disclosure by others is strictly prohibited=
+.=C2=A0 If you have received this communication in error, please notify the=
+ sender immediately by e-mail and delete the message and any file attachmen=
+ts from your computer. Thank you.</font></span></i>
+--000000000000e8313306571ce6af--
+

@@ -1,0 +1,542 @@
+Return-Path: <feh@fehcom.de>
+X-Original-To: tls@mail2.ietf.org
+Delivered-To: tls@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id A011E11AD348F
+	for <tls@mail2.ietf.org>; Mon, 20 Jul 2026 14:38:10 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784583490; bh=fxLM9oxN+bmGRmpbYc7gzSwuoWMNM+4l5k3QaZI58cM=;
+	h=Subject:From:To:Date:In-Reply-To:References;
+	b=AoTdK9wX/cxrkZ7nXXs+zNchA7jzRBDm6Vz7AhIQ+4YDF7YYFlFPj0Uqe+he2LCti
+	 Z30S2T6WQpNmrB1P6lvf+yCGVTHnpTQqIv0zA4HfYWsohU9HL4JUEmrSuu0x7+IYUh
+	 1Yu68D+sGrAiSwKxbcG8VTU9VrvqKKd1epBnR6q8=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.088
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.088 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1,
+	RCVD_IN_VALIDITY_CERTIFIED_BLOCKED=0.001,
+	RCVD_IN_VALIDITY_RPBL_BLOCKED=0.001, SPF_PASS=-0.001,
+	T_PDS_SHORTFWD_URISHRT_QP=0.01, UNPARSEABLE_RELAY=0.001]
+	autolearn=unavailable autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=neutral
+	reason="invalid (unsupported algorithm ed25519-sha256)"
+	header.d=fehcom.de header.b="pVdrqlcn"; dkim=pass (1024-bit key)
+	header.d=fehcom.de header.b="etZ3IQvh"
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id 3jSdzIIoqw2r for <tls@mail2.ietf.org>;
+	Mon, 20 Jul 2026 14:38:08 -0700 (PDT)
+Received: from mail.fehcom.net (mail.fehcom.net [85.25.149.179])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 546DF11AD3479
+	for <tls@ietf.org>; Mon, 20 Jul 2026 14:38:08 -0700 (PDT)
+DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed;
+  d=fehcom.de; s=eddy; x=1785188147; q=dns/txt; h=Received:
+  Received:Received:Received:Message-ID:Subject:From:To:Date:
+  In-Reply-To:References:Autocrypt:Organization:Content-Type:
+  User-Agent:MIME-Version; bh=y3F/I96PnLZu+ThLs6Vqt+Ndaa+GilI2PAJ
+  uskoxWxM=; b=pVdrqlcnkvXIN3y5yug+2id+EYk3GN/ayM0iBcNC6zq00PA/jGA
+  AYNs/geJRTAeW8KLnBsAQbktJ99Sf4g80AQ==
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+  d=fehcom.de; s=default; x=1785188147; q=dns/txt; h=Received:
+  Received:Received:Received:Message-ID:Subject:From:To:Date:
+  In-Reply-To:References:Autocrypt:Organization:Content-Type:
+  User-Agent:MIME-Version; bh=y3F/I96PnLZu+ThLs6Vqt+Ndaa+GilI2PAJ
+  uskoxWxM=; b=etZ3IQvhNxDExPm4B/cvVQxDOaIvnXwCFMZ1mQtxvb9ueh6Kj+R
+  gMH3FwclOcciibUhKUMBzFoYXoIGi25ETKLgYmi8kP8P/5b++IQr3Z0CPO0+6twF
+  gqsDweq+jEz5tHL6uI3KUKgSGbBAIAnhcT7V353T019n65f/eT3KvxSA=
+Received: (qmail 917877 invoked from network); 20 Jul 2026 21:35:47 -0000
+Received: from p5b1427dc.dip0.t-ipconnect.de (Dr. Erwin Hoffmann@91.20.39.220)
+  for <>
+  de/crypted with TLSv1.3: TLS_CHACHA20_POLY1305_SHA256 [256/256]
+  DN=/C=DE/ST=Rheinland-Pfalz/L=Hoehn/O=Fehcom/CN=Dr. Erwin
+ Hoffmann/emailAddress=hoffmann@fehcom.de
+  by india167 with QMTPSA; 20 Jul 2026 21:35:47 -0000
+Received: (qmail 3522 invoked from network); 20 Jul 2026 21:35:46 -0000
+Received: from amr5.fehnet.dnl (erwin@192.168.192.42)
+  for <ietf=40dennis-jackson.uk@dmarc.ietf.org>
+  de/crypted with TLSv1.3: TLS_AES_256_GCM_SHA384 [256/256]
+  by omnios with ESMTPSA; 20 Jul 2026 21:35:46 -0000
+Message-ID: <b8124f22baf53438fc017d49601c2062f9a2ee5e.camel@fehcom.de>
+From: Erwin Hoffmann <feh@fehcom.de>
+To: Dennis Jackson <ietf=40dennis-jackson.uk@dmarc.ietf.org>, tls@ietf.org
+Date: Mon, 20 Jul 2026 23:35:46 +0200
+In-Reply-To: <d2575f77-ff5f-4986-aa89-8c9487584fb3@dennis-jackson.uk>
+References: 
+	<CAOgPGoAcjjOvqNaxyL0N2+hLXOBPeRz-0JMv5cDGG3vS-JLCXw@mail.gmail.com>
+	 <cb62f4f6312148a195f66d6b57e3d201@ec.europa.eu>
+	 <CAOgPGoB3bx8XNzA9qN-=JS8ZHZpi7MVQG4fmLCKP7TMNjya7og@mail.gmail.com>
+	 <23CEAD15-8195-4F7A-8EF3-60606D556DB9@kenkubota.de>
+	 <d2575f77-ff5f-4986-aa89-8c9487584fb3@dennis-jackson.uk>
+Autocrypt: addr=feh@fehcom.de; prefer-encrypt=mutual;
+ keydata=mQGiBDlrZa0RBADdMaeQKWqaMJMi20LW0bfb+bvDjk7HoEB9Itad/lkHo3yAHhJt++d6d
+ xeBbSQd8YzLsGy3gX2+m5kYJ7jUhvOtAVRoYqrkKqahrF+ZEwqe5L3uzK+vfQl2Rc152uUEib4EZv
+ NNAAI2fM23aRf/p8gRUktgKWR0ge5+4lqMZb5MJwCg/ztDtUcsJC+g/GGKL5moPlSZ5DcD/i4yymd
+ z5MFu9wWB4CcqWY9NHGS31YioerIDDzNplJ+fSWmhpdNcP/hdpRm1IbUnhkJhjOeO8OcE7QarfDH6
+ 3gfqi8doSWZHp1YY7WF7w1qX2T+/QhsTnojzPIPes+ZoS5KkiOhpRoxHRL7KGbtP+SZmgpaMQoRZw
+ 9g94I1FXlY0BACzgmvyI22+0KyzQtUjESBfbuGldRcXLb9Zb2u1cOdiswyp6SdL/uun1bXZQiT4RP
+ hXEIrpTgCOI5ZQL0E5hLWRJNpBc2exMwatQfq7IBNJPVAys3hNnDqz/WFVaUB1XAl+GmTxAdOmUSO
+ BtL6o+yNKWG3+yhUwiwvdeBo8sSeA/LQeRXJ3aW4gSG9mZm1hbm4gPGZlaEBmZWhjb20uZGU+iE4E
+ EBECAA4FAjlrZa0ECwMCAQIZAQAKCRDMAxGOfkA0vowvAKDLKq8g0gWrkwGoBEkw1W7T/HWsaACfT
+ joBB+titIDdcv70J3tm2H8yY/6ZAaIEOWsd+BEEAMtWnq6wEclZSv3mDN9PW2H6OaICtUz3JCKC0Z
+ b6JDwllYPDjkiuGfPfnM353cKo9Fs44zQydT/i1H3KSsZCcdpfsRzz428HDvo0cHkUo0+zdHqp/6j
+ yybgGK4nPKa1Pb/vtkaRnH/+INNzuQGVqWtXwaMmVKhN6MBj4+3bj8yalAKD/nUpC6DqUHlopsaYI
+ shVFIranNQQAyNrM+VXQyhjd28o8J6PohqG28jDCevCBMe+R5cRG7WW1/i/zWd0bysIcqPR3BeWdE
+ nW5wfd+TZEoALD7KTljFWiI7oQ7mVxR8djlFGOPGC+X+Tij0gkflChsblCsccomyBbCSqfL6DtU/K
+ VMXHS7t+5vBeV1sg8Nd6+E4FlIE6UD/0XKENxf1WFALUws9eCL7L7FZeb0rHLyLJnWPCo7qVpKr+9
+ AgAwRNlvyHr9MbQ8HE8XC50K94+VzdF3c6MlM5o6OdVMetzS5Dvcebr4yHyZaR8S/pM5Pgv2W2wzs
+ v87BXPocSJX5CURVTk5axWyTqCvErHD3KqeSw77fz02ayrfFtB5FcndpbiBIb2ZmbWFubiA8ZmVoQ
+ GZlaGNvbS5kZT6ITgQQEQIADgUCOWsd+AQLAwIBAhkBAAoJEPhTfSq9mTGZunEAnjuyxh3z/YA9SU
+ ETkF7X0MrKmVFbAJ9rNGlqf+4aWoepF+KTy8ws5yU+AZgzBGlJJukWCSsGAQQB2kcPAQEHQDai4jT
+ OQRx9WURT0+Y44j7NnVGRjryBsEuFHsR6hidWtDBFcndpbiBIb2ZmbWFubiAoUHJpbWFyeSBhZGRy
+ ZXNzKSA8ZmVoQGZlaGNvbS5kZT6ImQQTFgoAQRYhBJULVVULCFoqHACVlDZVP3+cWNHMBQJpSSbpA
+ hsDBQkPCZwABQsJCAcCAiICBhUKCQgLAgQWAgMBAh4HAheAAAoJEDZVP3+cWNHM1uEBAKtW9BFvrV
+ FkBnQ7iUwitTcGL8fW+F14VYQgY8xSYfoAAQCdlUBivYD+5xWqe9eD34jQw7L9Q5q5+cwpsjcgJmn
+ kCQ==
+Organization: FEHCom
+Content-Type: multipart/signed; micalg="pgp-sha512";
+	protocol="application/pgp-signature"; boundary="=-6yF9QtEArG2SAuQ3Xy5I"
+User-Agent: Evolution 3.56.2 FreeBSD GNOME Team
+MIME-Version: 1.0
+Message-ID-Hash: J2WLQFCKSHL7OM2XAKS4E54U5VNOCVQ5
+X-Message-ID-Hash: J2WLQFCKSHL7OM2XAKS4E54U5VNOCVQ5
+X-MailFrom: feh@fehcom.de
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-tls.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BTLS=5D_Re=3A_MLKEM_Consensus_Call_=28was_WG_Last_Call=3A_draft-?=
+ =?utf-8?q?ietf-tls-mlkem-08_=28Ends_2026-07-08=29=29?=
+List-Id: "This is the mailing list for the Transport Layer Security working
+ group of the IETF." <tls.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/tls/rBFeM0LLgqlJdpHoNTaPV_FqfM0>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/tls>
+List-Help: <mailto:tls-request@ietf.org?subject=help>
+List-Owner: <mailto:tls-owner@ietf.org>
+List-Post: <mailto:tls@ietf.org>
+List-Subscribe: <mailto:tls-join@ietf.org>
+List-Unsubscribe: <mailto:tls-leave@ietf.org>
+
+
+--=-6yF9QtEArG2SAuQ3Xy5I
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi Dennis,
+
+thanks for sharing. But this only reflects parts of the discussion.
+
+Since I too provide public mail listings for my users, I know, this is
+a difficult issue.
+
+=46rom my point of view, this IETF Web-based ML is dysfunctional because
+it is difficult to digest the important topics.
+
+Subscribers often express their oppinion not matching the topic
+(Subject). This is bad for readers and digesting.
+
+Regards.
+--eh.
+
+
+Am Montag, dem 20.07.2026 um 22:55 +0200 schrieb Dennis Jackson:
+> =C2=A0
+> The TLS Mailing List Archive is public & available at the following
+> url:=C2=A0
+> =C2=A0
+> https://mailarchive.ietf.org/arch/browse/tls/
+> =C2=A0
+> Bulk extracts can also be downloaded with rsync as described here:=C2=A0
+> =C2=A0
+> https://www.ietf.org/about/open-records/
+> =C2=A0
+> Best,
+> =C2=A0Dennis
+> =C2=A0
+> On 20/07/2026 22:08, Ken Kubota wrote:
+> =C2=A0
+> =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > I am writing to clarify the statement in your email regarding the
+> > statistic "7/10 WG participants favor advancing the document."
+> > =C2=A0
+> >=20
+> > =C2=A0
+> > =C2=A0
+> > Transparency is a core principle of the IETF.
+> > =C2=A0
+> >=20
+> > =C2=A0
+> > =C2=A0
+> > Please provide the breakdown or data that supports this figure.
+> > =C2=A0
+> >=20
+> > =C2=A0
+> > =C2=A0
+> > Thank you for your assistance.
+> > =C2=A0
+> >=20
+> > =C2=A0
+> > =C2=A0
+> > Kind regards,
+> > =C2=A0
+> >=20
+> > =C2=A0
+> > =C2=A0
+> > Ken Kubota
+> > =C2=A0
+> > =C2=A0____________________________________________________
+> > =C2=A0
+> > =C2=A0Ken Kubota
+> > =C2=A0https://doi.org/10.4444/100
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> >=20
+> > =C2=A0
+> > > =C2=A0
+> > > Am 20.07.2026 um 21:51 schrieb Joseph Salowey <joe@salowey.net>:
+> > > =C2=A0
+> > > =C2=A0
+> > > =C2=A0
+> > > As others have mentioned on this thread, a consensus call is not
+> > > a
+> > > =C2=A0vote. We used public responses to get a sense of where the
+> > > mailing
+> > > =C2=A0list participants are leaning. In this case, we saw many
+> > > participants
+> > > =C2=A0who had not participated in the previous calls or on the TLS
+> > > list in
+> > > =C2=A0general. =C2=A0The chairs have the remit to judge consensus bas=
+ed on
+> > > input
+> > > =C2=A0such as taking into account the level of previous participation
+> > > of the
+> > > =C2=A0sender. =C2=A0There is no specific threshold which represents r=
+ough
+> > > =C2=A0consensus. In this case, we judged that the responses show roug=
+h
+> > > =C2=A0consensus to move forward with publishing the document and to
+> > > address
+> > > =C2=A0the issues raised during the consensus call.
+> > > =C2=A0
+> > > =C2=A0All of the mail used as part of this process is publicly
+> > > available. We
+> > > =C2=A0do not intend to release any further detailed analysis includin=
+g
+> > > =C2=A0"numbers" or "weights/methods".
+> > > =C2=A0
+> > > =C2=A0Thanks,
+> > > =C2=A0
+> > > =C2=A0Joe
+> > > =C2=A0
+> > > =C2=A0
+> > > =C2=A0On Sun, Jul 19, 2026 at 6:55=E2=80=AFAM DA PIEVE Fabiana
+> > > =C2=A0<Fabiana.DA-PIEVE@ec.europa.eu> wrote:
+> > > =C2=A0
+> > > >=20
+> > > > =C2=A0Can I kindly ask if there is evidence that can be provided fo=
+r
+> > > > your statements about the numbers, and more info on the weights
+> > > > / method you apply to weigh answers, from both sides ?
+> > > > =C2=A0
+> > > > =C2=A0I imagine you have a table/a scheme/something, with
+> > > > participants, an established method for the weights, weights
+> > > > associated to each person on both sides, other elements you may
+> > > > have considered relevant ....
+> > > > =C2=A0
+> > > > =C2=A0Thank you for your kind attention
+> > > > =C2=A0
+> > > > =C2=A0Fabiana Da Pieve
+> > > > =C2=A0Team Leader Post-Quantum Cryptography
+> > > > =C2=A0
+> > > > =C2=A0European Commission
+> > > > =C2=A0DG Communications Networks, Content and Technology
+> > > > =C2=A0Unit C4 =E2=80=93 Emerging & Disruptive Technologies
+> > > > =C2=A0
+> > > > =C2=A0
+> > > > =C2=A0
+> > > > =C2=A0
+> > > > =C2=A0-----Original Message-----
+> > > > =C2=A0From: Joseph Salowey <joe@salowey.net>
+> > > > =C2=A0Sent: Sunday, July 19, 2026 1:31 PM
+> > > > =C2=A0To: <tls@ietf.org> <tls@ietf.org>
+> > > > =C2=A0Cc: draft-ietf-tls-mlkem@ietf.org; tls-chairs
+> > > > <tls-chairs@ietf.org>
+> > > > =C2=A0Subject: [TLS] MLKEM Consensus Call (was WG Last Call: draft-
+> > > > ietf-tls-mlkem-08 (Ends 2026-07-08))
+> > > > =C2=A0
+> > > > =C2=A0During this last call we received responses from a large
+> > > > number of people on both sides of the issue, many were from
+> > > > first time participants, which was probably due to the
+> > > > extensive social media coverage. The primary objection
+> > > > discussed extensively during the call concerned the relative
+> > > > strength of pure versus hybrid approaches.
+> > > > =C2=A0Fundamentally, this is a judgement call people have to make
+> > > > for themselves, and the chair=E2=80=99s role is not to just decide =
+for
+> > > > the WG b=3Dt rather to take the sense of the WG. The chairs
+> > > > ultimately bear the burden of how to weigh those responses
+> > > > against those of long-time WG participants with demonstrated
+> > > > expertise. By pure numbers, more people want to progress the
+> > > > document than not, but this alone does not constitute rough
+> > > > consensus. However, if we look at pre-existing WG participants
+> > > > or people with demonstrated expertise, roughly 7/10 WG
+> > > > participants favor advancing the document, which shows rough
+> > > > consensus to move the document forward.
+> > > > =C2=A0
+> > > > =C2=A0Even though there is rough consensus to move forward we feel
+> > > > several issues raised during the last call need to be
+> > > > addressed. Some of the issues below have text proposals that we
+> > > > think are appropriate given the list discussions, we will
+> > > > accept feedback on them, but we do not intend to make
+> > > > significant changes since these issues have already had a fair
+> > > > amount of discussion
+> > > > =C2=A0
+> > > > =C2=A01. Emphasize the status of the document
+> > > > =C2=A0
+> > > > =C2=A0Currently the pure ML-KEM algorithm is recommended =E2=80=9CN=
+=E2=80=9D in t=3De
+> > > > IANA registry and is a non-standards-track informational
+> > > > document while
+> > > > =C2=A0X25519MLKEM768 is marked as recommended =E2=80=9CY=E2=80=9D a=
+nd is defined =3Dn
+> > > > a standards-track document. =C2=A0While this indicates the
+> > > > preference for the hybrid approach, it was pointed out that the
+> > > > meaning of the =E2=80=9CN =3D80 =C2=A0value may not be obvious to r=
+eaders
+> > > > unfamiliar with the IETF process.
+> > > > =C2=A0
+> > > > =C2=A0Based on the discussion the following will be added to the
+> > > > IANA considerations section, which the IESG approved for pure
+> > > > ML-DSA, to save readers following existing links in the
+> > > > document to understand the meaning on N and to further
+> > > > addresses some hybrid/pure approach
+> > > > =C2=A0concerns:
+> > > > =C2=A0
+> > > > =C2=A0As defined in Section 3 of [RFC9847], the value N indicates
+> > > > =C2=A0
+> > > > =C2=A0=C2=A0=C2=A0=C2=A0=C2=A0=C2=A0That the item has not been eval=
+uated by the IETF and that
+> > > > the IETF
+> > > > =C2=A0=C2=A0=C2=A0=C2=A0=C2=A0=C2=A0has made no statement about the=
+ suitability of the
+> > > > associated
+> > > > =C2=A0=C2=A0=C2=A0=C2=A0=C2=A0=C2=A0mechanism. =C2=A0This does not =
+necessarily mean that the
+> > > > mechanism is
+> > > > =C2=A0=C2=A0=C2=A0=C2=A0=C2=A0=C2=A0flawed, only that no consensus =
+exists. =C2=A0The IETF might
+> > > > have
+> > > > =C2=A0=C2=A0=C2=A0=C2=A0=C2=A0=C2=A0consensus to leave an item mark=
+ed as "N" on the basis of
+> > > > the item
+> > > > =C2=A0=C2=A0=C2=A0=C2=A0=C2=A0=C2=A0having limited applicability or=
+ usage constraints
+> > > > =C2=A0
+> > > > =C2=A02. Randomness requirements
+> > > > =C2=A0
+> > > > =C2=A0Jacob Appelbaum raised the issue that m random input value is
+> > > > provided directly to the ML-KEM.Encaps() and encrypted and sent
+> > > > to the TLS Client. This means that an attacker who can use raw
+> > > > random output to determine the PRNG state can use a connection
+> > > > with the server to attempt to derive the server's PRNG state
+> > > > and attack other connections.
+> > > > =C2=A0
+> > > > =C2=A0This issue pertains to the ML-KEM algorithm itself and is not
+> > > > unique to TLS. The NIST document currently does require a
+> > > > secure PRNG defined in NIST SP 800-90A-C and RFC 9846 discusses
+> > > > PRNGs in Appendix C. Any text added to address this point would
+> > > > need to be included both in this document and the ECDHE-MLKEM
+> > > > document.
+> > > > =C2=A0
+> > > > =C2=A0Text to go into Section 4.2, after the existing "MUST NOT
+> > > > reuse randomness" line:
+> > > > =C2=A0
+> > > > =C2=A0=E2=80=9CDuring encapsulation, ML-KEM encrypts m, drawn from =
+a random
+> > > > bit generator, so the peer holding the decapsulation key
+> > > > recovers m exactly. Any information that m provides about other
+> > > > outputs of the generator is therefore available to that peer.=E2=80=
+=9D
+> > > > =C2=A0
+> > > > =C2=A0And the following text for Section 5 (security
+> > > > considerations):
+> > > > =C2=A0
+> > > > =C2=A0=E2=80=9CThe disclosure of raw random number generator (PRNG)=
+ output
+> > > > in TLS and other protocols can be used in an attack to
+> > > > compromise the state of an insecure RNG as described in
+> > > > [DUALEC-TLS]. The m value in ML-KEM is an additional place
+> > > > where raw RNG output is disclosed to an active attacker.
+> > > > =C2=A0Because the m value in ML-KEM is randomly generated and
+> > > > transmitted to the client, it is important to follow the PRNG
+> > > > guidance in [FIPS203] and [RFC9846]. Implementers MAY choose to
+> > > > implement mechanisms from [RFC8937] for additional protection
+> > > > across sessions."
+> > > > =C2=A0
+> > > > =C2=A0[DUALECTLS] -
+> > > > https://www.usenix.org/system/files/conference/usenixsecurity=3D4
+> > > > /sec14-paper-checkoway.pdf
+> > > > =C2=A0
+> > > > =C2=A0Similar text will also go into the ECDHE-MLKEM document.
+> > > > =C2=A0
+> > > > =C2=A03. Document Track & Stream
+> > > > =C2=A0
+> > > > =C2=A0The document is currently in the RFC stream on the non-
+> > > > standards Informational track. Some have argued for the ISE
+> > > > stream so that the document does not reflect IETF consensus or
+> > > > the document be included on the experimental track. =C2=A0Both of
+> > > > these approaches will result in the publication of an RFC which
+> > > > is the same result as the current path to the average RFC
+> > > > consumer. We believe we have consensus to publish this as an
+> > > > informational working group document
+> > > > =C2=A0
+> > > > =C2=A0Joe
+> > > > =C2=A0
+> > > > =C2=A0
+> > > > =C2=A0On Wed, Jun 24, 2026 at 8:00=E2=80=AFAM Joseph Salowey via Da=
+tatracker
+> > > > <noreply@ietf.org> wrote:
+> > > > =C2=A0
+> > > > >=20
+> > > > > =C2=A0This message initiates a new Working Group Last Call for
+> > > > > draft-ietf-tls-m=3Dkem[1], which defines standalone ML-KEM key
+> > > > > establishment for TLS 1.3. The=3Dmain question before the
+> > > > > working group is: "Should the working group publi=3Dh a
+> > > > > document specifying stand alone ML-KEM?". If there is rough
+> > > > > consensus =3Dhen we will push to refine and publish the
+> > > > > document; otherwise, we will st=3Dp discussing the draft and
+> > > > > not progress it. Please respond to this call in=3Dicating
+> > > > > whether you support publishing a document specifying a stand
+> > > > > alone=3DML-KEM. Please refrain from further discussion on this
+> > > > > topic as most argum=3Dnts have been discussed multiple times.
+> > > > > =C2=A0
+> > > > > =C2=A0Why are we holding this consensus call now?
+> > > > > =C2=A0
+> > > > > =C2=A0Significant developments have occurred both within this
+> > > > > document and in t=3De broader TLS ecosystem to address the
+> > > > > concerns raised in the last WGLC. T=3Derefore, the third
+> > > > > consensus call is warranted. We ask the working group t=3D
+> > > > > consider document publication in light of these recent
+> > > > > changes:
+> > > > > =C2=A0
+> > > > > =C2=A0- Promotion of Hybrids in draft-ietf-tls-ecdhe-mlkem:
+> > > > > Following a separat=3D consensus call, the WG agreed to promote
+> > > > > the X25519MLKEM768 hybrid group =3Do Recommended: Y in the IANA
+> > > > > registry. Consequently, the IANA registry wil=3D reflect a
+> > > > > clear community preference for a hybrid because Recommended:
+> > > > > Y =3Dlearly indicates this while the standalone ML-KEM groups
+> > > > > defined in this d=3Daft remain Recommended: N. The updated
+> > > > > security considerations in [1] refe=3Dence the IANA registry to
+> > > > > emphasize this preference.
+> > > > > =C2=A0
+> > > > > =C2=A0- Key Share Reuse Prohibited in draft-ietf-tls-rfc8446bis:
+> > > > > The WG recentl=3D reached consensus to explicitly prohibit key
+> > > > > share reuse across connectio=3Ds in TLS 1.3. The new text
+> > > > > changes the guidance from SHOULD NOT to a stric=3D MUST NOT.
+> > > > > This resolves the concerns regarding static key reuse and its
+> > > > > a=3Dsociated privacy and forward-secrecy risks for ML-KEM.
+> > > > > =C2=A0
+> > > > > =C2=A0- Nadim updated the ProVerif model of TLS 1.3 to evaluate
+> > > > > KEM and hybrid =3DEM groups in TLS 1.3. This supports other
+> > > > > results which show that KEMs are=3Dsecure when used in TLS 1.3
+> > > > > and that hybrid groups are secure even if one =3Df the
+> > > > > components is compromised.
+> > > > > =C2=A0
+> > > > > =C2=A0- Liaisons: We received liaison statements from multiple
+> > > > > SDOs including =C2=A0=3D-RAN[2], IEEE 802.11[4] and from 3GPP[3]
+> > > > > =C2=A0expressing support for the publi=3Dation of draft-ietf-tls-
+> > > > > mlkem as an RFC as they rely on the IETF to provid=3D a stable
+> > > > > normative reference.
+> > > > > =C2=A0
+> > > > > =C2=A0Please note that a third-party IPR disclosure exists [5]
+> > > > > against this doc=3Dment regarding patents related to the
+> > > > > underlying ML-KEM algorithm. This IP=3D declaration has not
+> > > > > changed since the last WGLC. As a reminder, per BCP 7=3D, the
+> > > > > IETF takes no stance on the validity of patent claims, and
+> > > > > the worki=3Dg group may decide to proceed with a technology
+> > > > > despite IPR disclosures if=3Dit decides that such use is
+> > > > > warranted.
+> > > > > =C2=A0
+> > > > > =C2=A0Conduct Reminder: Given the heated nature of previous
+> > > > > discussions on this=3Dtopic, participants are strongly reminded
+> > > > > to adhere to the IETF Code of Co=3Dduct (BCP 54) and the TLS
+> > > > > WG's Mail List Procedures. Keep feedback profess=3Donal,
+> > > > > technical, and focused on the document's text.
+> > > > > =C2=A0
+> > > > > =C2=A0This working group last call will end on 2026-07-08.
+> > > > > =C2=A0
+> > > > > =C2=A0Joe and Sean
+> > > > > =C2=A0
+> > > > > =C2=A0[1] https://datatracker.ietf.org/doc/draft-ietf-tls-mlkem/
+> > > > > =C2=A0[2] https://datatracker.ietf.org/liaison/2198/
+> > > > > =C2=A0[3] https://datatracker.ietf.org/liaison/2151/
+> > > > > =C2=A0[4] https://datatracker.ietf.org/liaison/2148/
+> > > > > =C2=A0[5]
+> > > > > https://datatracker.ietf.org/ipr/search/?submit=3Ddraft&id=3Ddraf=
+t-ie=3Df-tl
+> > > > > =C2=A0s-mlkem
+> > > > > =C2=A0
+> > > > =C2=A0
+> > > > =C2=A0
+> > > =C2=A0
+> > > =C2=A0_______________________________________________
+> > > =C2=A0TLS mailing list -- tls@ietf.org
+> > > =C2=A0To unsubscribe send an email to tls-leave@ietf.org
+> > > =C2=A0
+> > > =C2=A0
+> > > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0
+> > =C2=A0=C2=A0
+> > _______________________________________________
+> > TLS mailing list -- tls@ietf.org
+> > To unsubscribe send an email to tls-leave@ietf.org
+> > =C2=A0
+> =C2=A0
+> _______________________________________________
+> TLS mailing list -- tls@ietf.org
+> To unsubscribe send an email to tls-leave@ietf.org
+
+--=20
+Dr. Erwin Hoffmann | www.fehcom.de
+PGP key-id: 36553F7F9C58D1CC
+PGP key-fingerprint:  950B 5555 0B08 5A2A 1C00 9594 3655 3F7F 9C58 D1CC
+
+--=-6yF9QtEArG2SAuQ3Xy5I
+Content-Type: application/pgp-signature; name="signature.asc"
+Content-Description: This is a digitally signed message part
+
+-----BEGIN PGP SIGNATURE-----
+
+iKAEABYKAEgWIQSVC1VVCwhaKhwAlZQ2VT9/nFjRzAUCal6UshsUgAAAAAAEAA5t
+YW51MiwyLjUrMS4xMiwyLDMOHGZlaEBmZWhjb20uZGUACgkQNlU/f5xY0cxZhAD/
+bJ5zP4AtHSH7mpObPXQoXL5ZdMx++sP4+givjgvHEloA/RDalMz8URfrk90c94sK
++e3jXydOVMHg7bHpX4YX/uYJ
+=YXgL
+-----END PGP SIGNATURE-----
+
+--=-6yF9QtEArG2SAuQ3Xy5I--
+

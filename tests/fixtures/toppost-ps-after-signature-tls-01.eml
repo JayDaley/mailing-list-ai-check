@@ -1,0 +1,299 @@
+Return-Path: <Christian.Veenman@ncsc.nl>
+X-Original-To: tls@mail2.ietf.org
+Delivered-To: tls@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id E07A711A5769B
+	for <tls@mail2.ietf.org>; Mon, 20 Jul 2026 05:14:20 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784549660; bh=HHMeBqo1e+lmD+CCddcqvXrUkpFAiIcK7idVeNCokcU=;
+	h=Date:Subject:To:References:From:In-Reply-To;
+	b=om5h8xI+5eQzujn2XKfPfKH1YZCTDT9frF5AmlXjHAdQ9OvSouf7nX4+ECQob6oWA
+	 64XVa80W1OGPKcvlnqVg45uLvEfVdNicWjAjXxGvJle3W87nA/X8HmLI9KoIvn5Lu1
+	 SFW7X1YJQr+HszfXGUQsL+0SYpARH23Wv0nggsn4=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.099
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.099 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, HTML_FONT_LOW_CONTRAST=0.001,
+	HTML_MESSAGE=0.001, SPF_PASS=-0.001] autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=ncsc.nl
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id jHKWEvcGDsis for <tls@mail2.ietf.org>;
+	Mon, 20 Jul 2026 05:14:20 -0700 (PDT)
+Received: from mx1.ncsc.nl (mx1.ncsc.nl [IPv6:2a04:9a00:1110:700::1:2])
+	(using TLSv1.2 with cipher ECDHE-ECDSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 1FB4E11A5768F
+	for <tls@ietf.org>; Mon, 20 Jul 2026 05:14:20 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+  d=ncsc.nl; i=@ncsc.nl; q=dns/txt; s=ncsc201806;
+  t=1784549660; x=1816085660;
+  h=message-id:date:mime-version:subject:to:references:from:
+   in-reply-to;
+  bh=3JupvYalqgdUTq0tBvzlLp0v4O6h38IZqXT1US6Qh3A=;
+  b=IeI/pj2oWDq7pwktnm4KVH85KXtH62K8XMrLOzzFAzAGY5UV1tcF5d6J
+   Ob5l9ti3D06xZN7ajpH9Dl3Y56CEQoWBH3zmH0BWu2uY1tNRE7A+mOGQk
+   yIogRZ0jiT+Vwe3bVTYObiFIAjI8OBpMbWqpefZGMB0ZlBfGg5H4HZsz5
+   Ag2AmktuIq+QvQh+Gbnbt0e9fbtbXeSI3LVOEZKWuHL/8RTQR2BYB4r17
+   dmX5mJ1CC7k2LrbtWfM025HnWiG4jTR3EUFE/kC6jOvT7Po+WvaJ87VAI
+   jjXdswunaaRqm/bmn6ptNL/30VXvLwTnp/Xqx8txJTyfBS9mQe9/6Nn9R
+   g==;
+X-CSE-ConnectionGUID: 4hPpIXBISPKl13FoKElpgA==
+X-CSE-MsgGUID: 4s8prPAlROypFMY9AF1raQ==
+Content-Type: multipart/alternative;
+	boundary="------------yKaPbfR4jBgt84obSd7kCXtA"
+Message-ID: <733d16dc-9afb-452e-b136-fc65e5be9667@ncsc.nl>
+Date: Mon, 20 Jul 2026 14:14:08 +0200
+MIME-Version: 1.0
+User-Agent: Mozilla Thunderbird
+To: <tls@ietf.org>
+References: 
+ <CAOgPGoAcjjOvqNaxyL0N2+hLXOBPeRz-0JMv5cDGG3vS-JLCXw@mail.gmail.com>
+ <AS4PR07MB8825D85863620C22920F700F89C32@AS4PR07MB8825.eurprd07.prod.outlook.com>
+Content-Language: en-US
+From: "Christian Veenman (NCSC-NL)" <christian.veenman@ncsc.nl>
+In-Reply-To: 
+ <AS4PR07MB8825D85863620C22920F700F89C32@AS4PR07MB8825.eurprd07.prod.outlook.com>
+X-TM-AS-Product-Ver: SMEX-14.0.0.3239-9.1.2019-30080.002
+X-TM-AS-Result: No-10--21.663600-8.000000
+X-TMASE-MatchedRID: 7d6B05Cv6pway9QOkeHsuM6lPzeV0DqivlF2Z6dwigCXYoGYte3R6k8W
+	Pd48ZLEOVrWZt2APHOkVW2x+sDSw5SzLYOt7skZyITytpp/jrEykoUpw1Eeygwyhk7JOFLH7PD6
+	ZTmMyYLxCsAVuV2l0Cp1tRNuAvSNuzPvigSWE1EFkvrTiSNWDZKeeBvX7bSdN7qrzwOoUkZS7f3
+	7qSaF8mPU6dHwAvQJvkkPuNlsnraMmPj1xAlP5hUkfDhLXHsTTJLYKP7LHMY25IjA7gPm+gJ+oJ
+	whDQzxdcX8KN9nMoDXpm4uj63ofZ8sdt5FG8TIVgEpXsWzjEZiS/+m35pbn3OvpehRuWz3+YJlz
+	Xy0FerRTZVGeQS6N2mPJty5CWwAHuKkDSYU208NJXh06B6i7TKuJTryQQnyVB+MucjuBARvnRGW
+	1B0lIlyl3HwtfUmTifh1b0pOeHkZx0c43EuBDVFrnBGaGznk0TU42RVciesg0B3gGQi7YxEupVG
+	zpGS26ye+lCJx3D8DbzyR0OyO5DaUCpDwZKxyoy5SQn97LA4NqE6lPCMVJy00iAQn32UXYMzBiv
+	7KLC72OJ9U0lbDKjE4cL3v000r6pHRQTpX9AiDW0zrdUW8Q+Z+7IDpW29pQb/Mf4HpAx4NNgb/w
+	bgA3XcnfAieEL+Uw1c04BDYxKLavVdRTaoKa8qzSbgI3g0INF+p38MndnJrusRtB/Z90TuCQAMO
+	zS06wfBCEmL+udT2aJTGiNZUgbtWsXi0xdiwvv3tvBeKrT+8=
+X-TM-AS-User-Approved-Sender: Yes
+X-TM-AS-User-Blocked-Sender: No
+X-TMASE-Result: 10--21.663600-8.000000
+X-TMASE-Version: SMEX-14.0.0.3239-9.1.2019-30080.002
+X-TM-SNTS-SMTP: 
+	C27E72D6DF6EE01B729752919C987DAFE0A59C77134B9D074C0F59A3D770BA532000:8
+Message-ID-Hash: N6GSBBGGA6QM4DYXNROCRJTSJB6REYIL
+X-Message-ID-Hash: N6GSBBGGA6QM4DYXNROCRJTSJB6REYIL
+X-MailFrom: Christian.Veenman@ncsc.nl
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-tls.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BTLS=5D_Re=3A_MLKEM_Consensus_Call_=28was_WG_Last_Call=3A_draft-?=
+ =?utf-8?q?ietf-tls-mlkem-08_=28Ends_2026-07-08=29=29?=
+List-Id: "This is the mailing list for the Transport Layer Security working
+ group of the IETF." <tls.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/tls/2-0cajV_2mXbTf0HDC1tzmToTc8>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/tls>
+List-Help: <mailto:tls-request@ietf.org?subject=help>
+List-Owner: <mailto:tls-owner@ietf.org>
+List-Post: <mailto:tls@ietf.org>
+List-Subscribe: <mailto:tls-join@ietf.org>
+List-Unsubscribe: <mailto:tls-leave@ietf.org>
+
+--------------yKaPbfR4jBgt84obSd7kCXtA
+Content-Type: text/plain; charset="UTF-8"; format=flowed
+Content-Transfer-Encoding: 8bit
+
+Hi John,
+
+Just a small correction: The slides of ANSI say "higher confidence" 
+rather than "high confidence" when talking about ML-KEM which feels a 
+bit different to me since "higher" seems to imply that it's relative to 
+something else. Only FN-DSA seems to be classified as "high confidence" 
+in the slides. Just wanted to point that out for clarity. The reference 
+you provided is appreciated though!
+
+~ Christian Veenman (NCSC-NL)
+
+Ps. I have been lurking this list since April and this is my first time 
+replying. I am still discovering a bit how everything works over here. 
+Please let me know if I do not follow proper etiquette.
+
+On 7/20/2026 6:36 AM, John Mattsson wrote:
+>
+> 	
+> Caution: This mail has been sent from an external source outside of 
+> NCSC. Do not reply to it, or open any links/attachments unless you are 
+> sure of the sender's identity.
+>
+>
+> Thanks Joe,
+>
+> As with most industry, I would like to see this standardized and 
+> supported by libraries so that I can potentially enable it in the 
+> future. European cybersecurity agencies such as ANSSI has a high 
+> confidence in ML-KEM [1].
+>
+> The value of hybridization with quantum-vulnerable cryptography is 
+> clearly temporary, especially if one believes that nation-state 
+> attackers will have CRQCs in 2029 [2].
+>
+> The campaign by Bernstein et al. against the IETF and ML-KEM is a 
+> waste of everybody's time and resources and is likely to have a 
+> significant negative impact on cybersecurity. Can the IETF please take 
+> action before we lose more brilliant researchers, such as Nadim 
+> Kobeissi, from the community? [3]
+>
+> Cheers,
+> John Preuß Mattsson
+>
+> [1] 
+> https://na.eventscloud.com/file_uploads/b635298de1c10be6d3732863e8b1beca_Day2-1600-ANSSI.pdf
+>
+> [2] https://cr.yp.to/talks/2023.06.15/slides-djb-20230615-pqrisk-4x3.pdf
+>
+> [3] https://mailarchive.ietf.org/arch/msg/tls/7HNihlgf0I8Mpe-0nqGb56dnON8/
+>
+> _______________________________________________
+> TLS mailing list --tls@ietf.org
+> To unsubscribe send an email totls-leave@ietf.org
+--------------yKaPbfR4jBgt84obSd7kCXtA
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: 8bit
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  </head>
+  <body>
+    <p>Hi John,</p>
+    <p>Just a small correction: The slides of ANSI say "higher
+      confidence" rather than "high confidence" when talking about
+      ML-KEM which feels a bit different to me since "higher" seems to
+      imply that it's relative to something else. Only FN-DSA seems to
+      be classified as "high confidence" in the slides. Just wanted to
+      point that out for clarity. The reference you provided is
+      appreciated though!</p>
+    <p>~ Christian Veenman (NCSC-NL)</p>
+    <p>Ps. I have been lurking this list since April and this is my
+      first time replying. I am still discovering a bit how everything
+      works over here. Please let me know if I do not follow proper
+      etiquette.</p>
+    <div class="moz-cite-prefix">On 7/20/2026 6:36 AM, John Mattsson
+      wrote:<br>
+    </div>
+    <blockquote type="cite"
+cite="mid:AS4PR07MB8825D85863620C22920F700F89C32@AS4PR07MB8825.eurprd07.prod.outlook.com">
+      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+      <!-- Blue caution banner -->
+      <table border="0" cellspacing="0" cellpadding="0" align="left"
+        width="100%">
+        <tbody>
+          <tr>
+            <!-- Remove the next line if you don't want the Blue bar on the left side -->
+            <td style="background:#221fbe;padding:5pt 2pt 5pt 2pt"><br>
+            </td>
+            <td width="100%" cellpadding="7px 6px 7px 15px"
+style="background:#221fbe;padding:5pt 4pt 5pt 12pt;word-wrap:break-word">
+              <div
+                style="color:#ffffff; font-family:Verdana, sans-serif"
+                ?=""><span style="color:#fd1717; font-weight:bold;">Caution:</span>
+                This mail has been sent from an external source outside
+                of NCSC. Do not reply to it, or open any
+                links/attachments unless you are sure of the sender's
+                identity. </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <br>
+      <div>
+        <div
+style="direction: ltr; font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          Thanks Joe,</div>
+        <div
+style="direction: ltr; font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          <br>
+        </div>
+        <div
+style="font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          As with most industry, I would like to see this standardized
+          and supported by libraries so that I can potentially enable it
+          in the future. European cybersecurity agencies such as ANSSI
+          has a high confidence in ML-KEM [1].</div>
+        <div
+style="direction: ltr; font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          <br>
+        </div>
+        <div
+style="font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          The value of hybridization with quantum-vulnerable
+          cryptography is clearly temporary, especially if one believes
+          that nation-state attackers will have CRQCs in 2029 [2].</div>
+        <div
+style="direction: ltr; font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          <br>
+        </div>
+        <div
+style="font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          The campaign by Bernstein et al. against the IETF and ML-KEM
+          is a waste of everybody's time and resources and is likely to
+          have a significant negative impact on cybersecurity. Can the
+          IETF please take action before we lose more brilliant
+          researchers, such as Nadim Kobeissi, from the community? [3]</div>
+        <div
+style="direction: ltr; font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          <br>
+        </div>
+        <div
+style="font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          Cheers,</div>
+        <div
+style="font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          John Preuß Mattsson</div>
+        <div
+style="direction: ltr; font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          <br>
+        </div>
+        <div
+style="font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          [1] <a
+href="https://na.eventscloud.com/file_uploads/b635298de1c10be6d3732863e8b1beca_Day2-1600-ANSSI.pdf"
+            data-outlook-id="7d96a96d-5a84-4019-a0fc-c427c8fb10dc"
+            moz-do-not-send="true" class="moz-txt-link-freetext">
+https://na.eventscloud.com/file_uploads/b635298de1c10be6d3732863e8b1beca_Day2-1600-ANSSI.pdf</a></div>
+        <div
+style="direction: ltr; font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          <br>
+        </div>
+        <div
+style="font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          [2] <a
+href="https://cr.yp.to/talks/2023.06.15/slides-djb-20230615-pqrisk-4x3.pdf"
+            data-outlook-id="2ea32ac8-5607-464a-baf9-d8fc63514ec8"
+            moz-do-not-send="true" class="moz-txt-link-freetext">
+https://cr.yp.to/talks/2023.06.15/slides-djb-20230615-pqrisk-4x3.pdf</a></div>
+        <div
+style="direction: ltr; font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          <br>
+        </div>
+        <div
+style="direction: ltr; font-family: Aptos, Arial, Helvetica, sans-serif; font-size: 12pt; color: rgb(0, 0, 0);">
+          [3] <a
+href="https://mailarchive.ietf.org/arch/msg/tls/7HNihlgf0I8Mpe-0nqGb56dnON8/"
+            data-outlook-id="ee5bc721-e1be-45b6-beda-b1289017e9af"
+            moz-do-not-send="true" class="moz-txt-link-freetext">
+https://mailarchive.ietf.org/arch/msg/tls/7HNihlgf0I8Mpe-0nqGb56dnON8/</a></div>
+      </div>
+      <br>
+      <fieldset class="moz-mime-attachment-header"></fieldset>
+      <pre wrap="" class="moz-quote-pre">_______________________________________________
+TLS mailing list -- <a class="moz-txt-link-abbreviated" href="mailto:tls@ietf.org">tls@ietf.org</a>
+To unsubscribe send an email to <a class="moz-txt-link-abbreviated" href="mailto:tls-leave@ietf.org">tls-leave@ietf.org</a>
+</pre>
+    </blockquote>
+  </body>
+</html>
+
+--------------yKaPbfR4jBgt84obSd7kCXtA--
+

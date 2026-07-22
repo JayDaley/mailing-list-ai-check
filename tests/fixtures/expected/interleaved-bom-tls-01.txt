@@ -1,0 +1,7 @@
+The risk mitigation taken relies on the common sense (I know, in short supply now), and adherence to the standards. I.e., if it says “use NIST-blessed DRBG”, the implementation SHALL use it.
+
+Otherwise, if you assume that part of the standard will be ignored — why would other parts of that standard or your RFC be followed correctly?
+
+It merely requires the implementation to abide by the letter of the standards it claims to implement. Not a rocket science/
+
+Thank you (and others who’d hopefully follow your example) kindly!

@@ -1,0 +1,36 @@
+I hereby initiate a Recall Petition pursuant to § 7.1.1 of
+RFC 8713 against SEC AD Deb Cooley, regarding a significant
+breach in confidentiality of communication.
+
+While her technical competence within the Security Area is
+recognized without a doubt, the NomCom MAY consider to verify the
+trustworthiness of the named SEC AD based on the documented
+procedural infractions.
+
+To safeguard the fundamental integrity of the IETF standards
+process, the technical evidence regarding this unauthorized
+backchannel disclosure is provided below.
+
+TECHNICAL EVIDENCE OF SECURITY LACK
+
+1. My Private Notice to SEC AD Deb Cooley's officially in
+Datatracker regisered Mailaddress
+Message-ID: <3c967485-b5d2-4e93-84f6-632f81bc803d@alice-dsl.net>
+Date: Tue, 12 May 2026 10:15:36 +0200
+MIME-Version: 1.0
+User-Agent: Mozilla Thunderbird
+Content-Language: en-US, de-DE
+From: Timo Gerke <timo.gerke@alice-dsl.net>
+To: "Deb Cooley (IETF, AD Security Area)" <debcooley1@gmail.com>
+Subject: Notice: Operational Analysis & Cluster C430 Deadlock
+(TLS/UTA)
+
+2. SEC AD Deb Cooley's response
+References: <3c967485-b5d2-4e93-84f6-632f81bc803d@alice-dsl.net>
+In-Reply-To: <3c967485-b5d2-4e93-84f6-632f81bc803d@alice-dsl.net>
+From: Deb Cooley <debcooley1@gmail.com>
+Date: Wed, 13 May 2026 06:42:16 +0100
+Subject: Re: Notice: Operational Analysis & Cluster C430 Deadlock
+(TLS/UTA)
+To: Timo Gerke <timo.gerke@alice-dsl.net>
+Cc: Eric Rescorla <ekr@rtfm.com>, uta-chairs@ietf.org

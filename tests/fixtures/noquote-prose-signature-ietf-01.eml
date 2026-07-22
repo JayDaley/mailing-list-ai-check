@@ -1,0 +1,192 @@
+Return-Path: <bcampbell@pingidentity.com>
+X-Original-To: ietf@mail2.ietf.org
+Delivered-To: ietf@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 71E99115723A2
+	for <ietf@mail2.ietf.org>; Sun, 12 Jul 2026 10:20:09 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1783876809; bh=vqc4qOk3tVdoTng0juFc8yz+mxxHfHBm9h8eRl1BfOI=;
+	h=From:Date:Subject:To;
+	b=t5Zb220xdJv3AycC5JdGRjDwlg/V0fqsZ4EnOK1FU+5r0S7C5nnI3boMkPVPDGDt8
+	 9JsYM4aK2h7yc9yRRIO6/IUBPm+zn0+rwqzk6r1MC7Ju3r0p/MFOoOdoE/IYE2YeJB
+	 hpPcOhWo5bWyEp44ZNz5dQ8JQrmNXkYFv2belfsw=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.097
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.097 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, HTML_MESSAGE=0.001,
+	RCVD_IN_DNSWL_NONE=-0.0001, SPF_HELO_NONE=0.001, SPF_NONE=0.001]
+	autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=pingidentity.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id M-s39RyMg87I for <ietf@mail2.ietf.org>;
+	Sun, 12 Jul 2026 10:20:08 -0700 (PDT)
+Received: from mail-ua1-x92c.google.com (mail-ua1-x92c.google.com
+ [IPv6:2607:f8b0:4864:20::92c])
+	(using TLSv1.3 with cipher TLS_AES_128_GCM_SHA256 (128/128 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id A6CEF1157239A
+	for <ietf@ietf.org>; Sun, 12 Jul 2026 10:20:08 -0700 (PDT)
+Received: by mail-ua1-x92c.google.com with SMTP id
+ a1e0cc1a2514c-969524c1a63so1264926241.0
+        for <ietf@ietf.org>; Sun, 12 Jul 2026 10:20:08 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1783876802; cv=none;
+        d=google.com; s=arc-20260327;
+        b=OxBYrq+7pBlfMjGpXGYfWtMMHrEd7MsC+3yFMDR2MDco3UG5QaWyo3z4RhC5Ke0iBU
+         9o0Xh9fxZP5oyVCjrdDR0lDHL8Hh8hDwnZlxfRpFWMPKjDIVcoBqxe2FxqxDvr4QT0SF
+         08VqftFXUCrysUWVkTXm6migzWWCbJz7z6pi4p+GPOnsmYTMEJlt1+QL04nSiLt69+pw
+         2wNR8oacfXv9Go8QE4sQU3rTzYOgOaDU5TQppmxuyq01DkdtXuqMrazZ0HCP8SwICWdU
+         npjblOb3hEIfJFYuMXu5MviHw7Tp8Ie7gdnAsggE47UFVKfnqiZvlYYgSRsquhL9etIo
+         qriw==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com;
+ s=arc-20260327;
+        h=to:subject:message-id:date:from:mime-version:dkim-signature;
+        bh=vqc4qOk3tVdoTng0juFc8yz+mxxHfHBm9h8eRl1BfOI=;
+        fh=4xqkwy/6OmZuEAMMQYD2ryakYFW6KuPqqPUUxL6CXFg=;
+        b=IO932M2n6qDVTGe//YpjTrDWPLos+yaQK8od0vYTAsvi8u1vDjlXzbDBRA+v3VysXp
+         Fff3MXINrGsBo5h7amyWYLGRJx5F9MFSwm2aY3lCmIVNBm5VjxaEJeV0Va2mEkJ1Q5Pt
+         dTUzgT4dO7AG8FWGE6RmVaWxLszNVFYd/PAFEasyZBqr5Mo/HMjTlr6odbxE+yoe+Wlz
+         epS/BtwdMrWlaEn94XpVqQaMSbb059WmPDMNGBpcnuQfueDV73jlqCHvv0KnkW+5xG3Z
+         abWAQ6K/VtrXHPBXm2cL8qDH0CEoqpvBStcIUofhk/8yU7zcdTGSXE1LfTHfACHsNd1t
+         MLGQ==;
+        darn=ietf.org
+ARC-Authentication-Results: i=1; mx.google.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=pingidentity.com; s=google; t=1783876802; x=1784481602;
+ darn=ietf.org;
+        h=content-type:to:subject:message-id:date:from:mime-version:from:to
+         :cc:subject:date:message-id:reply-to:content-type;
+        bh=vqc4qOk3tVdoTng0juFc8yz+mxxHfHBm9h8eRl1BfOI=;
+        b=KB9kBxTafPhHVPH/Pv9CPiMvOv6zEZ4/KtXVmnTk3jrf2mvVOlBfwe88PWYncD0FvV
+         eEztoUDl8TJMHm2jEIW/MdaiiOV9rB2d7y5d3iVROiZdss4l7wZmDjsAdaUtsXbkp0yJ
+         RABtI30gKHF7nz7lpbU5dwebz04U76VXUq1sqaW64NDc6wce75et6z/I81DxRcxUqrax
+         y2s8QnVATwREhGvXcAmLSha4KFqnY7vPcIizMfbwQuEbJrskWqB6FFCvjf7Ur+gCrJzc
+         kUFPQmxP60bRUzrzeMC1JnsS2T6P0hPlpX9NhN31J37djh6/uHqRkZy7m9YNJi/IIJrW
+         /wTQ==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1783876802; x=1784481602;
+        h=content-type:to:subject:message-id:date:from:mime-version:x-gm-gg
+         :x-gm-message-state:from:to:cc:subject:date:message-id:reply-to
+         :content-type;
+        bh=vqc4qOk3tVdoTng0juFc8yz+mxxHfHBm9h8eRl1BfOI=;
+        b=AY2i6yM01jW8ey/gmSBsSRhaazwrDOZOx7lf6k2YhbQHkeu2RGCoDjExol0p5EDQXa
+         El2YFpraOqjTzLnUnugRQh4gQLAHTN01a3fWqimWWejLXfWaFxGRx0nVXo9RUH7x1xzE
+         Yk9WROk8BkkhQn9HRlwY6wa0+/lXl+BOw+cBABkwJ5ywjBCTK4XT0O/CrwR7GN1UfS1n
+         82mpBL0zDI7EgupYkyxsyMq6GhpG1jb42Q9a06T11rsZK6YooqWUv3q1WfPza15NOHBv
+         xA3rZd1rrtbFq7DLh4mKdl59Wuexacm0S35J3dtt3Js8Mj5iz9hCOE1G+QJHVEKXO8xz
+         QJdw==
+X-Gm-Message-State: AOJu0YxlOfEn5AsGba8Nt0s5hTNNv5ONtYIc1zVtOH3koLZP+qLEp3p3
+	tuCbsfzG3sPLGB4gifHPvMC263cgkUlSFQI8YAHDdmjzTVjbTEWQGfFSsxfGrz7BMpQxGChEFqj
+	sluoyAtwAQmXhDzTdqLQdA+2wojspJdubSCpSqKD0+oijYXXsjX/HRpNeEqaF52QXw2czFgvB2G
+	bLvB6FMCpCplxSa+TITC6t9iEjQwWQ
+X-Gm-Gg: AfdE7cmQdluRLibfiVhskC8Zr6po0n6Fm00cSDVeJTHXscNSIaz6VhYvVxRh8rN4MGe
+	exf4KXhDcSlIIPJ7wQsVFwTnfZyDun2BNvHBk5hBqybwIYkqcX1ktIlgFj6yg79homtJ0Z+04Qo
+	nW4EEltClBh5Vn8PpBYY9sltgu/CgYey54VI62C3ml5VplMyHyDyAbByJS9DaRbFV02rF/JC1zh
+	wxZN4jgaFAp7p40PyTDwaJmsDf0HZAIYbwTqpVb2y4iKugZKr+AJO0P1iRo3g6HyBCJKeoEoq6o
+	R9KucGI5LRvMEGQbJpa62qlYkM6UOdgd/WvbFhZT3QPBxJ882LAfvDo0b+BfzsEk3G09miJcWRV
+	9Px9NqsfJKoU0pA==
+X-Received: by 2002:a05:6102:4428:b0:738:472f:2cb3 with SMTP id
+ ada2fe7eead31-74533bf9668mr4044583137.8.1783876801681; Sun, 12 Jul 2026
+ 10:20:01 -0700 (PDT)
+MIME-Version: 1.0
+From: Brian Campbell <bcampbell@pingidentity.com>
+Date: Sun, 12 Jul 2026 11:19:35 -0600
+X-Gm-Features: AUfX_mzq8dYTxqBaAM-6eGYO76ShlUPzV_ucT_LqXDWSEWIpt1i3wAnDU0Tggtg
+Message-ID: 
+ <CA+k3eCR3n-zQHLTJdAS8XCoUHxTjeNgA72VBEvLwPm2drnDbMA@mail.gmail.com>
+Subject: Just before 126, some pics from 125
+To: IETF discussion list <ietf@ietf.org>
+Content-Type: multipart/alternative; boundary="00000000000016742d06566d2f75"
+Message-ID-Hash: SBW2L6R2ILBIYVJT7V7NHBKJ55NCHDVA
+X-Message-ID-Hash: SBW2L6R2ILBIYVJT7V7NHBKJ55NCHDVA
+X-MailFrom: bcampbell@pingidentity.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-ietf.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+List-Id: "IETF-Discussion. This is the most general IETF mailing list,
+ intended for discussion of technical, procedural, operational,
+ and other topics for which no dedicated mailing lists exist." <ietf.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/ietf/Zg5hbqTSpMQaCuKN6U8Ykkvrc_c>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/ietf>
+List-Help: <mailto:ietf-request@ietf.org?subject=help>
+List-Owner: <mailto:ietf-owner@ietf.org>
+List-Post: <mailto:ietf@ietf.org>
+List-Subscribe: <mailto:ietf-join@ietf.org>
+List-Unsubscribe: <mailto:ietf-leave@ietf.org>
+
+--00000000000016742d06566d2f75
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+[tried and failed to send to 125attendees@ and recentattendees@ so taking
+it to itef@ now]
+
+While there was certainly plenty of spirited discussion about the tradeoffs
+surrounding the IETF 125 location (I found myself on both sides at various
+times), I was ultimately very grateful for the opportunity to visit two
+places I'd not previously been. I absolutely loved the built and natural
+environment and the interplay between them, and I tried to capture some of
+the aesthetic in photographs. Thanks, as always, for indulging my
+gratuitous sharing of the results: https://flic.kr/s/aHBqjCYWby
+
+--=20
+_CONFIDENTIALITY NOTICE: This email may contain confidential and privileged=
+=20
+material for the sole use of the intended recipient(s). Any review, use,=20
+distribution or disclosure by others is strictly prohibited.=C2=A0 If you h=
+ave=20
+received this communication in error, please notify the sender immediately=
+=20
+by e-mail and delete the message and any file attachments from your=20
+computer. Thank you._
+
+--00000000000016742d06566d2f75
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><div>[tried and failed to send to=C2=A0125attendees@ and=
+=C2=A0<span class=3D"gmail-hb"><span name=3D"recentattendees" class=3D"gmai=
+l-g2">recentattendees@ so taking it to itef@ now]</span></span></div><div><=
+span class=3D"gmail-hb"><span name=3D"recentattendees" class=3D"gmail-g2"><=
+br></span></span></div><div>While there was certainly plenty of=C2=A0spirit=
+ed=C2=A0discussion about the=20
+tradeoffs surrounding=C2=A0the IETF 125 location (I found myself on both si=
+des at=20
+various times), I was ultimately=C2=A0very grateful=C2=A0for the opportunit=
+y=C2=A0to=20
+visit two places I&#39;d not previously been. I absolutely loved the built=
+=20
+and natural environment=C2=A0and the interplay between them, and I tried to=
+=20
+capture=C2=A0some of the aesthetic in photographs. Thanks, as=C2=A0always, =
+for=20
+indulging my gratuitous=C2=A0sharing of the results: <a href=3D"https://fli=
+c.kr/s/aHBqjCYWby" target=3D"_blank">https://flic.kr/s/aHBqjCYWby</a></div>=
+</div>
+
+<br>
+<i style=3D"margin:0px;padding:0px;border:0px;outline:0px;vertical-align:ba=
+seline;background:rgb(255,255,255);font-family:proxima-nova-zendesk,system-=
+ui,-apple-system,system-ui,&quot;Segoe UI&quot;,Roboto,Oxygen-Sans,Ubuntu,C=
+antarell,&quot;Helvetica Neue&quot;,Arial,sans-serif;color:rgb(85,85,85)"><=
+span style=3D"margin:0px;padding:0px;border:0px;outline:0px;vertical-align:=
+baseline;background:transparent;font-family:proxima-nova-zendesk,system-ui,=
+-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,Roboto,Oxygen-Sans,Ub=
+untu,Cantarell,&quot;Helvetica Neue&quot;,Arial,sans-serif;font-weight:600"=
+><font size=3D"2">CONFIDENTIALITY NOTICE: This email may contain confidenti=
+al and privileged material for the sole use of the intended recipient(s). A=
+ny review, use, distribution or disclosure by others is strictly prohibited=
+.=C2=A0 If you have received this communication in error, please notify the=
+ sender immediately by e-mail and delete the message and any file attachmen=
+ts from your computer. Thank you.</font></span></i>
+--00000000000016742d06566d2f75--
+

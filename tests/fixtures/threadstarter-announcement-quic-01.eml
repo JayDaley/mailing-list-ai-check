@@ -1,0 +1,188 @@
+Return-Path: <louis.navarre@uclouvain.be>
+X-Original-To: quic@mail2.ietf.org
+Delivered-To: quic@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id DDFBC117278D0
+	for <quic@mail2.ietf.org>; Wed, 15 Jul 2026 05:37:49 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784119069; bh=pjBHow1q3N6bMf8AGQpln1z0/Y7ZzGMweVNzfW4GKmQ=;
+	h=From:To:Subject:Date;
+	b=KJhU8x+gYp/F5S/amoep8rOZkPhrLnFY3mOz80HuAoKgIqk6wNInRBFk+HbuOZwX/
+	 tNftx8Q8xaGyxM0J6mczy5H2CYog9CvSEhCzpy2kkCa0YeuoE7pQpqiWuEtefqJujF
+	 D+msqMxQZYeYGCbhXYx0JDEUkGkdZw1yY9e9q6Ls=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.098
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.098 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, RCVD_IN_DNSWL_NONE=-0.0001,
+	RCVD_IN_MSPIKE_H2=0.001, RCVD_IN_VALIDITY_CERTIFIED_BLOCKED=0.001,
+	RCVD_IN_VALIDITY_RPBL_BLOCKED=0.001, SPF_PASS=-0.001]
+	autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=uclouvain.be
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id HAnNALqxbydr for <quic@mail2.ietf.org>;
+	Wed, 15 Jul 2026 05:37:49 -0700 (PDT)
+Received: from DU2PR03CU002.outbound.protection.outlook.com
+ (mail-northeuropeazon11021125.outbound.protection.outlook.com
+ [52.101.65.125])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange ECDHE (P-384) server-signature ECDSA (P-256) server-digest
+ SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id A253E1172787B
+	for <quic@ietf.org>; Wed, 15 Jul 2026 05:37:48 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; s=arcselector10001; d=microsoft.com; cv=none;
+ b=d4LtDbszYBfeQ6ZKyb2ScRLheg+RLyF2ubK8m38NYcv0uTcRDy3mqUSUv+7dHJpMF18cCV8XAJzzsYuBSuHNaw8ULkSKapE1UmZiZsFGL4SJr42CJ16h490M5k417Mii04gFiUma1eGg7+DVg3lev/jDC9cQFtUTH1YJOZmDOR8fBH1FZJR0Nwiia3TEeScGJr0xCuya2KFSnotTtJ1bowHV1doEPDFf1rvxKDTzIoNloHMhwyipBHFsFaFH3hpjiD3LsZrEDS7My0w5HALEUQMLhNou+m7UKPwdd4AF3nYaPjrtoPY72D/90edUCvs0qnEvH4e8WGgeSEJzl8nn2Q==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=microsoft.com;
+ s=arcselector10001;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh=pjBHow1q3N6bMf8AGQpln1z0/Y7ZzGMweVNzfW4GKmQ=;
+ b=n5YfP8qbgA8NhblihCVYLJDT7ZKCC2dNeBe0OUBjUdU/JDvTxy6bVsj3P3xxkiP0vSX0JAQY8Vj1nNa3KRHS9KceO0tz4b6vb3FMqDTGhePU5RuwaIvTevU291yW/HfGWb9NyMy2CphDw1BJNksXCjHUlSj3ZsD1u00DEOQOl9biLrrkkyJlojwgliI5vF34grB2yU/JTfqZuSOEds85iBfUGvIgJZakdQBak4/LmEu6isxEd4QWpVkyiZeTqDUdEqolscmj/v86ZQ+erqBwHxlnnOKHctuT3RDNLCdSVzGXWYjQ1SRAlEiUgZwN7qxHXj3X5NMrN9569C535eKTjQ==
+ARC-Authentication-Results: i=1; mx.microsoft.com 1; spf=pass
+ smtp.mailfrom=uclouvain.be; dmarc=pass action=none header.from=uclouvain.be;
+ dkim=pass header.d=uclouvain.be; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=uclouvain.be;
+ s=selector1;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-SenderADCheck;
+ bh=pjBHow1q3N6bMf8AGQpln1z0/Y7ZzGMweVNzfW4GKmQ=;
+ b=mYc16ukdL7J1GXB1KWIiOLRf8Xz445OBQS/GKSApQhqbekZHQbfESHHjiyzLmcg2Uaegen90HQ3vgoZzLjL1SiDTBcBDRa9j3XBaz12rcYx2I770iswE59gBKHLXIc3o+pJDSFBE3pQ+4FzZ4gfl+uuj9yodKIQvX+UXTLzZMkWQcnUOPyglZ4tEeZbJKqf6FQYo57pQzrsYJ8/Sl1tPf2I3V8uVlccURYDRBQbArNgFE5F3ptfCYYL7wknL3OVi8lH53+i2EWHCvAN3YoY2w09XqrMByde+0wSDaWLXMfpqXXaDoNXp/dRnRBmp9l9CIicp7mmOH5qIhvFxZPndDw==
+Received: from DU0PR03MB8911.eurprd03.prod.outlook.com (2603:10a6:10:473::17)
+ by DU0PR03MB9657.eurprd03.prod.outlook.com (2603:10a6:10:42f::22) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.21.202.18; Wed, 15 Jul
+ 2026 12:37:40 +0000
+Received: from DU0PR03MB8911.eurprd03.prod.outlook.com
+ ([fe80::12fb:b55:965c:cb62]) by DU0PR03MB8911.eurprd03.prod.outlook.com
+ ([fe80::12fb:b55:965c:cb62%3]) with mapi id 15.21.0202.018; Wed, 15 Jul 2026
+ 12:37:40 +0000
+From: Louis Navarre <louis.navarre@uclouvain.be>
+To: "quic@ietf.org" <quic@ietf.org>
+Subject: IETF 126 Hackathon - Minimal multicast extensions for QUIC
+Thread-Topic: IETF 126 Hackathon - Minimal multicast extensions for QUIC
+Thread-Index: AQHdFFa5Nw/0pMy6ZkW+6LPvSGMpeQ==
+Date: Wed, 15 Jul 2026 12:37:40 +0000
+Message-ID: <2BC4563B-7C0A-40D8-87F2-7DF0E0973FA1@uclouvain.be>
+Accept-Language: fr-FR, en-US
+Content-Language: en-US
+X-MS-Has-Attach: 
+X-MS-TNEF-Correlator: 
+authentication-results: dkim=none (message not signed)
+ header.d=none;dmarc=none action=none header.from=uclouvain.be;
+x-ms-publictraffictype: Email
+x-ms-traffictypediagnostic: DU0PR03MB8911:EE_|DU0PR03MB9657:EE_
+x-ms-office365-filtering-correlation-id: b2084030-2a6d-403f-6bac-08dee26ddbe1
+x-ms-exchange-senderadcheck: 1
+x-ms-exchange-antispam-relay: 0
+x-microsoft-antispam: 
+ BCL:0;ARA:13230040|10070799003|23010399003|376014|366016|786006|1800799024|38070700021|6133799003|10067099003|56012099006|18002099003|11063799006;
+x-microsoft-antispam-message-info: 
+ SGduFqllzd0yraSKc5DX2xJkLl+LBZfs7nAXgLHY6LCwX7xCPY8kovtGfQxJ7dMVzBXX7JWqHEhoPpQOgqTF9lgW2I65mX3uhKlvvH/WoiX1aa0l/+fZFztu60oO7r0phXUZvIdxedyGj1GvZ2VnrVXwsodeeYmeN5n5fu5uYVh2CC1JgXKLNK5HvhqOx1xj+Xr8L1AzUQgh8yAiazuS4M0fgJhoeX0NJggElWMqnR0sXqfT6dIe0XhQOQLvh4gtHvJg18OwttSWf1hBOQSayZHqHAMKk6NWIHEA9sAZPoHcVyn7VQa0gr2zlV4SeRsSWf8l8ChY5l4JnGWbjWqC1g70zxAG92hP+oj014/R8yf5Whfh02bvE4Y/WkzdyMl6WRLnRVnZyOrVfOOyy/aEq3OUOqZTvzjZjxSjodbo2QtzJHVdTL98fGvodcHb6/is9yv9Q538K7vuUnFNgybGT65dfd26of17pFu8NC8jnBEpl2+WcXLAJZ/6RfVgx0BRxiHmj7Plsc+DsWo51l1Jl2vXMwbBUNHzzChcM8i+lgXlIp0l5+z3py9oXrC/NgDbnn8QbHJ1VNC3ox5L5BrKcAnr+2pHIR+d+FfyLSJ5DtAnKQeYI/FMBON16XLdlr7WGpxe5VA1YXT58NHt1o63PKVy1V81yG94nu6XlodRS9c97F1z6D4SgAEhAjAd6VqUf/AzX7fNFwv5TSHdBtyMy6sDqPyufFG7rX2LzESxVxk=
+x-forefront-antispam-report: 
+ CIP:255.255.255.255;CTRY:;LANG:en;SCL:1;SRV:;IPV:NLI;SFV:NSPM;H:DU0PR03MB8911.eurprd03.prod.outlook.com;PTR:;CAT:NONE;SFS:(13230040)(10070799003)(23010399003)(376014)(366016)(786006)(1800799024)(38070700021)(6133799003)(10067099003)(56012099006)(18002099003)(11063799006);DIR:OUT;SFP:1102;
+x-ms-exchange-antispam-messagedata-chunkcount: 2
+x-ms-exchange-antispam-messagedata-0: 
+ =?us-ascii?Q?biQxtyddH+VRxW4nVbTSRTaXAMukpBSjlVrxqor5Nfbhl/Ok+7aYxg0bokYi?=
+ =?us-ascii?Q?5Zqh+/7U88ovT2tLKQ6p9SaCE0SsbOXGhnsG1r7/FYjud+6nFtb0SW8Oy8/2?=
+ =?us-ascii?Q?JtDbX3uJGu2Vpm7zonsgJkeUWTvfHucuBSHawaO5FL+B17ycPOmFW1bHDy8i?=
+ =?us-ascii?Q?loIvBPOFrA0M8IWTFY+m2nRmLJluXkqrSBzydoyZ59p0tocZBLXNb1wZ19AN?=
+ =?us-ascii?Q?o13Z+fH28JyJQUKAnEZm8gv3ll9dnXW84Smfhl03xsLR4+qEZ9cBVphq9s8s?=
+ =?us-ascii?Q?A5afuGLLs9Ek5rhLyqrmhlx2NsvtYjPRtBIjN143ziK8BtPVLaRkKs5QLAZ1?=
+ =?us-ascii?Q?kYFvxRPHhG5TpnPC7NCLRZ5LpWdd4oGCLphwqnYo7YjqoG9bmmcNLZ54/oPQ?=
+ =?us-ascii?Q?Y/U4OOkLOd/SEyQcu2PQWV49BAzSH/t3XtKs/7MdNsn3xRlgrQ4QGHckJ+46?=
+ =?us-ascii?Q?la1NmRkviU77w5SCBQCKmINTlvjCMX764GU/cfTXy3/P2srMJ+WAVIU5fixY?=
+ =?us-ascii?Q?lkR7EJ5KrFjzcoBMZRERO3qIwP1E7yqIoZfGRJTBQ05KIZggX9+UQJbG96Ot?=
+ =?us-ascii?Q?0OBTUNg22nFLAAeUNyedBmVhHVjV7E974dDJP8JOgJxFQwS96VTAnDuaX5b6?=
+ =?us-ascii?Q?HF/+RduJ1znavcINUxcqtc4JfS8ilLKMWnuMN7W8rcmT1aUX8JsFzC+XEuf4?=
+ =?us-ascii?Q?VuI8dmo7FqALcaP/7XqnHdvZTc+z7vv0kRWefmaDTVH3jpAu+H/9aePV1O+p?=
+ =?us-ascii?Q?w3FUsYj8RP7IvR+LFFoObBKAOPosqodi5hSv9fR6wIKBnnN2z3OFf4ajj85n?=
+ =?us-ascii?Q?laWyFwKA6IRtLbKVIcrhDf1P42u8Z91ytC+kgXoKCAnU3FVXW/EueRgHp7a1?=
+ =?us-ascii?Q?+4CW28+Usun8RoL0OcDGLAQ+wPR/S7M7wLagxX+Tp83POWqeSFenPjBF42J9?=
+ =?us-ascii?Q?pd+C9ZVRWYIeC4cttuU9VGyY5no9BU2IHFWn2tde9rwK5N8gYvw7pbBv4+Jw?=
+ =?us-ascii?Q?twyxQkegfJ5KY7oBib43zisCW0J6FxD7RBFRFP8inGs9tdgT/i5Z0Rp7Y/Sr?=
+ =?us-ascii?Q?nfdid4LdKndiQ4ahXKVdbEzlXVOiqzkMAwvyPZetgttBWJuV4emsdax9HwY6?=
+ =?us-ascii?Q?FMcL2LiFGNKzsKaWTIDUzY3ntbJrE5HGULfg84ouZV1EdY/3KtNZwHDWP2i1?=
+ =?us-ascii?Q?zZHUZw4dFi5L2LfNrk83djSNVvNFb/e2uXkITrNNWnsWghPNCxKM7f71XnUN?=
+ =?us-ascii?Q?WT1rcyOmFZ00sACUQ7BASeq4m0c4pa6H3B/mWFxZ9eeZR385HdkM8xVojKHb?=
+ =?us-ascii?Q?cFCU/xlzfy/DdgE43C9y4f7ZZFK2XCcNPkOOtSiJJWLSbcS/mrczkuxClOs1?=
+ =?us-ascii?Q?rw3E9MeoTEVqDNAfn8ZydAOfi6y4fbnxxKGCzo+LzqWrAdxdOilPvz9poj0K?=
+ =?us-ascii?Q?IUzdZxCS/YFUfnKv+79vRhTgeogREK56yVv3hBmWzEXig6OWn5nt6EM5dngr?=
+ =?us-ascii?Q?SdSYJ5QhlQbhQga0sVctm2hX5b5+JqGTAMxp+f9zLLhweAC34rM07fAzt+c4?=
+ =?us-ascii?Q?p5qMtTG5InLkHTOa/U4XdeRjbfsvxi9wVszdeU+kyYIyxtjkqMskKJR5PnnU?=
+ =?us-ascii?Q?cVd4/VbduopOPqeLMO0LXgjdqXQTxKrkyjmwe+h5Wkct4G3Z0w2r2nioIhjI?=
+ =?us-ascii?Q?XUcXk0rld5lj2xyQ98LGsDHnEoHdEEfnhIn39Ga4/r0ngI01qYG7xU75oiS6?=
+ =?us-ascii?Q?3ugOSffxvB6k0zxkQGwlUjj2OjhZ4nvMdSaGwKB2mjtZ/EGWqSLhHKTxFoxd?=
+x-ms-exchange-antispam-messagedata-1: jFy7gz70E/x+MJlJKHzxAJvje2pjaf76rks=
+Content-Type: text/plain; charset="us-ascii"
+Content-ID: <2442212B88CD5A4E8182B224FD303172@eurprd03.prod.outlook.com>
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+X-OriginatorOrg: uclouvain.be
+X-MS-Exchange-CrossTenant-AuthAs: Internal
+X-MS-Exchange-CrossTenant-AuthSource: DU0PR03MB8911.eurprd03.prod.outlook.com
+X-MS-Exchange-CrossTenant-Network-Message-Id: 
+ b2084030-2a6d-403f-6bac-08dee26ddbe1
+X-MS-Exchange-CrossTenant-originalarrivaltime: 15 Jul 2026 12:37:40.0944
+ (UTC)
+X-MS-Exchange-CrossTenant-fromentityheader: Hosted
+X-MS-Exchange-CrossTenant-id: 7ab090d4-fa2e-4ecf-bc7c-4127b4d582ec
+X-MS-Exchange-CrossTenant-mailboxtype: HOSTED
+X-MS-Exchange-CrossTenant-userprincipalname: 
+ WyQbXhWS5YHDdbTykVcGYnQ/SJvKr6DvPg649h7/YmoJsL8FvymBOnevQSzlp1ubSO/XRhXcin/6fJQ1FOtdTXcrRYSMeZ6lyjAaCChr7RY=
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: DU0PR03MB9657
+Message-ID-Hash: SZIWTWTUJU52DYCAHQQGV4MZD3546BOQ
+X-Message-ID-Hash: SZIWTWTUJU52DYCAHQQGV4MZD3546BOQ
+X-MailFrom: louis.navarre@uclouvain.be
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-quic.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+List-Id: Main mailing list of the IETF QUIC working group <quic.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/quic/FiX3_mLcfntBGQ846XHPmCDhVF8>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/quic>
+List-Help: <mailto:quic-request@ietf.org?subject=help>
+List-Owner: <mailto:quic-owner@ietf.org>
+List-Post: <mailto:quic@ietf.org>
+List-Subscribe: <mailto:quic-join@ietf.org>
+List-Unsubscribe: <mailto:quic-leave@ietf.org>
+
+Hi all,
+
+We are running a project at the IETF 126 Hackathon (18-19 July, Vienna) on =
+a minimal multicast extension for QUIC.
+
+Motivation: draft-navarre-quic-flexicast defines Flexicast QUIC, which supp=
+orts multicast delivery, builds on Multipath QUIC, and requires changes acr=
+oss several parts of the stack. draft-jholland-quic-multicast takes a diffe=
+rent approach, focusing on the security aspects of the extension. For the h=
+ackathon, we want to explore the lower bound of the design space: what is t=
+he smallest set of changes to QUIC that still yields working multicast deli=
+very, and what do we give up to get there?
+
+We expect the outcome to be multiple proof-of-concept extensions in multipl=
+e existing implementations, plus a clearer picture of which parts of Flexic=
+ast QUIC are essential and which are conveniences.
+
+Project repository:
+https://github.com/louisna/minimal-multicast-quic-ietf-126
+
+If you are interested, please reach out or open an issue on the repo.
+
+Relevant drafts:
+- draft-navarre-quic-flexicast: https://datatracker.ietf.org/doc/draft-nava=
+rre-quic-flexicast/
+- draft-jholland-quic-multicast: https://datatracker.ietf.org/doc/draft-jho=
+lland-quic-multicast/
+Scientific paper:
+Taking the Best of Multicast and Unicast with Flexicast QUIC: https://dl.ac=
+m.org/doi/pdf/10.1145/3750832.3750834
+
+Best regards,
+Louis Navarre, UCLouvain=
+

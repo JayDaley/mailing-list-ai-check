@@ -1,0 +1,11 @@
+Since this draft isn't tagged for any WG, not even gen-dispatch which seems appropriate, I'll post here, on one aspect only.
+
+An IETF process document cannot define RPC duties. That would need a draft submitted to the RSWG, or rephrasing as the IETF's _expectations_ of the RPC.
+
+Also:
+That is already made clear at [1], points 1 and 3. It is not unknown for the RPC to discover poor grammar that conceals a technical ambiguity or technical error, so point 3 is not academic. Such late clarifications are to everyone's benefit. (I agree that they should be public knowledge, like everything that happens during AUTH48.)
+
+[1] https://www.rfc-editor.org/rfc/rfc9920.html#name-rpc-responsibilities
+
+Regards/Ngā mihi
+    Brian Carpenter

@@ -1,0 +1,213 @@
+Return-Path: <ietf@timogerke.de>
+X-Original-To: ietf@mail2.ietf.org
+Delivered-To: ietf@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id C1DB311AA4655
+	for <ietf@mail2.ietf.org>; Mon, 20 Jul 2026 10:25:41 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784568341; bh=Ngi7rQNenRir3rtthQ8FzRs/XdVBYdgakwdNyVY08lI=;
+	h=Date:References:Subject:From:To:In-Reply-To;
+	b=BInBjAA5i4v7wY3glRFJgUgZgTWxx1WFgpR9d2bHCR6vxLq6T4rD1tGt+Nfy23gm0
+	 UEujLXCmFJHzunIP07pbqOz91oQrYmCynIhJ4Xwq88Nr4yIRNBIhOSeH5Ix2FkLZ1a
+	 DFU5aFePljI/K/E0liD190CkKuf/UemDxaLtpWBg=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.097
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.097 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1,
+	RCVD_IN_VALIDITY_CERTIFIED_BLOCKED=0.001,
+	RCVD_IN_VALIDITY_RPBL_BLOCKED=0.001, SPF_NONE=0.001]
+	autolearn=unavailable autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=timogerke.de
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id F1qDDp77JEPo for <ietf@mail2.ietf.org>;
+	Mon, 20 Jul 2026 10:25:39 -0700 (PDT)
+Received: from mail.ud24.udmedia.de (ud24.udmedia.de [194.117.254.64])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 657BA11AA4626
+	for <ietf@ietf.org>; Mon, 20 Jul 2026 10:25:38 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=timogerke.de; h=
+	message-id:date:mime-version:references:subject:from:to
+	:in-reply-to:content-type; s=k1; bh=Ngi7rQNenRir3rtthQ8FzRs/XdVB
+	YdgakwdNyVY08lI=; b=M5YQ2/96VAbkv/rJaVBzbe2EX/G8usVcuAAs1IHhO+SA
+	zWWjfqTvRCf39HX343wJFse3pblJ3vgZSzJYr+HruuufnDuf/JkVSW2ynp+sudj4
+	yviAaSRybdzjcTdwpKNTLVoAeaQf7ukdX2jAmeiFRo+G37bPLHpqVzchdPIZex87
+	JusRsJSQshLEjkWeLSbAdezgmJxCJi9QIL27fMvRtczPJWvvXXv+chkULN3iM/oz
+	CWEgnwPZYNQhkvLoycbezU2jnD4jK/OEGzVJ5LWF4KwES6SbJneC3D2ziFM2w/2o
+	uqm0bKReWgQ1utzRgSlnSAlWTXniYOkyb1mDsU3Y8A==
+Received: (qmail 1884916 invoked from network); 20 Jul 2026 19:25:31 +0200
+Received: by mail.ud24.udmedia.de with ESMTPSA (TLS_AES_256_GCM_SHA384
+ encrypted, authenticated); 20 Jul 2026 19:25:31 +0200
+X-UD-Smtp-Session: ud24?77p2@x113MQ5Xos4qAjEAfP73AJVtLVVa3r0R
+Message-ID: <cc6c1309-5c8a-45cc-9b44-9126a123f70e@timogerke.de>
+Date: Mon, 20 Jul 2026 19:25:30 +0200
+MIME-Version: 1.0
+User-Agent: Mozilla Thunderbird
+References: <3c967485-b5d2-4e93-84f6-632f81bc803d@alice-dsl.net>
+ <CAGgd1Octq4EtEmOnQu1VLMOWqGTujZC9JHz+CFGuWFsokZp67A@mail.gmail.com>
+Subject: =?UTF-8?Q?Recall_Petition_pursuant_to_=C2=A7_7=2E1=2E1_of_RFC_8713?=
+ =?UTF-8?Q?=3A_SEC_AD_Deb_Cooley?=
+From: Timo Gerke <ietf@timogerke.de>
+Content-Language: en-US, de-DE
+To: "Unsing TLS in Applications Mailinglist (IETF)" <uta@ietf.org>,
+ tls@ietf.org, ietf@ietf.org
+Autocrypt: addr=ietf@timogerke.de; keydata=
+ xjMEaYr6SxYJKwYBBAHaRw8BAQdAYcTjfSqJsL7yRrZV5UC9ZRYcylDszz18e4DnY5m5BPPN
+ MlRpbW8gR2Vya2UgKElFVEYgY29udGFjdCBvbmx5KSA8aWV0ZkB0aW1vZ2Vya2UuZGU+wpYE
+ ExYKAD4WIQSJGFaVEuPWVS91CeOfA9+fWXvzHgUCakLBXQIbAwUJCxM3LQULCQgHAgYVCgkI
+ CwIEFgIDAQIeAQIXgAAKCRCfA9+fWXvzHqI0AP9P2rQdankUst1DI4bBpOJwotFb51Nrf0LJ
+ SGRDNMkahwD/e0OGAiXwAauUo6i9k33Q8N42aAVM3BEUjAJIV3xYMAnOOARpivpLEgorBgEE
+ AZdVAQUBAQdAkMZH3NDh0IqHstKpMmSlD9lWIeb2ejTWrIM+7ZBzOncDAQgHwn4EGBYKACYC
+ GwwWIQSJGFaVEuPWVS91CeOfA9+fWXvzHgUCaePMWAUJCxM3LAAKCRCfA9+fWXvzHiqOAP46
+ Q1Er56CZ9KYyqdx4o3dzg0+Kn/14LM9mdxNdr0mTmwD/TuzCQ7Tk5gzRbcwia2NNcpA0sIXY
+ O5cijgbO2f70xgY=
+In-Reply-To: 
+ <CAGgd1Octq4EtEmOnQu1VLMOWqGTujZC9JHz+CFGuWFsokZp67A@mail.gmail.com>
+X-Forwarded-Message-Id: <3c967485-b5d2-4e93-84f6-632f81bc803d@alice-dsl.net>
+ <CAGgd1Octq4EtEmOnQu1VLMOWqGTujZC9JHz+CFGuWFsokZp67A@mail.gmail.com>
+Content-Type: multipart/signed; micalg=pgp-sha256;
+ protocol="application/pgp-signature";
+ boundary="------------mkdxAsqZfXvCfhlkwsbKRi1O"
+Message-ID-Hash: RPJS7FYAAHEPLIANQFZAFA65WTJGGQCU
+X-Message-ID-Hash: RPJS7FYAAHEPLIANQFZAFA65WTJGGQCU
+X-MailFrom: ietf@timogerke.de
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-ietf.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+List-Id: "IETF-Discussion. This is the most general IETF mailing list,
+ intended for discussion of technical, procedural, operational,
+ and other topics for which no dedicated mailing lists exist." <ietf.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/ietf/aKAi_RHUTjiAFXPtaS55DYQgDfw>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/ietf>
+List-Help: <mailto:ietf-request@ietf.org?subject=help>
+List-Owner: <mailto:ietf-owner@ietf.org>
+List-Post: <mailto:ietf@ietf.org>
+List-Subscribe: <mailto:ietf-join@ietf.org>
+List-Unsubscribe: <mailto:ietf-leave@ietf.org>
+
+This is an OpenPGP/MIME signed message (RFC 4880 and 3156)
+--------------mkdxAsqZfXvCfhlkwsbKRi1O
+Content-Type: multipart/mixed; boundary="------------CDGKcTUOLV9AAaGNoLLthx4t";
+ protected-headers="v1"
+From: Timo Gerke <ietf@timogerke.de>
+To: "Unsing TLS in Applications Mailinglist (IETF)" <uta@ietf.org>,
+ tls@ietf.org, ietf@ietf.org
+Message-ID: <cc6c1309-5c8a-45cc-9b44-9126a123f70e@timogerke.de>
+Subject: =?UTF-8?Q?Recall_Petition_pursuant_to_=C2=A7_7=2E1=2E1_of_RFC_8713?=
+ =?UTF-8?Q?=3A_SEC_AD_Deb_Cooley?=
+References: <3c967485-b5d2-4e93-84f6-632f81bc803d@alice-dsl.net>
+ <CAGgd1Octq4EtEmOnQu1VLMOWqGTujZC9JHz+CFGuWFsokZp67A@mail.gmail.com>
+In-Reply-To: <CAGgd1Octq4EtEmOnQu1VLMOWqGTujZC9JHz+CFGuWFsokZp67A@mail.gmail.com>
+
+--------------CDGKcTUOLV9AAaGNoLLthx4t
+Content-Type: multipart/mixed; boundary="------------jgqivHjKsEOxqARGOnDnd1nY"
+
+--------------jgqivHjKsEOxqARGOnDnd1nY
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+
+Dear Community,
+
+I hereby initiate a Recall Petition pursuant to =C2=A7 7.1.1 of
+RFC 8713 against SEC AD Deb Cooley, regarding a significant
+breach in confidentiality of communication.
+
+While her technical competence within the Security Area is
+recognized without a doubt, the NomCom MAY consider to verify the
+trustworthiness of the named SEC AD based on the documented
+procedural infractions.
+
+To safeguard the fundamental integrity of the IETF standards
+process, the technical evidence regarding this unauthorized
+backchannel disclosure is provided below.
+
+TECHNICAL EVIDENCE OF SECURITY LACK
+
+1. My Private Notice to SEC AD Deb Cooley's officially in
+Datatracker regisered Mailaddress
+Message-ID: <3c967485-b5d2-4e93-84f6-632f81bc803d@alice-dsl.net>
+Date: Tue, 12 May 2026 10:15:36 +0200
+MIME-Version: 1.0
+User-Agent: Mozilla Thunderbird
+Content-Language: en-US, de-DE
+From: Timo Gerke <timo.gerke@alice-dsl.net>
+To: "Deb Cooley (IETF, AD Security Area)" <debcooley1@gmail.com>
+Subject: Notice: Operational Analysis & Cluster C430 Deadlock
+(TLS/UTA)
+
+2. SEC AD Deb Cooley's response
+References: <3c967485-b5d2-4e93-84f6-632f81bc803d@alice-dsl.net>
+In-Reply-To: <3c967485-b5d2-4e93-84f6-632f81bc803d@alice-dsl.net>
+From: Deb Cooley <debcooley1@gmail.com>
+Date: Wed, 13 May 2026 06:42:16 +0100
+Subject: Re: Notice: Operational Analysis & Cluster C430 Deadlock
+(TLS/UTA)
+To: Timo Gerke <timo.gerke@alice-dsl.net>
+Cc: Eric Rescorla <ekr@rtfm.com>, uta-chairs@ietf.org
+
+
+Best regards,
+
+Timo Gerke
+
+--------------jgqivHjKsEOxqARGOnDnd1nY
+Content-Type: application/pgp-keys; name="OpenPGP_0x9F03DF9F597BF31E.asc"
+Content-Disposition: attachment; filename="OpenPGP_0x9F03DF9F597BF31E.asc"
+Content-Description: OpenPGP public key
+Content-Transfer-Encoding: quoted-printable
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+xjMEaYr6SxYJKwYBBAHaRw8BAQdAYcTjfSqJsL7yRrZV5UC9ZRYcylDszz18e4Dn
+Y5m5BPPNMlRpbW8gR2Vya2UgKElFVEYgY29udGFjdCBvbmx5KSA8aWV0ZkB0aW1v
+Z2Vya2UuZGU+wpYEExYKAD4WIQSJGFaVEuPWVS91CeOfA9+fWXvzHgUCakLBXQIb
+AwUJCxM3LQULCQgHAgYVCgkICwIEFgIDAQIeAQIXgAAKCRCfA9+fWXvzHqI0AP9P
+2rQdankUst1DI4bBpOJwotFb51Nrf0LJSGRDNMkahwD/e0OGAiXwAauUo6i9k33Q
+8N42aAVM3BEUjAJIV3xYMAnNHlRpbW8gR2Vya2UgPHBvc3RAdGltb2dlcmtlLmRl
+PsKWBBMWCgA+FiEEiRhWlRLj1lUvdQnjnwPfn1l78x4FAmpCkb8CGwMFCQsTNy0F
+CwkIBwIGFQoJCAsCBBYCAwECHgECF4AACgkQnwPfn1l78x7hMQEAmCovvgYpsWzl
+FJOi+GVkjSpeE78vDe8R7eXfFYKVOTIA/AhsvCkInuZ80NY9pghjScb9t1fpJh1w
+DYUIBwlOxicIzSVUaW1vIEdlcmtlIDx0aW1vLmdlcmtlQGFsaWNlLWRzbC5uZXQ+
+wpkEExYKAEECGwMCHgECF4AFCwkIBwIGFQoJCAsCBBYCAwEFCQsTNy0WIQSJGFaV
+EuPWVS91CeOfA9+fWXvzHgUCakPjNgIZAQAKCRCfA9+fWXvzHkjgAQCJqv3jfTNI
++v7YeSZnw5TG8tuVWFCzdGRfoAQo4QKBaAEA50FIbXPga2VM1GODED6/eRl6LEK2
+pllVhr2bF4I+QQvOOARpivpLEgorBgEEAZdVAQUBAQdAkMZH3NDh0IqHstKpMmSl
+D9lWIeb2ejTWrIM+7ZBzOncDAQgHwn4EGBYKACYCGwwWIQSJGFaVEuPWVS91CeOf
+A9+fWXvzHgUCaePMWAUJCxM3LAAKCRCfA9+fWXvzHiqOAP46Q1Er56CZ9KYyqdx4
+o3dzg0+Kn/14LM9mdxNdr0mTmwD/TuzCQ7Tk5gzRbcwia2NNcpA0sIXYO5cijgbO
+2f70xgbOMwRpi4CgFgkrBgEEAdpHDwEBB0AJ9fCrvHX9UVu9p+cXKcSSCooXgiw+
+jSR1eCq2cPH9PsJ+BBgWCgAmAhsgFiEEiRhWlRLj1lUvdQnjnwPfn1l78x4FAmnj
+zFkFCQsSsNcACgkQnwPfn1l78x5DrAD/XMj18rp7jmdr5m8itst8Xo9rWOfq3iwP
+g49tcvIbVZcA/RTdbB8uJly4eaf5KBkyzILsFJghwA8400BQBvED9sEO
+=3DoVWg
+-----END PGP PUBLIC KEY BLOCK-----
+
+--------------jgqivHjKsEOxqARGOnDnd1nY--
+
+--------------CDGKcTUOLV9AAaGNoLLthx4t--
+
+--------------mkdxAsqZfXvCfhlkwsbKRi1O
+Content-Type: application/pgp-signature; name="OpenPGP_signature.asc"
+Content-Description: OpenPGP digital signature
+Content-Disposition: attachment; filename="OpenPGP_signature.asc"
+
+-----BEGIN PGP SIGNATURE-----
+
+wnsEABYIACMWIQSJGFaVEuPWVS91CeOfA9+fWXvzHgUCal5aCgUDAAAAAAAKCRCfA9+fWXvzHrn9
+AQCjt4anU8MkwDCWqtGN3TvFUZw/nTutObGV/xOFCG86JQD/SuPjmux97hrDYHFWGkKWXqkuXfEp
+npmJQtFVn7VYmQE=
+=gBe7
+-----END PGP SIGNATURE-----
+
+--------------mkdxAsqZfXvCfhlkwsbKRi1O--
+

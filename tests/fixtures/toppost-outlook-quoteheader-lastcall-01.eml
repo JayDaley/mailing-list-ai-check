@@ -1,0 +1,117 @@
+Return-Path: <nate.karstens@example.com>
+X-Original-To: last-call@ietf.org
+Delivered-To: last-call@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 4B1F311AA51A2
+	for <last-call@mail2.ietf.org>; Tue, 23 Jun 2026 13:02:15 -0700 (PDT)
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.099
+Received: from NAM10-BN7-obe.outbound.protection.outlook.com
+	(mail-bn7nam10on2062.outbound.protection.outlook.com [40.107.92.62])
+	by mail2.ietf.org (Postfix) with ESMTPS id 9A0C311AA519E
+	for <last-call@ietf.org>; Tue, 23 Jun 2026 13:02:13 -0700 (PDT)
+Message-ID: <BY5PR04MB691416286E467F28A06B66479CC42@BY5PR04MB6914.namprd04.prod.outlook.com>
+Date: Tue, 23 Jun 2026 20:02:05 +0000
+MIME-Version: 1.0
+User-Agent: Microsoft Outlook 16.0
+References: <174852493712.9284.113562479@ietfa.amsl.com>
+In-Reply-To: <174852493712.9284.113562479@ietfa.amsl.com>
+Subject: =?utf-8?q?=5BLast-Call=5D_Re=3A_=5BInt-area=5D_draft-ietf-intarea-?=
+ =?utf-8?q?multicast-application-port-07_ietf_last_call_Tsvart_review?=
+From: Nate Karstens <nate.karstens@example.com>
+To: "tsv-art@ietf.org" <tsv-art@ietf.org>
+CC: "int-area@ietf.org" <int-area@ietf.org>,
+ "draft-ietf-intarea-multicast-application-port.all@ietf.org"
+ <draft-ietf-intarea-multicast-application-port.all@ietf.org>,
+ "last-call@ietf.org" <last-call@ietf.org>
+Content-Type: multipart/alternative;
+ boundary="_000_BY5PR04MB691416286E467F28A06B66479CC42BY5PR04MB6914namp_"
+Message-ID-Hash: 7QK4YQ2VZ5H3W6M8XFAJ4N2ULRT9CPEB
+X-Message-ID-Hash: 7QK4YQ2VZ5H3W6M8XFAJ4N2ULRT9CPEB
+X-MailFrom: nate.karstens@example.com
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+List-Id: "IETF Last Call announcements and discussion." <last-call.ietf.org>
+Archived-At:
+ <https://mailarchive.ietf.org/arch/msg/last-call/kQ2R8example_toppost_outlook>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/last-call>
+List-Post: <mailto:last-call@ietf.org>
+List-Unsubscribe: <mailto:last-call-leave@ietf.org>
+
+--_000_BY5PR04MB691416286E467F28A06B66479CC42BY5PR04MB6914namp_
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Thanks for your feedback, Wesley!
+
+We have addressed everything you noted in v8 of the document.
+
+Cheers,
+Nate
+
+From: Wesley Eddy via Datatracker <noreply@ietf.org>
+Sent: Tuesday, June 23, 2026 3:45 PM
+To: tsv-art@ietf.org
+Cc: int-area@ietf.org; draft-ietf-intarea-multicast-application-port.all@ietf=
+.org; last-call@ietf.org
+Subject: [Int-area] draft-ietf-intarea-multicast-application-port-07 ietf las=
+t call Tsvart review
+
+Reviewer: Wesley Eddy
+Review result: Ready with Issues
+
+This document has been reviewed as part of the transport area review team's
+ongoing effort to review key IETF documents. These comments were written
+primarily for the transport area directors, but are copied to the document's
+authors and WG to allow them to address any issues raised and also to the
+IETF discussion list for information.
+
+When done at the time of IETF Last Call, the authors should consider this
+review as part of the last-call comments they receive. Please always CC
+tsv-art@ietf.org if you reply to or forward this review.
+
+This document defines a mechanism for multiple applications to share a single
+well-known port when using multicast. Overall the document is clear and well
+written, and I only have a couple of minor issues to raise.
+
+Major Issues: None
+
+Minor Issues:
+
+Section 4: The congestion control considerations are underspecified. Since the
+shared port can carry traffic from several applications simultaneously, the
+document should say how a receiver distinguishes flows and how the aggregate
+respects the guidance in RFC 8085.
+
+Section 6: The IANA Considerations should reference the specific registry to be
+updated, rather than describing the change in prose only.
+
+Nits:
+
+Section 1, paragraph 3: s/recieve/receive/
+
+Thanks for the work on this document.
+
+--_000_BY5PR04MB691416286E467F28A06B66479CC42BY5PR04MB6914namp_
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><body>
+<p>Thanks for your feedback, Wesley!</p>
+<p>We have addressed everything you noted in v8 of the document.</p>
+<p>Cheers,<br>Nate</p>
+<div style=3D"border:none;border-top:solid #E1E1E1 1.0pt;padding:3.0pt 0in 0=
+in 0in">
+<p><b>From:</b> Wesley Eddy via Datatracker &lt;noreply@ietf.org&gt;<br>
+<b>Sent:</b> Tuesday, June 23, 2026 3:45 PM<br>
+<b>To:</b> tsv-art@ietf.org<br>
+<b>Subject:</b> [Int-area] draft-ietf-intarea-multicast-application-port-07 =
+ietf last call Tsvart review</p>
+</div>
+<p>Reviewer: Wesley Eddy<br>Review result: Ready with Issues</p>
+<p>This document has been reviewed as part of the transport area review team=
+.</p>
+</body></html>
+
+--_000_BY5PR04MB691416286E467F28A06B66479CC42BY5PR04MB6914namp_--

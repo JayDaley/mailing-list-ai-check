@@ -1,0 +1,217 @@
+Return-Path: <farinacci@gmail.com>
+X-Original-To: last-call@mail2.ietf.org
+Delivered-To: last-call@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id 3EAE31188F5C0
+	for <last-call@mail2.ietf.org>; Fri, 17 Jul 2026 12:53:54 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784318034; bh=ZM39dMrF9aFgsBLDk6qQJ9eiUwyeL2TUrKa8w+KlRlE=;
+	h=Subject:From:In-Reply-To:Date:Cc:References:To;
+	b=lXDFAPs3y/Ykx8fvYPLT/sfONeEgpboZj1puO6UY380DqrdtclTyn2B398zU34k3e
+	 drYMdN8wxgGjRGLksgfopdjqU78IBAWLDvxc5AEs01688biB7AXZ5gvrLFm6Y5HB9u
+	 AY9FF2YR7WOXiBo6FxfjbjEs/ilxlor5Sb6t3+2A=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.099
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.099 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, FREEMAIL_FROM=0.001,
+	RCVD_IN_DNSWL_NONE=-0.0001, SPF_HELO_NONE=0.001, SPF_PASS=-0.001]
+	autolearn=unavailable autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=gmail.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id 1T0F5cstORWr for <last-call@mail2.ietf.org>;
+	Fri, 17 Jul 2026 12:53:53 -0700 (PDT)
+Received: from mail-ot1-x330.google.com (mail-ot1-x330.google.com
+ [IPv6:2607:f8b0:4864:20::330])
+	(using TLSv1.3 with cipher TLS_AES_128_GCM_SHA256 (128/128 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id D24B71188F59F
+	for <last-call@ietf.org>; Fri, 17 Jul 2026 12:53:53 -0700 (PDT)
+Received: by mail-ot1-x330.google.com with SMTP id
+ 46e09a7af769-7eb3865ea6fso5546555a34.2
+        for <last-call@ietf.org>; Fri, 17 Jul 2026 12:53:53 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=gmail.com; s=20251104; t=1784318027; x=1784922827; darn=ietf.org;
+        h=to:references:message-id:content-transfer-encoding:cc:date
+         :in-reply-to:from:subject:mime-version:content-type:from:to:cc
+         :subject:date:message-id:reply-to:content-type;
+        bh=gi7KM107qoqnuqrv2aAYD3C1UIujy3szeaH6CtpSz5c=;
+        b=KFUTbHNlAPzCXv20kI5t7H/54asUdLgNv810xkSa/LRpEGFsAASexhXMq21ZcdPPUc
+         Ys72CbK3CXDAzQEIYJSKfMOwnkOzCNGy6HTOSG5MDLYBQ3FwPB5r8MTF+qS458P6Cbbb
+         lF3p/3X5VTqRQ+wbTOtTHhz15a+/qPHECpqy/xfxJTWY+OVINZeaFMgpO60fsCqndmid
+         6d0/RLRwS5HbZ4Q0As0QSaa0zHEOdQDd1DX3+alviUmQQMCxt0v9z/e80Y+H7fZrUmcj
+         /MJ1F8AG4Zsg5UFEBeQysrEammvtqZ+UNgA9YffgzeR5er+ajEgQvRYYEr4/8BDH3rzY
+         OJnA==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1784318027; x=1784922827;
+        h=to:references:message-id:content-transfer-encoding:cc:date
+         :in-reply-to:from:subject:mime-version:content-type:x-gm-gg
+         :x-gm-message-state:from:to:cc:subject:date:message-id:reply-to
+         :content-type;
+        bh=gi7KM107qoqnuqrv2aAYD3C1UIujy3szeaH6CtpSz5c=;
+        b=FqwOyXr56WAz5m0/EItxo7zCW44Re1YSeqJTw5b5jnPD7ZIUJWP87/zGv10BRI8I9Z
+         YenpXWu8iyJ9pDsxBCBI8wdLqkcA17YM0Jw/kzpRIldyutrShhge8CiO1pH18g29FYEf
+         F3iLnUZTV/gUUPcQjBf0Tg/NwryPejG9MKzatg9LDVkehBXnC391fPuPaadjWiwiM7fW
+         IGwPz+pxJ44I797EDiCn26CDngOiLm/VJf0cqAGi++NGYFcv5jkYnI9kVc1oYbIdssCJ
+         2FLPpUbBGOyaISXV0iO9EPwBgqPfRAt4TddG4HHsH3OBTLp3ZZDIfibeT/Wj1eguigrV
+         I3Hw==
+X-Gm-Message-State: AOJu0YzuO4g+GFqIgcMcVrgo3zM9mDbipO4q8k3Y6KhkG+XP6cMitFLY
+	f7DeIvl6rc8Dyu3Orpqgh5E/X8mCuJZcqChlV+1pI3NlDdxPRX5Zcdm+
+X-Gm-Gg: AfdE7cl871dnXg+ubkidyGSECPgRPBGjJz3k4xSLGFxo4QElawv0e+TLXeRzYgMbxyi
+	7dJNX1ex4+6wiDMDrUN9rgKyFO8l4XTJYjyJ8xpg9gfimEa52OyTp+pKmCGllKApKIQTXslWDci
+	8VC+fHZVLe+mq/UQdLGayzFb3BmMvgpPR6Wy6C8a8tdTAqmP8+SEZvm5B9JaqRhe4dUdXW6coae
+	XZEUr7gtDFXE2WRe55R2xOHDfgsb+WIu7s7UecDdaorGAL+iVfQA+E/q5ff2tXgjiaiBwPamQqy
+	DS5kRvcwCrMUdJ5HDLevcApS6B6dVDkAMxhMGhIaPzPbALQhQjI1vyfbilAxODhKs4p+O1IDO2R
+	1KM8DlEk1tL/nCpIffU3JVCJpdoFOV8m34kIjtR+LnV5KvcH7U2/fJ5Zdim7ZcFdtavg9UICAGa
+	x/Sme71lz1Kcq6ZxFHIRUdvww+6wXYTZ7W29qZn4SFuopOQQ0kl+0nVVg24XkuII40fSF/vfcIO
+	li63JUeL13eKC/eUQ/ynP1YbXs2dcorSSqrNjDX4yUs84oCZkg=
+X-Received: by 2002:a05:6830:448a:b0:7ec:2fe:1ec0 with SMTP id
+ 46e09a7af769-7eda08aa7d4mr2020869a34.4.1784318027191;
+        Fri, 17 Jul 2026 12:53:47 -0700 (PDT)
+Received: from smtpclient.apple ([2600:382:2503:d9dc:752b:ec8c:81d6:21ca])
+        by smtp.gmail.com with ESMTPSA id
+ 46e09a7af769-7edaf94a737sm1974299a34.15.2026.07.17.12.53.45
+        (version=TLS1_2 cipher=ECDHE-ECDSA-AES128-GCM-SHA256 bits=128/128);
+        Fri, 17 Jul 2026 12:53:46 -0700 (PDT)
+Content-Type: text/plain;
+	charset=utf-8
+Mime-Version: 1.0 (Mac OS X Mail 16.0 \(3864.600.51.1.1\))
+From: Dino Farinacci <farinacci@gmail.com>
+In-Reply-To: <6474A260-F227-402D-ACB7-C37E8254E48A@apple.com>
+Date: Fri, 17 Jul 2026 12:53:34 -0700
+Content-Transfer-Encoding: quoted-printable
+Message-Id: <9AC8EA34-EF6D-4505-8D0D-FB3A818C5D3E@gmail.com>
+References: 
+ <178395806553.474007.8923063342984360768@dt-datatracker-d4d6ff9d9-kg6bf>
+ <6474A260-F227-402D-ACB7-C37E8254E48A@apple.com>
+To: Nico Cvitak <ncvitak@apple.com>
+X-Mailer: Apple Mail (2.3864.600.51.1.1)
+Message-ID-Hash: X62UEU7FP5M645YI4ZHFB5ONDMGZCPMO
+X-Message-ID-Hash: X62UEU7FP5M645YI4ZHFB5ONDMGZCPMO
+X-MailFrom: farinacci@gmail.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; nonmember-moderation; administrivia;
+ implicit-dest; max-recipients; max-size; news-moderation; no-subject;
+ digests; suspicious-header
+CC: last-call@ietf.org, draft-ietf-pim-gaap@ietf.org, gunter@vandevelde.cc,
+ pim-chairs@ietf.org, pim@ietf.org
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BLast-Call=5D_Re=3A_=5Bpim=5D_Last_Call=3A_=3Cdraft-ietf-pim-gaa?=
+ =?utf-8?q?p-18=2Etxt=3E_=28Group_Address_Allocation_Protocol_=28GAAP=29=29_?=
+ =?utf-8?q?to_Experimental_RFC?=
+List-Id: IETF Last Calls  <last-call.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/last-call/E22oZyg-pUNhqi6lF32vpCz0st4>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/last-call>
+List-Help: <mailto:last-call-request@ietf.org?subject=help>
+List-Owner: <mailto:last-call-owner@ietf.org>
+List-Post: <mailto:last-call@ietf.org>
+List-Subscribe: <mailto:last-call-join@ietf.org>
+List-Unsubscribe: <mailto:last-call-leave@ietf.org>
+
+Some quick replies.
+
+> On Jul 17, 2026, at 9:20=E2=80=AFAM, Nico Cvitak <ncvitak@apple.com> =
+wrote:
+>=20
+> Hi,
+>=20
+> I think this draft is a great step forward for multicast address =
+allocation, but I have some comments regarding section 8.
+
+Thanks.
+
+> How are collisions meant to be resolved across GAAP nodes with =
+different encryption configurations, or lack
+
+These would be different domains that don't connect to each other. You =
+can run separate instances, especially when there are multicast group =
+boundaries so the well-known groups stay disjoint.
+
+> thereof? It sounds like they'd just be allowed to collide given the =
+text in section 8, which doesn=E2=80=99t seem ideal?
+
+If there are no group boundaries, then the packets go to all members of =
+the well-known group but are dropped by the ones without common =
+encryption keys.
+
+> I'd imagine that applications wanting to use GAAP as a zero =
+configuration multicast address allocation protocol as highlighted in =
+[I-D.ietf-pim-zeroconf-mcast-addr-alloc-ps] would just not use =
+encryption for "zero configuration=E2=80=9D?
+
+Right, a tradeoff between plug-and-play and secure communication.
+
+> Perhaps section 8 should be amended to only suggest encryption when =
+deployed in a coordinated administrative domain where all GAAP nodes =
+share the same encryption configuration?
+
+I thought we had something like that. I'll leave this for Mike and Stig =
+to comment about.
+
+Dino
+
+>=20
+> Thanks,
+> Nico
+>=20
+>> On Jul 13, 2026, at 11:54=E2=80=AFAM, The IESG =
+<iesg-secretary@ietf.org> wrote:
+>>=20
+>>=20
+>> The IESG has received a request from the Protocols for IP Multicast =
+WG (pim)
+>> to consider the following document: - 'Group Address Allocation =
+Protocol
+>> (GAAP)'
+>>  <draft-ietf-pim-gaap-18.txt> as Experimental RFC
+>>=20
+>> The IESG plans to make a decision in the next few weeks, and solicits =
+final
+>> comments on this action. Please send substantive comments to the
+>> last-call@ietf.org mailing lists by 2026-08-03. Exceptionally, =
+comments may
+>> be sent to iesg@ietf.org instead. In either case, please retain the =
+beginning
+>> of the Subject line to allow automated sorting.
+>>=20
+>> Abstract
+>>=20
+>>=20
+>>   This document describes a design for a lightweight decentralized
+>>   multicast group address allocation protocol (named GAAP and
+>>   pronounced "gap" as in "mind the gap").  The base allocation =
+protocol
+>>   requires no centralized service and minimal configuration, although
+>>   deployments using encryption or administrative scoping may require
+>>   configuration.  The protocol runs among group participants which =
+need
+>>   a unique group address to send and receive multicast packets.
+>>   Tailored for IPv4 and IPv6 networks, this design offers a simple,
+>>   lightweight option rather than extending an existing protocol.
+>>=20
+>>=20
+>>=20
+>>=20
+>> The file can be obtained via
+>> https://datatracker.ietf.org/doc/draft-ietf-pim-gaap/
+>>=20
+>>=20
+>>=20
+>> No IPR declarations have been submitted directly on this I-D.
+>>=20
+>>=20
+>>=20
+>>=20
+>>=20
+>> _______________________________________________
+>> pim mailing list -- pim@ietf.org
+>> To unsubscribe send an email to pim-leave@ietf.org
+>=20
+

@@ -1,0 +1,21 @@
+# Local guardrail against committing secrets.
+# Install once per clone:  pip install pre-commit && pre-commit install
+# Run manually on all files: pre-commit run --all-files
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+      # Raw RFC 5322 fixtures must not be touched: trailing whitespace is
+      # meaningful in email ("-- " signature marker, format=flowed), and
+      # line endings/EOF bytes are part of the test input.
+      - id: end-of-file-fixer
+        exclude: ^tests/fixtures/
+      - id: trailing-whitespace
+        exclude: ^tests/fixtures/

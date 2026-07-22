@@ -1,0 +1,11 @@
+Just a small correction: The slides of ANSI say "higher confidence"
+rather than "high confidence" when talking about ML-KEM which feels a
+bit different to me since "higher" seems to imply that it's relative to
+something else. Only FN-DSA seems to be classified as "high confidence"
+in the slides. Just wanted to point that out for clarity. The reference
+you provided is appreciated though!
+
+
+Ps. I have been lurking this list since April and this is my first time
+replying. I am still discovering a bit how everything works over here.
+Please let me know if I do not follow proper etiquette.

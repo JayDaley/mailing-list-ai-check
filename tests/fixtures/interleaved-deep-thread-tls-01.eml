@@ -1,0 +1,1037 @@
+Return-Path: <mjos.crypto@gmail.com>
+X-Original-To: tls@mail2.ietf.org
+Delivered-To: tls@mail2.ietf.org
+Received: from localhost (localhost [127.0.0.1])
+	by mail2.ietf.org (Postfix) with ESMTP id DFB6D11A02FDD
+	for <tls@mail2.ietf.org>; Sun, 19 Jul 2026 23:35:16 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=ietf.org; s=ietf1;
+	t=1784529316; bh=fY8k4h58kJbE65/4I7/oBA2Bviz9gCPJdES/ucbqoyU=;
+	h=References:In-Reply-To:From:Date:Subject:To:Cc;
+	b=nHzKmLSp91n8pLG+Up33fnLKr1/dXdP2kwFqsfiw9vWKIJ9SvlckC7xUVMMEK2/e1
+	 DaS620OvnOUmafj3whLbIbKX1+sNnUhevPTWUoGmww1YJrx/HJfcpyb/ZU5all3RIH
+	 vG8HCGJUEeFLkuYdAKF5Dr/RBrhvFETCxpIKD9Gs=
+X-Virus-Scanned: amavisd-new at ietf.org
+X-Spam-Flag: NO
+X-Spam-Score: -2.088
+X-Spam-Level: 
+X-Spam-Status: No, score=-2.088 tagged_above=-999 required=5
+	tests=[BAYES_00=-1.9, DKIM_SIGNED=0.1, DKIM_VALID=-0.1,
+	DKIM_VALID_AU=-0.1, DKIM_VALID_EF=-0.1, FREEMAIL_FROM=0.001,
+	HTML_MESSAGE=0.001, RCVD_IN_DNSWL_NONE=-0.0001, SPF_HELO_NONE=0.001,
+	SPF_PASS=-0.001, T_KAM_HTML_FONT_INVALID=0.01]
+	autolearn=ham autolearn_force=no
+Authentication-Results: mail2.ietf.org (amavisd-new); dkim=pass (2048-bit key)
+	header.d=gmail.com
+Received: from mail2.ietf.org ([166.84.6.31])
+	by localhost (mail2.ietf.org [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id 0214q4bQ2gEp for <tls@mail2.ietf.org>;
+	Sun, 19 Jul 2026 23:35:15 -0700 (PDT)
+Received: from mail-pf1-x431.google.com (mail-pf1-x431.google.com
+ [IPv6:2607:f8b0:4864:20::431])
+	(using TLSv1.3 with cipher TLS_AES_128_GCM_SHA256 (128/128 bits)
+	 key-exchange X25519 server-signature ECDSA (P-256) server-digest SHA256)
+	(No client certificate requested)
+	by mail2.ietf.org (Postfix) with ESMTPS id 6313711A02E16
+	for <tls@ietf.org>; Sun, 19 Jul 2026 23:35:08 -0700 (PDT)
+Received: by mail-pf1-x431.google.com with SMTP id
+ d2e1a72fcca58-8485bd28dd0so11331927b3a.2
+        for <tls@ietf.org>; Sun, 19 Jul 2026 23:35:08 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1784529307; cv=none;
+        d=google.com; s=arc-20260327;
+        b=GUvofFgGdfFwC0++7M5tzZgD1ZKMaLeYqgskQ+JHk0cHhFNFEEuIeIZ1YR0Hx9X5dj
+         TtviW6slQGdWlMlu1VFLpF9gWbdZhfXFofftYZ2a5TSkRvXwhem/bxSZvHXxYDXh5UTM
+         nEXJhn/WAhGVJPT1zz2EDFyXIZtCKUNYFFlHVg2qm+kd8ZcT3xc/vs5xth0xru/MKX4h
+         RktlXZuFiUzwo/sP8eIbp53AAMbLLBMHDSQjvu6qREqxilrxZZmfGPKFxpfEuxCBwynz
+         TgoJuoFlkkSJKN1SC/ksDyjColQmpArmp46s+BJkTxvsS2d86Z7PhPfL3Klth4Be3+JW
+         pmKA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com;
+ s=arc-20260327;
+        h=cc:to:subject:message-id:date:from:in-reply-to:references
+         :mime-version:dkim-signature;
+        bh=yhRzPgUSyCec8sHxKggv9I4Y4OGcmc9FGN0sBfBc6ac=;
+        fh=KhJhK9+RHrZOlf+wRS7YpCF7JnCiR7kKYgCsvB2ZAQ4=;
+        b=inqPUSfLqjXwF1g2UgfC2/urDhDKaEOuRR/V1sSZPKXgHTXkY7HKDC3xMOHLU/7Yj2
+         BnECTpYCIkZWdyFdjM31sApPO7igqt+HmuJ4kHB5YhOQqtaWcL6uKAxXKcFMmI5aCbfG
+         CSiAvnki0iMsyXwqcMHaW4EfDHCoV2hPu5sgrvJxTtoks3DIX9FAdnTJWmqNsvvtLTwK
+         zUqRAV0/Xj+p6jUUtwjH+78jE1+ZquWQJOleQxde8/yQrj6qZwFtivOpIuT7KPKBSQUq
+         5CYT2hvgjRyG5t7+dERlJxc2dhIPjsoJPYQJxXJWQZU+hnfajmar7p+z06hWHYZNWVeP
+         8akw==;
+        darn=ietf.org
+ARC-Authentication-Results: i=1; mx.google.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=gmail.com; s=20251104; t=1784529307; x=1785134107; darn=ietf.org;
+        h=content-type:cc:to:subject:message-id:date:from:in-reply-to
+         :references:mime-version:from:to:cc:subject:date:message-id:reply-to
+         :content-type;
+        bh=yhRzPgUSyCec8sHxKggv9I4Y4OGcmc9FGN0sBfBc6ac=;
+        b=PFpZQ4XF1hVIef1RoGZeLys/KNNku9WFZF0Wd1nO9dq0Dv7UsReqSLx2umRRIh2ZV/
+         XatjMscx1qPS99yiyWmt8uSmvduTW33LZ/EO/hFpuzT+rIAlJ4CIxV2zoPwuGnLr4Xzq
+         UQuftrSorzN6rncorLjnZAEpiv62KqBrnugjM5A6HvnmbnTjGuHVAy/Ox6XDz0ErEHJh
+         W023Eb4bnvS976Sz87+7aUJZOsQa5GLf6DNWC8kFtzuh6JfMvQuTZ76JXr260mwiReFF
+         bP4205xBo/B4T9GusrPrNbdIQo6w4Hs/6BUxsSxDDsZ4Yr7OD7bA0yyMwVFovAuNiimP
+         JkPQ==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1784529307; x=1785134107;
+        h=content-type:cc:to:subject:message-id:date:from:in-reply-to
+         :references:mime-version:x-gm-gg:x-gm-message-state:from:to:cc
+         :subject:date:message-id:reply-to:content-type;
+        bh=yhRzPgUSyCec8sHxKggv9I4Y4OGcmc9FGN0sBfBc6ac=;
+        b=tMELyYzTg59l6qVSVmZs8xqi6QB3A4yVRyQ2RrS0Fe/Le+QxGKgPCHPrG4BSMSI0e1
+         m+LvkrzltI6kGJuuD+TpkYoZzKFgCTW7Hb1k+OcDdN63sGR7fwx0iZYiJgS8dNnIIt92
+         E2aPlvCiP1aNlyVOCx/SrZkhj58qWoY8QWmo/WmOncY5DO1ioWww0h8Tu526o3LcDsYg
+         oMPX7eVwCq1BIACsahlzPRM0l/oXXn3BdsE9ImqantUMxu8jFXsK66dRQAfjDtk4rnxY
+         9gvUlHTQ4rKt/g548SCIy4s6huu/F2GkI032OQfE41dcLlebfQf6iBgq66KhBozz33s+
+         SKeg==
+X-Forwarded-Encrypted: i=1;
+ AHgh+RqQXb5wHOcfOaYGYNSK9BjfpJGNU/iDdlfTxkOkLdVBHPVi0FEvq2Yqfm8fiFZ6Es/Jd4I=@ietf.org
+X-Gm-Message-State: AOJu0Yy60H2ChsCsfNACvCnEyP/HPndKeXbYwhrCbBI24rjsCwf2hc+l
+	GDtFZ+sXGoETWtfhyhyoZrEHRth2Bzo2CdvtSNm+91DrO+KRHT8eARvFDVAJdB7b+mZ4Zd5BYci
+	WlxylrRtf5twe7TGfGYh3+xNBTQlpyxg=
+X-Gm-Gg: AfdE7ckx1a04PWZuqLOloAzc/pOfZ6ij5fx1BltajbXRG2LF8Paqrfn3zoNVe+0Cl4m
+	3f9KbSkNXseY+ttxGun4m25e+wygG83bxfgsKXRCv4Ws8FhIACvuqGUr4lUCKHUDEPkpSo3j1Ih
+	oX9qIMWaAdT+J+Kg6hMK/rEfCj6k8A++mjlUySw52q2gis3FkhxN7PigeJKo3M8230F028WQBRj
+	fh2xSPkm7hO2sZwRItiIch0kOYb6pSSWHq0Yh7C4khUltr//66ut7n3A/PRrzsh/VWFTvFp/hio
+	lMXY4R1YEwgc6Cto+bqcjg6bUD3LCYD+11cMOUbuzNM1TSeE
+X-Received: by 2002:a05:6a00:600a:b0:848:2f73:8ffd with SMTP id
+ d2e1a72fcca58-84c29527f98mr12207715b3a.70.1784529307228; Sun, 19 Jul 2026
+ 23:35:07 -0700 (PDT)
+MIME-Version: 1.0
+References: 
+ <CAOgPGoAcjjOvqNaxyL0N2+hLXOBPeRz-0JMv5cDGG3vS-JLCXw@mail.gmail.com>
+ <3BBD921A-61B2-4AA2-8208-FF9367493369@kenkubota.de>
+ <CAE3-qLQaJwBejn7KCT8LVx1DTmJMnT6PP6=EavZnPA+f8fjCrA@mail.gmail.com>
+In-Reply-To: 
+ <CAE3-qLQaJwBejn7KCT8LVx1DTmJMnT6PP6=EavZnPA+f8fjCrA@mail.gmail.com>
+From: "Markku-Juhani O. Saarinen" <mjos.crypto@gmail.com>
+Date: Mon, 20 Jul 2026 09:34:55 +0300
+X-Gm-Features: AUfX_mzGCT2_0CbWs0YJKgntCq9x1EA5e0ExPhR4LXGE9dGj3V5yBa8JbA1NZp4
+Message-ID: 
+ <CA+iU_qnj1WHun8vA-h0HxJ1iB8Raf6Fw-Zqz1acorY2AtatTQQ@mail.gmail.com>
+To: Quynh Dang <quynh97@gmail.com>
+Content-Type: multipart/alternative; boundary="00000000000072dcab0657051b99"
+Message-ID-Hash: K4UXLLDMQQ2HHTS66HMC4BCVNWTLDSWJ
+X-Message-ID-Hash: K4UXLLDMQQ2HHTS66HMC4BCVNWTLDSWJ
+X-MailFrom: mjos.crypto@gmail.com
+X-Mailman-Rule-Misses: dmarc-mitigation; no-senders; approved; emergency;
+ loop; banned-address; member-moderation; header-match-tls.ietf.org-0;
+ nonmember-moderation; administrivia; implicit-dest; max-recipients; max-size;
+ news-moderation; no-subject; digests; suspicious-header
+CC: tls-chairs <tls-chairs@ietf.org>, "<tls@ietf.org>" <tls@ietf.org>,
+ draft-ietf-tls-mlkem@ietf.org
+X-Mailman-Version: 3.3.9rc6
+Precedence: list
+Subject: =?utf-8?q?=5BTLS=5D_Re=3A_MLKEM_Consensus_Call_=28was_WG_Last_Call=3A_draft-?=
+ =?utf-8?q?ietf-tls-mlkem-08_=28Ends_2026-07-08=29=29?=
+List-Id: "This is the mailing list for the Transport Layer Security working
+ group of the IETF." <tls.ietf.org>
+Archived-At: 
+ <https://mailarchive.ietf.org/arch/msg/tls/ukx10TSS3MfyprVOMlrJZkCqBUA>
+List-Archive: <https://mailarchive.ietf.org/arch/browse/tls>
+List-Help: <mailto:tls-request@ietf.org?subject=help>
+List-Owner: <mailto:tls-owner@ietf.org>
+List-Post: <mailto:tls@ietf.org>
+List-Subscribe: <mailto:tls-join@ietf.org>
+List-Unsubscribe: <mailto:tls-leave@ietf.org>
+
+--00000000000072dcab0657051b99
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi,
+
+
+> 19.07.2026 Joseph Salowey <joe@salowey.net>:
+
+(..)
+
+> Text to go into Section 4.2, after the existing "MUST NOT reuse
+
+> randomness" line:
+
+>
+
+> =E2=80=9CDuring encapsulation, ML-KEM encrypts m, drawn from a random bit
+
+> generator, so the peer holding the decapsulation key recovers m
+
+> exactly. Any information that m provides about other outputs of the
+
+> generator is therefore available to that peer.=E2=80=9D
+
+
+This is Ok. Note that here the term "random bit generator" (RBG) is used.
+Of course we wouldn't expect a RBG to give any information about other
+outputs or the state, since it is a RBG (see below), but it may as well be
+mentioned.
+
+
+Obviously the mentioned reveal also applies to hybrids such as
+X25519MLKEM768 as well ( the hybrid key derivation is not a black box to
+the recipient. )
+
+
+>
+
+> And the following text for Section 5 (security considerations):
+
+>
+
+> =E2=80=9CThe disclosure of raw random number generator (PRNG) output in T=
+LS
+
+> and other protocols can be used in an attack to compromise the state
+
+> of an insecure RNG as described in [DUALEC-TLS]. The m value in ML-KEM
+
+
+Here the text talks of a "raw random number generator" which it
+abbreviates refers
+to as PRNG ("P" is for pseudo.). This is not a well defined term, and I
+agree with Quynh that it is better adjusted as  =E2=80=9CThe disclosure of =
+the
+output(s) of an insecure random number generator (RNG) when used in TLS and
+other protocols can be used in an attack to compromise the state of the
+insecure RNG itself as described in [DUALEC-TLS]."
+
+
+> is an additional place where raw RNG output is disclosed to an active
+
+> attacker.  Because the m value in ML-KEM is randomly generated and
+
+
+The term "raw RNG" here seems ok -- it is undefined but I guess it means
+"insecure RNG."
+
+
+> transmitted to the client, it is important to follow the PRNG guidance
+
+> in [FIPS203] and [RFC9846]. Implementers MAY choose to implement
+
+> mechanisms from [RFC8937] for additional protection across sessions."
+
+
+Here, the term PRNG makes a comeback. Perhaps change it to RNG for
+consistency. FIPS 203 does not offer PRNG guidance, but RBG guidance. An
+RBG may or may not be deterministic.
+
+
+To recap: RNG is an incredibly vague term as it implies no clearly defined
+security properties -- but this is what the IETF has been using. As noted,
+FIPS land talks of RBGs (and defines what they are), as does a part of the
+CC land. CC also uses the AIS 20/31 terminology and classification, in
+which RNG is essentially a catch-all, and protection profiles impose
+additional, more detailed requirements for entropy generation and
+post-processing.
+
+
+FIPS 203 actually asks for an RBG, which implies:
+
+- seeding from a sufficient amount of entropy, and also
+
+- cryptographically secure post-processing where any number of output bits
+do not offer an advantage in predicting or determining unrevealed output
+bits, assuming cryptographic security of SHA2 or AES, etc.
+
+
+The more casual mathematical term PRNG implies neither cryptographic
+security nor sufficient entropy seeding =E2=80=94 simply determinism. Often=
+ PRNGs
+are distinguished from RNGs specifically because they do not have
+sufficient seeding.
+
+
+American standard terminology has a class of RBGs called DRBGs
+(Deterministic Random Bit Generators). Because DRBGs are deteministic,
+technically they are PRNGs, but they are also RBGs -- when instantiated,
+the standards (and testing labs) require adequate seeding and an
+appropriate level of security in post-processing components (for example, a
+DRBG based on AES-128 is not sufficient for a 256-bit security level).
+
+There is also the "CRA land" in Europe, and ECCG & ENISA is searching for a
+suitable compromise for entropy in lower-assurance products (non-CC.). But
+at this point acceptable DRBGs are listed in the ACM (they all have
+cryptographically secure post-processing). It has been of course proposed
+that, e.g., Linux Random would be considered ok as an entropy source for
+consumer products, for obvious practical reasons.
+
+
+Best Regards,
+-markku
+
+Dr. Markku-Juhani O. Saarinen <mjos@iki.fi>
+
+
+On Sun, Jul 19, 2026 at 3:58=E2=80=AFPM Quynh Dang <quynh97@gmail.com> wrot=
+e:
+
+> Hi Joe and Sean,
+>
+> This sentence: =E2=80=9CThe disclosure of raw random number generator (PR=
+NG)
+> output in TLS
+> and other protocols can be used in an attack to compromise the state
+> of an insecure RNG as described in [DUALEC-TLS]. " would need to be
+> edited as below to make it clear to the readers.
+>
+> =E2=80=9CThe disclosure of the output(s) of an insecure random number gen=
+erator
+> (RNG) when used in TLS
+> and other protocols can be used in an attack to compromise the state
+> of the insecure RNG itself as described in [DUALEC-TLS]."
+>
+> Regards,
+> Quynh.
+>
+> On Sun, Jul 19, 2026 at 8:21=E2=80=AFAM Ken Kubota <ietf@kenkubota.de> wr=
+ote:
+>
+>> It is notable that, while this text draws a clear distinction between
+>> pre-existing WG participants and others (ignoring the substance of the
+>> debate since then), the presence of a double-digit number of identified
+>> intelligence agency operatives from the NSA, GCHQ, and CSE [1], the
+>> resulting conflict of interest, and their uniform voting behavior remain
+>> completely unaddressed.
+>>
+>> Kind regards,
+>>
+>> Ken Kubota
+>>
+>> ____________________________________________________
+>>
+>> Ken Kubota
+>> https://doi.org/10.4444/100
+>>
+>>
+>>
+>> [1]
+>> https://mailarchive.ietf.org/arch/msg/tls/lnSPh3Wr6vgdjivHGj1mxCun3Rs/
+>>
+>>
+>>
+>> > Am 19.07.2026 um 13:31 schrieb Joseph Salowey <joe@salowey.net>:
+>> >
+>> > During this last call we received responses from a large number of
+>> > people on both sides of the issue, many were from first time
+>> > participants, which was probably due to the extensive social media
+>> > coverage. The primary objection discussed extensively during the call
+>> > concerned the relative strength of pure versus hybrid approaches.
+>> > Fundamentally, this is a judgement call people have to make for
+>> > themselves, and the chair=E2=80=99s role is not to just decide for the=
+ WG but
+>> > rather to take the sense of the WG. The chairs ultimately bear the
+>> > burden of how to weigh those responses against those of long-time WG
+>> > participants with demonstrated expertise. By pure numbers, more people
+>> > want to progress the document than not, but this alone does not
+>> > constitute rough consensus. However, if we look at pre-existing WG
+>> > participants or people with demonstrated expertise, roughly 7/10 WG
+>> > participants favor advancing the document, which shows rough consensus
+>> > to move the document forward.
+>> >
+>> > Even though there is rough consensus to move forward we feel several
+>> > issues raised during the last call need to be addressed. Some of the
+>> > issues below have text proposals that we think are appropriate given
+>> > the list discussions, we will accept feedback on them, but we do not
+>> > intend to make significant changes since these issues have already had
+>> > a fair amount of discussion
+>> >
+>> > 1. Emphasize the status of the document
+>> >
+>> > Currently the pure ML-KEM algorithm is recommended =E2=80=9CN=E2=80=9D=
+ in the IANA
+>> > registry and is a non-standards-track informational document while
+>> > X25519MLKEM768 is marked as recommended =E2=80=9CY=E2=80=9D and is def=
+ined in a
+>> > standards-track document.  While this indicates the preference for the
+>> > hybrid approach, it was pointed out that the meaning of the =E2=80=9CN=
+=E2=80=9D value
+>> > may not be obvious to readers unfamiliar with the IETF process.
+>> >
+>> > Based on the discussion the following will be added to the IANA
+>> > considerations section, which the IESG approved for pure ML-DSA, to
+>> > save readers following existing links in the document to understand
+>> > the meaning on N and to further addresses some hybrid/pure approach
+>> > concerns:
+>> >
+>> > As defined in Section 3 of [RFC9847], the value N indicates
+>> >
+>> >      That the item has not been evaluated by the IETF and that the IET=
+F
+>> >      has made no statement about the suitability of the associated
+>> >      mechanism.  This does not necessarily mean that the mechanism is
+>> >      flawed, only that no consensus exists.  The IETF might have
+>> >      consensus to leave an item marked as "N" on the basis of the item
+>> >      having limited applicability or usage constraints
+>> >
+>> > 2. Randomness requirements
+>> >
+>> > Jacob Appelbaum raised the issue that m random input value is provided
+>> > directly to the ML-KEM.Encaps() and encrypted and sent to the TLS
+>> > Client. This means that an attacker who can use raw random output to
+>> > determine the PRNG state can use a connection with the server to
+>> > attempt to derive the server's PRNG state and attack other
+>> > connections.
+>> >
+>> > This issue pertains to the ML-KEM algorithm itself and is not unique
+>> > to TLS. The NIST document currently does require a secure PRNG defined
+>> > in NIST SP 800-90A-C and RFC 9846 discusses PRNGs in Appendix C. Any
+>> > text added to address this point would need to be included both in
+>> > this document and the ECDHE-MLKEM document.
+>> >
+>> > Text to go into Section 4.2, after the existing "MUST NOT reuse
+>> > randomness" line:
+>> >
+>> > =E2=80=9CDuring encapsulation, ML-KEM encrypts m, drawn from a random =
+bit
+>> > generator, so the peer holding the decapsulation key recovers m
+>> > exactly. Any information that m provides about other outputs of the
+>> > generator is therefore available to that peer.=E2=80=9D
+>> >
+>> > And the following text for Section 5 (security considerations):
+>> >
+>> > =E2=80=9CThe disclosure of raw random number generator (PRNG) output i=
+n TLS
+>> > and other protocols can be used in an attack to compromise the state
+>> > of an insecure RNG as described in [DUALEC-TLS]. The m value in ML-KEM
+>> > is an additional place where raw RNG output is disclosed to an active
+>> > attacker.  Because the m value in ML-KEM is randomly generated and
+>> > transmitted to the client, it is important to follow the PRNG guidance
+>> > in [FIPS203] and [RFC9846]. Implementers MAY choose to implement
+>> > mechanisms from [RFC8937] for additional protection across sessions."
+>> >
+>> > [DUALECTLS] -
+>> https://www.usenix.org/system/files/conference/usenixsecurity14/sec14-pa=
+per-checkoway.pdf
+>> >
+>> > Similar text will also go into the ECDHE-MLKEM document.
+>> >
+>> > 3. Document Track & Stream
+>> >
+>> > The document is currently in the RFC stream on the non-standards
+>> > Informational track. Some have argued for the ISE stream so that the
+>> > document does not reflect IETF consensus or the document be included
+>> > on the experimental track.  Both of these approaches will result in
+>> > the publication of an RFC which is the same result as the current path
+>> > to the average RFC consumer. We believe we have consensus to publish
+>> > this as an informational working group document
+>> >
+>> > Joe
+>> >
+>> >
+>> > On Wed, Jun 24, 2026 at 8:00=E2=80=AFAM Joseph Salowey via Datatracker
+>> > <noreply@ietf.org> wrote:
+>> >>
+>> >> This message initiates a new Working Group Last Call for
+>> draft-ietf-tls-mlkem[1], which defines standalone ML-KEM key establishme=
+nt
+>> for TLS 1.3. The main question before the working group is: "Should the
+>> working group publish a document specifying stand alone ML-KEM?". If the=
+re
+>> is rough consensus then we will push to refine and publish the document;
+>> otherwise, we will stop discussing the draft and not progress it. Please
+>> respond to this call indicating whether you support publishing a documen=
+t
+>> specifying a stand alone ML-KEM. Please refrain from further discussion =
+on
+>> this topic as most arguments have been discussed multiple times.
+>> >>
+>> >> Why are we holding this consensus call now?
+>> >>
+>> >> Significant developments have occurred both within this document and
+>> in the broader TLS ecosystem to address the concerns raised in the last
+>> WGLC. Therefore, the third consensus call is warranted. We ask the worki=
+ng
+>> group to consider document publication in light of these recent changes:
+>> >>
+>> >> - Promotion of Hybrids in draft-ietf-tls-ecdhe-mlkem: Following a
+>> separate consensus call, the WG agreed to promote the X25519MLKEM768 hyb=
+rid
+>> group to Recommended: Y in the IANA registry. Consequently, the IANA
+>> registry will reflect a clear community preference for a hybrid because
+>> Recommended: Y clearly indicates this while the standalone ML-KEM groups
+>> defined in this draft remain Recommended: N. The updated security
+>> considerations in [1] reference the IANA registry to emphasize this
+>> preference.
+>> >>
+>> >> - Key Share Reuse Prohibited in draft-ietf-tls-rfc8446bis: The WG
+>> recently reached consensus to explicitly prohibit key share reuse across
+>> connections in TLS 1.3. The new text changes the guidance from SHOULD NO=
+T
+>> to a strict MUST NOT. This resolves the concerns regarding static key re=
+use
+>> and its associated privacy and forward-secrecy risks for ML-KEM.
+>> >>
+>> >> - Nadim updated the ProVerif model of TLS 1.3 to evaluate KEM and
+>> hybrid KEM groups in TLS 1.3. This supports other results which show tha=
+t
+>> KEMs are secure when used in TLS 1.3 and that hybrid groups are secure e=
+ven
+>> if one of the components is compromised.
+>> >>
+>> >> - Liaisons: We received liaison statements from multiple SDOs
+>> including  O-RAN[2], IEEE 802.11[4] and from 3GPP[3]  expressing support
+>> for the publication of draft-ietf-tls-mlkem as an RFC as they rely on th=
+e
+>> IETF to provide a stable normative reference.
+>> >>
+>> >> Please note that a third-party IPR disclosure exists [5] against this
+>> document regarding patents related to the underlying ML-KEM algorithm. T=
+his
+>> IPR declaration has not changed since the last WGLC. As a reminder, per =
+BCP
+>> 79, the IETF takes no stance on the validity of patent claims, and the
+>> working group may decide to proceed with a technology despite IPR
+>> disclosures if it decides that such use is warranted.
+>> >>
+>> >> Conduct Reminder: Given the heated nature of previous discussions on
+>> this topic, participants are strongly reminded to adhere to the IETF Cod=
+e
+>> of Conduct (BCP 54) and the TLS WG's Mail List Procedures. Keep feedback
+>> professional, technical, and focused on the document's text.
+>> >>
+>> >> This working group last call will end on 2026-07-08.
+>> >>
+>> >> Joe and Sean
+>> >>
+>> >> [1] https://datatracker.ietf.org/doc/draft-ietf-tls-mlkem/
+>> >> [2] https://datatracker.ietf.org/liaison/2198/
+>> >> [3] https://datatracker.ietf.org/liaison/2151/
+>> >> [4] https://datatracker.ietf.org/liaison/2148/
+>> >> [5]
+>> https://datatracker.ietf.org/ipr/search/?submit=3Ddraft&id=3Ddraft-ietf-=
+tls-mlkem
+>> >
+>> > _______________________________________________
+>> > TLS mailing list -- tls@ietf.org
+>> > To unsubscribe send an email to tls-leave@ietf.org
+>>
+>> _______________________________________________
+>> TLS mailing list -- tls@ietf.org
+>> To unsubscribe send an email to tls-leave@ietf.org
+>>
+> _______________________________________________
+> TLS mailing list -- tls@ietf.org
+> To unsubscribe send an email to tls-leave@ietf.org
+>
+
+--00000000000072dcab0657051b99
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><div dir=3D"ltr"><div dir=3D"ltr"><div><p style=3D"color:r=
+gb(14,16,26);background:transparent;margin-top:0pt;margin-bottom:0pt"><span=
+ style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">Hi,</spa=
+n></p><p style=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt=
+;margin-bottom:0pt"><span style=3D"background:transparent;margin-top:0pt;ma=
+rgin-bottom:0pt"><br></span></p><p style=3D"color:rgb(14,16,26);background:=
+transparent;margin-top:0pt;margin-bottom:0pt"></p><p style=3D"color:rgb(14,=
+16,26);background:transparent;margin-top:0pt;margin-bottom:0pt"><span style=
+=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">&gt; 19.07.202=
+6 Joseph Salowey &lt;</span><a target=3D"_blank" href=3D"mailto:joe@salowey=
+.net" class=3D"editor-rtfLink" style=3D"background:transparent;margin-top:0=
+pt;margin-bottom:0pt;color:rgb(74,110,224)"><span style=3D"background:trans=
+parent;margin-top:0pt;margin-bottom:0pt">joe@salowey.net</span></a><span st=
+yle=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">&gt;:</span=
+></p><p style=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;=
+margin-bottom:0pt"><span style=3D"background:transparent;margin-top:0pt;mar=
+gin-bottom:0pt">(..)</span></p><p style=3D"color:rgb(14,16,26);background:t=
+ransparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"background:tran=
+sparent;margin-top:0pt;margin-bottom:0pt">&gt; Text to go into Section 4.2,=
+ after the existing</span><span style=3D"background:transparent;margin-top:=
+0pt;margin-bottom:0pt"> &quot;</span><span style=3D"background:transparent;=
+margin-top:0pt;margin-bottom:0pt">MUST NOT reuse</span></p><p style=3D"colo=
+r:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom:0pt"><s=
+pan style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">&gt; =
+randomness</span><span style=3D"background:transparent;margin-top:0pt;margi=
+n-bottom:0pt">&quot; </span><span style=3D"background:transparent;margin-to=
+p:0pt;margin-bottom:0pt">line:</span></p><p style=3D"color:rgb(14,16,26);ba=
+ckground:transparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"backg=
+round:transparent;margin-top:0pt;margin-bottom:0pt">&gt;</span></p><p style=
+=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom=
+:0pt"><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0p=
+t">&gt;</span><span style=3D"background:transparent;margin-top:0pt;margin-b=
+ottom:0pt"> =E2=80=9C</span><span style=3D"background:transparent;margin-to=
+p:0pt;margin-bottom:0pt">During encapsulation, ML-KEM encrypts m, drawn fro=
+m a random bit</span></p><p style=3D"color:rgb(14,16,26);background:transpa=
+rent;margin-top:0pt;margin-bottom:0pt"><span style=3D"background:transparen=
+t;margin-top:0pt;margin-bottom:0pt">&gt; generator, so the peer holding the=
+ decapsulation key recovers m</span></p><p style=3D"color:rgb(14,16,26);bac=
+kground:transparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"backgr=
+ound:transparent;margin-top:0pt;margin-bottom:0pt">&gt; exactly. Any inform=
+ation that m provides about other outputs of the</span></p><p style=3D"colo=
+r:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom:0pt"><s=
+pan style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">&gt; =
+generator is therefore available to that peer.</span><span style=3D"backgro=
+und:transparent;margin-top:0pt;margin-bottom:0pt">=E2=80=9D</span></p><p st=
+yle=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bot=
+tom:0pt"><br></p><p style=3D"color:rgb(14,16,26);background:transparent;mar=
+gin-top:0pt;margin-bottom:0pt"></p><p style=3D"color:rgb(14,16,26);backgrou=
+nd:transparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"background:=
+transparent;margin-top:0pt;margin-bottom:0pt">This is Ok. Note that here th=
+e term &quot;random bit generator&quot; (RBG) is used. Of course we </span>=
+<span style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">wou=
+ldn&#39;t</span><span style=3D"background:transparent;margin-top:0pt;margin=
+-bottom:0pt"> expect </span><span style=3D"background:transparent;margin-to=
+p:0pt;margin-bottom:0pt">a RBG</span><span style=3D"background:transparent;=
+margin-top:0pt;margin-bottom:0pt"> to give any information about other outp=
+uts or the state, since it is </span><span style=3D"background:transparent;=
+margin-top:0pt;margin-bottom:0pt">a RBG (see below)</span><span style=3D"ba=
+ckground:transparent;margin-top:0pt;margin-bottom:0pt">, but it may as well=
+ be mentioned.</span></p><p style=3D"color:rgb(14,16,26);background:transpa=
+rent;margin-top:0pt;margin-bottom:0pt"></p><p style=3D"color:rgb(14,16,26);=
+background:transparent;margin-top:0pt;margin-bottom:0pt"><br></p><p style=
+=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom=
+:0pt">Obviously the mentioned reveal also applies to hybrids such as X25519=
+MLKEM768 as well ( the hybrid key derivation is not a black box to the reci=
+pient. )</p><p style=3D"color:rgb(14,16,26);background:transparent;margin-t=
+op:0pt;margin-bottom:0pt"><span style=3D"background:transparent;margin-top:=
+0pt;margin-bottom:0pt"><br></span></p><p style=3D"color:rgb(14,16,26);backg=
+round:transparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"backgrou=
+nd:transparent;margin-top:0pt;margin-bottom:0pt">&gt;</span></p><p style=3D=
+"color:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom:0p=
+t"><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">=
+&gt; And the following text for Section 5 (security considerations):</span>=
+</p><p style=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;m=
+argin-bottom:0pt"><span style=3D"background:transparent;margin-top:0pt;marg=
+in-bottom:0pt">&gt;</span></p><p style=3D"color:rgb(14,16,26);background:tr=
+ansparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"background:trans=
+parent;margin-top:0pt;margin-bottom:0pt">&gt;</span><span style=3D"backgrou=
+nd:transparent;margin-top:0pt;margin-bottom:0pt"> =E2=80=9C</span><span sty=
+le=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">The disclosu=
+re of raw random number generator (PRNG) output in TLS</span></p><p style=
+=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom=
+:0pt"><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0p=
+t">&gt; and other protocols can be used in an attack to compromise the stat=
+e</span></p><p style=3D"color:rgb(14,16,26);background:transparent;margin-t=
+op:0pt;margin-bottom:0pt"><span style=3D"background:transparent;margin-top:=
+0pt;margin-bottom:0pt">&gt; of an insecure RNG as described in [DUALEC-TLS]=
+. The m value in ML-KEM</span></p><p style=3D"color:rgb(14,16,26);backgroun=
+d:transparent;margin-top:0pt;margin-bottom:0pt"></p><p style=3D"color:rgb(1=
+4,16,26);background:transparent;margin-top:0pt;margin-bottom:0pt"><span sty=
+le=3D"background:transparent;margin-top:0pt;margin-bottom:0pt"><br></span><=
+/p><p style=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;ma=
+rgin-bottom:0pt"><span style=3D"background:transparent;margin-top:0pt;margi=
+n-bottom:0pt">Here</span><span style=3D"background:transparent;margin-top:0=
+pt;margin-bottom:0pt"> the text talks </span><span style=3D"background:tran=
+sparent;margin-top:0pt;margin-bottom:0pt">of</span><span style=3D"backgroun=
+d:transparent;margin-top:0pt;margin-bottom:0pt"> a</span><span style=3D"bac=
+kground:transparent;margin-top:0pt;margin-bottom:0pt"> &quot;</span><span s=
+tyle=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">raw random=
+ number </span><span style=3D"background:transparent;margin-top:0pt;margin-=
+bottom:0pt">generator</span><span style=3D"background:transparent;margin-to=
+p:0pt;margin-bottom:0pt">&quot; </span><span style=3D"background:transparen=
+t;margin-top:0pt;margin-bottom:0pt">which it abbreviates </span><span style=
+=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">refers to</spa=
+n><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt"> =
+as PRNG (&quot;P&quot; is for pseudo.).</span><span style=3D"background:tra=
+nsparent;margin-top:0pt;margin-bottom:0pt"> This is not a </span><span styl=
+e=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">well defined<=
+/span><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0p=
+t"> term, and I agree with=C2=A0Quynh that it is better adjusted as=C2=A0</=
+span><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt=
+">=C2=A0=E2=80=9C</span><span style=3D"background:transparent;margin-top:0p=
+t;margin-bottom:0pt">The disclosure of the output(s) of an insecure random =
+number generator (RNG) when used in TLS and other protocols can be used in =
+an attack to compromise the state of the insecure RNG itself as described i=
+n [DUALEC-TLS].</span><span style=3D"background:transparent;margin-top:0pt;=
+margin-bottom:0pt">&quot;</span></p><p style=3D"color:rgb(14,16,26);backgro=
+und:transparent;margin-top:0pt;margin-bottom:0pt"></p><p style=3D"color:rgb=
+(14,16,26);background:transparent;margin-top:0pt;margin-bottom:0pt"><span s=
+tyle=3D"background:transparent;margin-top:0pt;margin-bottom:0pt"><br></span=
+></p><p style=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;=
+margin-bottom:0pt"><span style=3D"background:transparent;margin-top:0pt;mar=
+gin-bottom:0pt">&gt; is an additional place where raw RNG output is disclos=
+ed to an active</span></p><p style=3D"color:rgb(14,16,26);background:transp=
+arent;margin-top:0pt;margin-bottom:0pt"><span style=3D"background:transpare=
+nt;margin-top:0pt;margin-bottom:0pt">&gt; attacker.=C2=A0 Because the m val=
+ue in ML-KEM is randomly generated and</span></p><p style=3D"color:rgb(14,1=
+6,26);background:transparent;margin-top:0pt;margin-bottom:0pt"></p><p style=
+=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom=
+:0pt"><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0p=
+t"><br></span></p><p style=3D"color:rgb(14,16,26);background:transparent;ma=
+rgin-top:0pt;margin-bottom:0pt"><span style=3D"background:transparent;margi=
+n-top:0pt;margin-bottom:0pt">The term</span><span style=3D"background:trans=
+parent;margin-top:0pt;margin-bottom:0pt"> &quot;</span><span style=3D"backg=
+round:transparent;margin-top:0pt;margin-bottom:0pt">raw RNG</span><span sty=
+le=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">&quot; </spa=
+n><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">h=
+ere seems ok -- it is undefined but I guess it means &quot;insecure RNG.&qu=
+ot;</span></p><p style=3D"color:rgb(14,16,26);background:transparent;margin=
+-top:0pt;margin-bottom:0pt"></p><p style=3D"color:rgb(14,16,26);background:=
+transparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"background:tra=
+nsparent;margin-top:0pt;margin-bottom:0pt"><br></span></p><p style=3D"color=
+:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom:0pt"><sp=
+an style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">&gt; <=
+/span><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0p=
+t">transmitted</span><span style=3D"background:transparent;margin-top:0pt;m=
+argin-bottom:0pt"> to the client, it is important to follow the PRNG guidan=
+ce</span></p><p style=3D"color:rgb(14,16,26);background:transparent;margin-=
+top:0pt;margin-bottom:0pt"><span style=3D"background:transparent;margin-top=
+:0pt;margin-bottom:0pt">&gt; in [FIPS203] and [RFC9846]. Implementers MAY c=
+hoose to implement</span></p><p style=3D"color:rgb(14,16,26);background:tra=
+nsparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"background:transp=
+arent;margin-top:0pt;margin-bottom:0pt">&gt; mechanisms from [RFC8937] for =
+additional protection across sessions.</span><span style=3D"background:tran=
+sparent;margin-top:0pt;margin-bottom:0pt">&quot;</span></p><p style=3D"colo=
+r:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom:0pt"></=
+p><p style=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;mar=
+gin-bottom:0pt"><span style=3D"background:transparent;margin-top:0pt;margin=
+-bottom:0pt"><br></span></p><p style=3D"color:rgb(14,16,26);background:tran=
+sparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"background:transpa=
+rent;margin-top:0pt;margin-bottom:0pt">Here, the term PRNG makes a comeback=
+. Perhaps change it to RNG for consistency. </span><span style=3D"backgroun=
+d:transparent;margin-top:0pt;margin-bottom:0pt">FIPS 203 does not offer PRN=
+G guidance</span><span style=3D"background:transparent;margin-top:0pt;margi=
+n-bottom:0pt">, </span><span style=3D"background:transparent;margin-top:0pt=
+;margin-bottom:0pt">but RBG guidance.</span><span style=3D"background:trans=
+parent;margin-top:0pt;margin-bottom:0pt"> An RBG may or may not be determin=
+istic.</span></p><p style=3D"color:rgb(14,16,26);background:transparent;mar=
+gin-top:0pt;margin-bottom:0pt"><br>To recap: RNG is an incredibly vague ter=
+m as it implies no clearly defined security properties -- but this is what =
+the IETF has been using. As noted, FIPS land talks of RBGs (and defines wha=
+t they are), as does a part of the CC land. CC also uses the AIS 20/31 term=
+inology and classification, in which RNG is essentially a catch-all, and pr=
+otection profiles impose additional, more detailed requirements for entropy=
+ generation and post-processing.<br></p><p style=3D"color:rgb(14,16,26);bac=
+kground:transparent;margin-top:0pt;margin-bottom:0pt"><br></p><p style=3D"c=
+olor:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom:0pt"=
+><span style=3D"background-color:transparent">FIPS 203 actually asks for an=
+ RBG, which implies:</span></p><p style=3D"color:rgb(14,16,26);background:t=
+ransparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"background:tran=
+sparent;margin-top:0pt;margin-bottom:0pt">- seeding from a sufficient amoun=
+t of entropy, and also</span></p><p style=3D"color:rgb(14,16,26);background=
+:transparent;margin-top:0pt;margin-bottom:0pt"><span style=3D"background:tr=
+ansparent;margin-top:0pt;margin-bottom:0pt">- cryptographically secure post=
+-processing where any number of output bits do not offer an advantage in pr=
+edicting or determining unrevealed output bits, assuming cryptographic secu=
+rity of SHA2 or AES, etc.</span></p><p style=3D"color:rgb(14,16,26);backgro=
+und:transparent;margin-top:0pt;margin-bottom:0pt"></p><p style=3D"color:rgb=
+(14,16,26);background:transparent;margin-top:0pt;margin-bottom:0pt"><span s=
+tyle=3D"background:transparent;margin-top:0pt;margin-bottom:0pt"><br></span=
+></p><p style=3D"color:rgb(14,16,26);background:transparent;margin-top:0pt;=
+margin-bottom:0pt"><span style=3D"background:transparent;margin-top:0pt;mar=
+gin-bottom:0pt">The more casual mathematical term PRNG implies neither cryp=
+tographic security nor sufficient entropy seeding =E2=80=94 simply determin=
+ism. </span><span style=3D"background:transparent;margin-top:0pt;margin-bot=
+tom:0pt">Often</span><span style=3D"background:transparent;margin-top:0pt;m=
+argin-bottom:0pt"> PRNGs are distinguished from RNGs specifically because t=
+hey do not have sufficient seeding.</span></p><p style=3D"color:rgb(14,16,2=
+6);background:transparent;margin-top:0pt;margin-bottom:0pt"></p><p style=3D=
+"color:rgb(14,16,26);background:transparent;margin-top:0pt;margin-bottom:0p=
+t"><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">=
+<br></span></p><p style=3D"color:rgb(14,16,26);background:transparent;margi=
+n-top:0pt;margin-bottom:0pt"><span style=3D"background:transparent;margin-t=
+op:0pt;margin-bottom:0pt">American standard terminology has a class of RBGs=
+ called DRBGs (Deterministic Random Bit Generators). Because DRBGs are </sp=
+an><span style=3D"background:transparent;margin-top:0pt;margin-bottom:0pt">=
+deteministic</span><span style=3D"background:transparent;margin-top:0pt;mar=
+gin-bottom:0pt">, technically they are PRNGs</span><span style=3D"backgroun=
+d:transparent;margin-top:0pt;margin-bottom:0pt">, but they</span><span styl=
+e=3D"background:transparent;margin-top:0pt;margin-bottom:0pt"> are also RBG=
+s -- when instantiated, the standards (and testing labs) require adequate s=
+eeding and an appropriate level of security in post-processing components (=
+for example, a DRBG based on AES-128 is not sufficient for a 256-bit securi=
+ty level).</span></p></div><div><br></div><div><p style=3D"color:rgb(14,16,=
+26);background:transparent;margin-top:0pt;margin-bottom:0pt">There is also =
+the &quot;CRA land&quot; in Europe, and ECCG &amp; ENISA is searching for a=
+ suitable compromise for entropy in lower-assurance products (non-CC.). But=
+ at this point acceptable DRBGs are listed in the ACM (they all have crypto=
+graphically secure post-processing). It has been of course proposed that, e=
+.g., Linux Random would be considered ok as an entropy source for consumer =
+products, for obvious practical reasons.</p><p style=3D"color:rgb(14,16,26)=
+;background:transparent;margin-top:0pt;margin-bottom:0pt"><br></p></div><di=
+v>Best Regards,</div><div>-markku</div><div><br></div><div><div dir=3D"ltr"=
+ class=3D"gmail_signature">Dr. Markku-Juhani O. Saarinen &lt;<a href=3D"mai=
+lto:mjos@iki.fi" target=3D"_blank">mjos@iki.fi</a>&gt;</div></div><br></div=
+><br><div class=3D"gmail_quote"><div dir=3D"ltr" class=3D"gmail_attr">On Su=
+n, Jul 19, 2026 at 3:58=E2=80=AFPM Quynh Dang &lt;<a href=3D"mailto:quynh97=
+@gmail.com" target=3D"_blank">quynh97@gmail.com</a>&gt; wrote:<br></div><bl=
+ockquote class=3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-lef=
+t:1px solid rgb(204,204,204);padding-left:1ex"><div dir=3D"ltr"><div>Hi Joe=
+ and Sean,</div><div><br></div><div>This sentence: =E2=80=9CThe disclosure =
+of raw random number generator (PRNG) output in TLS<br>and other protocols =
+can be used in an attack to compromise the state<br>of an insecure RNG as d=
+escribed in [DUALEC-TLS]. &quot; would need to be edited=C2=A0as below to m=
+ake it clear to the readers.=C2=A0</div><div><br></div><div>=E2=80=9CThe di=
+sclosure of the output(s) of an insecure random number generator (RNG) when=
+ used in TLS<br>and other protocols can be used in an attack to compromise =
+the state<br>of the insecure RNG itself as described in [DUALEC-TLS].&quot;=
+</div><div><br></div><div>Regards,</div><div>Quynh.=C2=A0</div><br><div cla=
+ss=3D"gmail_quote"><div dir=3D"ltr" class=3D"gmail_attr">On Sun, Jul 19, 20=
+26 at 8:21=E2=80=AFAM Ken Kubota &lt;<a href=3D"mailto:ietf@kenkubota.de" t=
+arget=3D"_blank">ietf@kenkubota.de</a>&gt; wrote:<br></div><blockquote clas=
+s=3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-left:1px solid r=
+gb(204,204,204);padding-left:1ex">It is notable that, while this text draws=
+ a clear distinction between pre-existing WG participants and others (ignor=
+ing the substance of the debate since then), the presence of a double-digit=
+ number of identified intelligence agency operatives from the NSA, GCHQ, an=
+d CSE [1], the resulting conflict of interest, and their uniform voting beh=
+avior remain completely unaddressed.<br>
+<br>
+Kind regards,<br>
+<br>
+Ken Kubota<br>
+<br>
+____________________________________________________<br>
+<br>
+Ken Kubota<br>
+<a href=3D"https://doi.org/10.4444/100" rel=3D"noreferrer" target=3D"_blank=
+">https://doi.org/10.4444/100</a><br>
+<br>
+<br>
+<br>
+[1] <a href=3D"https://mailarchive.ietf.org/arch/msg/tls/lnSPh3Wr6vgdjivHGj=
+1mxCun3Rs/" rel=3D"noreferrer" target=3D"_blank">https://mailarchive.ietf.o=
+rg/arch/msg/tls/lnSPh3Wr6vgdjivHGj1mxCun3Rs/</a><br>
+<br>
+<br>
+<br>
+&gt; Am 19.07.2026 um 13:31 schrieb Joseph Salowey &lt;<a href=3D"mailto:jo=
+e@salowey.net" target=3D"_blank">joe@salowey.net</a>&gt;:<br>
+&gt; <br>
+&gt; During this last call we received responses from a large number of<br>
+&gt; people on both sides of the issue, many were from first time<br>
+&gt; participants, which was probably due to the extensive social media<br>
+&gt; coverage. The primary objection discussed extensively during the call<=
+br>
+&gt; concerned the relative strength of pure versus hybrid approaches.<br>
+&gt; Fundamentally, this is a judgement call people have to make for<br>
+&gt; themselves, and the chair=E2=80=99s role is not to just decide for the=
+ WG but<br>
+&gt; rather to take the sense of the WG. The chairs ultimately bear the<br>
+&gt; burden of how to weigh those responses against those of long-time WG<b=
+r>
+&gt; participants with demonstrated expertise. By pure numbers, more people=
+<br>
+&gt; want to progress the document than not, but this alone does not<br>
+&gt; constitute rough consensus. However, if we look at pre-existing WG<br>
+&gt; participants or people with demonstrated expertise, roughly 7/10 WG<br=
+>
+&gt; participants favor advancing the document, which shows rough consensus=
+<br>
+&gt; to move the document forward.<br>
+&gt; <br>
+&gt; Even though there is rough consensus to move forward we feel several<b=
+r>
+&gt; issues raised during the last call need to be addressed. Some of the<b=
+r>
+&gt; issues below have text proposals that we think are appropriate given<b=
+r>
+&gt; the list discussions, we will accept feedback on them, but we do not<b=
+r>
+&gt; intend to make significant changes since these issues have already had=
+<br>
+&gt; a fair amount of discussion<br>
+&gt; <br>
+&gt; 1. Emphasize the status of the document<br>
+&gt; <br>
+&gt; Currently the pure ML-KEM algorithm is recommended =E2=80=9CN=E2=80=9D=
+ in the IANA<br>
+&gt; registry and is a non-standards-track informational document while<br>
+&gt; X25519MLKEM768 is marked as recommended =E2=80=9CY=E2=80=9D and is def=
+ined in a<br>
+&gt; standards-track document.=C2=A0 While this indicates the preference fo=
+r the<br>
+&gt; hybrid approach, it was pointed out that the meaning of the =E2=80=9CN=
+=E2=80=9D value<br>
+&gt; may not be obvious to readers unfamiliar with the IETF process.<br>
+&gt; <br>
+&gt; Based on the discussion the following will be added to the IANA<br>
+&gt; considerations section, which the IESG approved for pure ML-DSA, to<br=
+>
+&gt; save readers following existing links in the document to understand<br=
+>
+&gt; the meaning on N and to further addresses some hybrid/pure approach<br=
+>
+&gt; concerns:<br>
+&gt; <br>
+&gt; As defined in Section 3 of [RFC9847], the value N indicates<br>
+&gt; <br>
+&gt;=C2=A0 =C2=A0 =C2=A0 That the item has not been evaluated by the IETF a=
+nd that the IETF<br>
+&gt;=C2=A0 =C2=A0 =C2=A0 has made no statement about the suitability of the=
+ associated<br>
+&gt;=C2=A0 =C2=A0 =C2=A0 mechanism.=C2=A0 This does not necessarily mean th=
+at the mechanism is<br>
+&gt;=C2=A0 =C2=A0 =C2=A0 flawed, only that no consensus exists.=C2=A0 The I=
+ETF might have<br>
+&gt;=C2=A0 =C2=A0 =C2=A0 consensus to leave an item marked as &quot;N&quot;=
+ on the basis of the item<br>
+&gt;=C2=A0 =C2=A0 =C2=A0 having limited applicability or usage constraints<=
+br>
+&gt; <br>
+&gt; 2. Randomness requirements<br>
+&gt; <br>
+&gt; Jacob Appelbaum raised the issue that m random input value is provided=
+<br>
+&gt; directly to the ML-KEM.Encaps() and encrypted and sent to the TLS<br>
+&gt; Client. This means that an attacker who can use raw random output to<b=
+r>
+&gt; determine the PRNG state can use a connection with the server to<br>
+&gt; attempt to derive the server&#39;s PRNG state and attack other<br>
+&gt; connections.<br>
+&gt; <br>
+&gt; This issue pertains to the ML-KEM algorithm itself and is not unique<b=
+r>
+&gt; to TLS. The NIST document currently does require a secure PRNG defined=
+<br>
+&gt; in NIST SP 800-90A-C and RFC 9846 discusses PRNGs in Appendix C. Any<b=
+r>
+&gt; text added to address this point would need to be included both in<br>
+&gt; this document and the ECDHE-MLKEM document.<br>
+&gt; <br>
+&gt; Text to go into Section 4.2, after the existing &quot;MUST NOT reuse<b=
+r>
+&gt; randomness&quot; line:<br>
+&gt; <br>
+&gt; =E2=80=9CDuring encapsulation, ML-KEM encrypts m, drawn from a random =
+bit<br>
+&gt; generator, so the peer holding the decapsulation key recovers m<br>
+&gt; exactly. Any information that m provides about other outputs of the<br=
+>
+&gt; generator is therefore available to that peer.=E2=80=9D<br>
+&gt; <br>
+&gt; And the following text for Section 5 (security considerations):<br>
+&gt; <br>
+&gt; =E2=80=9CThe disclosure of raw random number generator (PRNG) output i=
+n TLS<br>
+&gt; and other protocols can be used in an attack to compromise the state<b=
+r>
+&gt; of an insecure RNG as described in [DUALEC-TLS]. The m value in ML-KEM=
+<br>
+&gt; is an additional place where raw RNG output is disclosed to an active<=
+br>
+&gt; attacker.=C2=A0 Because the m value in ML-KEM is randomly generated an=
+d<br>
+&gt; transmitted to the client, it is important to follow the PRNG guidance=
+<br>
+&gt; in [FIPS203] and [RFC9846]. Implementers MAY choose to implement<br>
+&gt; mechanisms from [RFC8937] for additional protection across sessions.&q=
+uot;<br>
+&gt; <br>
+&gt; [DUALECTLS] - <a href=3D"https://www.usenix.org/system/files/conferenc=
+e/usenixsecurity14/sec14-paper-checkoway.pdf" rel=3D"noreferrer" target=3D"=
+_blank">https://www.usenix.org/system/files/conference/usenixsecurity14/sec=
+14-paper-checkoway.pdf</a><br>
+&gt; <br>
+&gt; Similar text will also go into the ECDHE-MLKEM document.<br>
+&gt; <br>
+&gt; 3. Document Track &amp; Stream<br>
+&gt; <br>
+&gt; The document is currently in the RFC stream on the non-standards<br>
+&gt; Informational track. Some have argued for the ISE stream so that the<b=
+r>
+&gt; document does not reflect IETF consensus or the document be included<b=
+r>
+&gt; on the experimental track.=C2=A0 Both of these approaches will result =
+in<br>
+&gt; the publication of an RFC which is the same result as the current path=
+<br>
+&gt; to the average RFC consumer. We believe we have consensus to publish<b=
+r>
+&gt; this as an informational working group document<br>
+&gt; <br>
+&gt; Joe<br>
+&gt; <br>
+&gt; <br>
+&gt; On Wed, Jun 24, 2026 at 8:00=E2=80=AFAM Joseph Salowey via Datatracker=
+<br>
+&gt; &lt;<a href=3D"mailto:noreply@ietf.org" target=3D"_blank">noreply@ietf=
+.org</a>&gt; wrote:<br>
+&gt;&gt; <br>
+&gt;&gt; This message initiates a new Working Group Last Call for draft-iet=
+f-tls-mlkem[1], which defines standalone ML-KEM key establishment for TLS 1=
+.3. The main question before the working group is: &quot;Should the working=
+ group publish a document specifying stand alone ML-KEM?&quot;. If there is=
+ rough consensus then we will push to refine and publish the document; othe=
+rwise, we will stop discussing the draft and not progress it. Please respon=
+d to this call indicating whether you support publishing a document specify=
+ing a stand alone ML-KEM. Please refrain from further discussion on this to=
+pic as most arguments have been discussed multiple times.<br>
+&gt;&gt; <br>
+&gt;&gt; Why are we holding this consensus call now?<br>
+&gt;&gt; <br>
+&gt;&gt; Significant developments have occurred both within this document a=
+nd in the broader TLS ecosystem to address the concerns raised in the last =
+WGLC. Therefore, the third consensus call is warranted. We ask the working =
+group to consider document publication in light of these recent changes:<br=
+>
+&gt;&gt; <br>
+&gt;&gt; - Promotion of Hybrids in draft-ietf-tls-ecdhe-mlkem: Following a =
+separate consensus call, the WG agreed to promote the X25519MLKEM768 hybrid=
+ group to Recommended: Y in the IANA registry. Consequently, the IANA regis=
+try will reflect a clear community preference for a hybrid because Recommen=
+ded: Y clearly indicates this while the standalone ML-KEM groups defined in=
+ this draft remain Recommended: N. The updated security considerations in [=
+1] reference the IANA registry to emphasize this preference.<br>
+&gt;&gt; <br>
+&gt;&gt; - Key Share Reuse Prohibited in draft-ietf-tls-rfc8446bis: The WG =
+recently reached consensus to explicitly prohibit key share reuse across co=
+nnections in TLS 1.3. The new text changes the guidance from SHOULD NOT to =
+a strict MUST NOT. This resolves the concerns regarding static key reuse an=
+d its associated privacy and forward-secrecy risks for ML-KEM.<br>
+&gt;&gt; <br>
+&gt;&gt; - Nadim updated the ProVerif model of TLS 1.3 to evaluate KEM and =
+hybrid KEM groups in TLS 1.3. This supports other results which show that K=
+EMs are secure when used in TLS 1.3 and that hybrid groups are secure even =
+if one of the components is compromised.<br>
+&gt;&gt; <br>
+&gt;&gt; - Liaisons: We received liaison statements from multiple SDOs incl=
+uding=C2=A0 O-RAN[2], IEEE 802.11[4] and from 3GPP[3]=C2=A0 expressing supp=
+ort for the publication of draft-ietf-tls-mlkem as an RFC as they rely on t=
+he IETF to provide a stable normative reference.<br>
+&gt;&gt; <br>
+&gt;&gt; Please note that a third-party IPR disclosure exists [5] against t=
+his document regarding patents related to the underlying ML-KEM algorithm. =
+This IPR declaration has not changed since the last WGLC. As a reminder, pe=
+r BCP 79, the IETF takes no stance on the validity of patent claims, and th=
+e working group may decide to proceed with a technology despite IPR disclos=
+ures if it decides that such use is warranted.<br>
+&gt;&gt; <br>
+&gt;&gt; Conduct Reminder: Given the heated nature of previous discussions =
+on this topic, participants are strongly reminded to adhere to the IETF Cod=
+e of Conduct (BCP 54) and the TLS WG&#39;s Mail List Procedures. Keep feedb=
+ack professional, technical, and focused on the document&#39;s text.<br>
+&gt;&gt; <br>
+&gt;&gt; This working group last call will end on 2026-07-08.<br>
+&gt;&gt; <br>
+&gt;&gt; Joe and Sean<br>
+&gt;&gt; <br>
+&gt;&gt; [1] <a href=3D"https://datatracker.ietf.org/doc/draft-ietf-tls-mlk=
+em/" rel=3D"noreferrer" target=3D"_blank">https://datatracker.ietf.org/doc/=
+draft-ietf-tls-mlkem/</a><br>
+&gt;&gt; [2] <a href=3D"https://datatracker.ietf.org/liaison/2198/" rel=3D"=
+noreferrer" target=3D"_blank">https://datatracker.ietf.org/liaison/2198/</a=
+><br>
+&gt;&gt; [3] <a href=3D"https://datatracker.ietf.org/liaison/2151/" rel=3D"=
+noreferrer" target=3D"_blank">https://datatracker.ietf.org/liaison/2151/</a=
+><br>
+&gt;&gt; [4] <a href=3D"https://datatracker.ietf.org/liaison/2148/" rel=3D"=
+noreferrer" target=3D"_blank">https://datatracker.ietf.org/liaison/2148/</a=
+><br>
+&gt;&gt; [5] <a href=3D"https://datatracker.ietf.org/ipr/search/?submit=3Dd=
+raft&amp;id=3Ddraft-ietf-tls-mlkem" rel=3D"noreferrer" target=3D"_blank">ht=
+tps://datatracker.ietf.org/ipr/search/?submit=3Ddraft&amp;id=3Ddraft-ietf-t=
+ls-mlkem</a><br>
+&gt; <br>
+&gt; _______________________________________________<br>
+&gt; TLS mailing list -- <a href=3D"mailto:tls@ietf.org" target=3D"_blank">=
+tls@ietf.org</a><br>
+&gt; To unsubscribe send an email to <a href=3D"mailto:tls-leave@ietf.org" =
+target=3D"_blank">tls-leave@ietf.org</a><br>
+<br>
+_______________________________________________<br>
+TLS mailing list -- <a href=3D"mailto:tls@ietf.org" target=3D"_blank">tls@i=
+etf.org</a><br>
+To unsubscribe send an email to <a href=3D"mailto:tls-leave@ietf.org" targe=
+t=3D"_blank">tls-leave@ietf.org</a><br>
+</blockquote></div></div>
+_______________________________________________<br>
+TLS mailing list -- <a href=3D"mailto:tls@ietf.org" target=3D"_blank">tls@i=
+etf.org</a><br>
+To unsubscribe send an email to <a href=3D"mailto:tls-leave@ietf.org" targe=
+t=3D"_blank">tls-leave@ietf.org</a><br>
+</blockquote></div></div>
+</div>
+
+--00000000000072dcab0657051b99--
+
