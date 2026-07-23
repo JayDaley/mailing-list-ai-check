@@ -31,6 +31,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from . import __version__
+
 # --- Extraction status values -------------------------------------------------
 
 #: Allowed values for ``extractions.status``.
@@ -173,6 +175,14 @@ _MIGRATION_006 = """
 CREATE INDEX idx_messages_message_id ON messages(message_id);
 """
 
+# The app version (semantic, e.g. "1.0.0") that last ran a pipeline stage
+# end-to-end against the message: stamped on insert and re-stamped whenever the
+# message's extraction or score is (re)written. NULL for legacy rows fetched
+# before this column existed, which sort older than every real version.
+_MIGRATION_007 = """
+ALTER TABLE messages ADD COLUMN pipeline_version TEXT;
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
@@ -180,6 +190,7 @@ MIGRATIONS: list[tuple[int, str]] = [
     (4, _MIGRATION_004),
     (5, _MIGRATION_005),
     (6, _MIGRATION_006),
+    (7, _MIGRATION_007),
 ]
 
 
@@ -281,6 +292,9 @@ class Message:
     ``raw_html`` is the decoded ``text/html`` part when the message carried one
     (NULL otherwise, and NULL for rows fetched before the column existed until
     the ``--backfill-html`` pull mode fills them in).
+
+    ``pipeline_version`` is the app version that last ran a pipeline stage
+    against the message (NULL for legacy rows predating the column).
     """
 
     id: int
@@ -294,6 +308,7 @@ class Message:
     uid: int | None
     fetched_at: str
     raw_html: str | None = None
+    pipeline_version: str | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Message":
@@ -309,6 +324,7 @@ class Message:
             uid=row["uid"],
             fetched_at=row["fetched_at"],
             raw_html=row["raw_html"],
+            pipeline_version=row["pipeline_version"],
         )
 
 
@@ -422,6 +438,26 @@ def _utcnow_iso() -> str:
 def sha256_text(text: str) -> str:
     """Return the hex SHA-256 of ``text`` (the score cache key)."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def version_key(v: str | None) -> tuple[int, int, int]:
+    """Return a sortable ``(major, minor, patch)`` tuple for a semver string.
+
+    Used to compare ``messages.pipeline_version`` values by precedence rather
+    than lexically. ``None`` or any string that is not exactly ``"X.Y.Z"`` of
+    integers parses to ``(0, 0, 0)``, so a missing or unparsable version sorts
+    older than every real version.
+    """
+    if v is None:
+        return (0, 0, 0)
+    parts = v.split(".")
+    if len(parts) != 3:
+        return (0, 0, 0)
+    try:
+        major, minor, patch = (int(p) for p in parts)
+    except ValueError:
+        return (0, 0, 0)
+    return (major, minor, patch)
 
 
 def _word_count(text: str) -> int:
@@ -728,19 +764,23 @@ class Store:
         uid: int | None,
         fetched_at: str | None = None,
         raw_html: str | None = None,
+        pipeline_version: str | None = None,
     ) -> MessageUpsert:
         """Insert a message, deduping on ``(list_id, message_id)``.
 
         Idempotent: a re-pull of the same message is a no-op that returns the
-        existing row with ``inserted=False`` (``raw_html`` is stored only on
-        insert; a conflicting existing row is left exactly as-is). New rows
-        return ``inserted=True``.
+        existing row with ``inserted=False`` (``raw_html`` and
+        ``pipeline_version`` are stored only on insert; a conflicting existing
+        row is left exactly as-is). New rows return ``inserted=True``.
+
+        ``pipeline_version`` defaults to the current package version
+        (:data:`__version__`); tests may pass an explicit value.
         """
         cur = self.conn.execute(
             "INSERT INTO messages("
             "message_id, list_id, address_id, subject, date, in_reply_to, raw_body, uid, "
-            "fetched_at, raw_html"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "fetched_at, raw_html, pipeline_version"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(list_id, message_id) DO NOTHING",
             (
                 message_id,
@@ -753,6 +793,7 @@ class Store:
                 uid,
                 fetched_at or _utcnow_iso(),
                 raw_html,
+                pipeline_version if pipeline_version is not None else __version__,
             ),
         )
         self.conn.commit()
@@ -857,11 +898,15 @@ class Store:
         status: str,
         char_count: int | None = None,
         created_at: str | None = None,
+        pipeline_version: str | None = None,
     ) -> Extraction:
         """Record the extraction for a message (one per message).
 
         ``char_count`` defaults to ``len(extracted_text)``. ``status`` must be
         one of :data:`EXTRACTION_STATUSES` (also enforced by a CHECK constraint).
+
+        Re-stamps the owning message's ``pipeline_version`` to the current
+        package version (:data:`__version__`); tests may pass an explicit value.
         """
         if status not in EXTRACTION_STATUSES:
             raise ValueError(
@@ -879,6 +924,10 @@ class Store:
                 status,
                 created_at or _utcnow_iso(),
             ),
+        )
+        self.conn.execute(
+            "UPDATE messages SET pipeline_version = ? WHERE id = ?",
+            (pipeline_version if pipeline_version is not None else __version__, message_id),
         )
         self.conn.commit()
         row = self.conn.execute(
@@ -968,11 +1017,15 @@ class Store:
         detector_version: str | None = None,
         raw_response: Mapping[str, Any] | str | None = None,
         scored_at: str | None = None,
+        pipeline_version: str | None = None,
     ) -> Score:
         """Store a Pangram verdict for ``extraction_id`` (one per extraction).
 
         ``raw_response`` may be a mapping (serialized to JSON text) or a
         pre-serialized JSON string.
+
+        Re-stamps the owning message's ``pipeline_version`` to the current
+        package version (:data:`__version__`); tests may pass an explicit value.
         """
         if isinstance(raw_response, Mapping):
             raw_json: str | None = json.dumps(raw_response)
@@ -994,6 +1047,11 @@ class Store:
                 text_sha256,
                 scored_at or _utcnow_iso(),
             ),
+        )
+        self.conn.execute(
+            "UPDATE messages SET pipeline_version = ? "
+            "WHERE id = (SELECT message_id FROM extractions WHERE id = ?)",
+            (pipeline_version if pipeline_version is not None else __version__, extraction_id),
         )
         self.conn.commit()
         row = self.conn.execute("SELECT * FROM scores WHERE id = ?", (cur.lastrowid,)).fetchone()

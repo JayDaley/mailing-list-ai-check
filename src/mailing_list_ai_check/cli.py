@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 from .cleaning import clean_for_scoring
 from .config import Config
+from .export_import import ExportImportError, export_lists, import_file
 from .extraction import extract_new_text
 from .fetcher import (
     DepthMode,
@@ -37,6 +38,8 @@ from .store import Store, sha256_text
 log = logging.getLogger("mailing_list_ai_check.pull")
 extract_log = logging.getLogger("mailing_list_ai_check.extract")
 score_log = logging.getLogger("mailing_list_ai_check.score")
+export_log = logging.getLogger("mailing_list_ai_check.export")
+import_log = logging.getLogger("mailing_list_ai_check.import")
 
 #: Client-enforced reliability floor (words). Below it, extractions are marked
 #: ``too_short`` and never sent to Pangram (see docs/findings/pangram.md).
@@ -617,6 +620,114 @@ def score_main(argv: Sequence[str] | None = None) -> int:
 
     prefix = "dry-run summary" if args.dry_run else "summary"
     score_log.info("%s: %s", prefix, summary.as_line())
+    return 0
+
+
+# --- export command -----------------------------------------------------------
+
+
+def build_export_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="mail-ai-export",
+        description=(
+            "Export one or more lists' messages, extractions and scores to a "
+            "portable JSON Lines file (gzip-compressed when the path ends '.gz'). "
+            "A local database read only — no IMAP or Pangram calls."
+        ),
+    )
+    parser.add_argument(
+        "lists",
+        nargs="*",
+        help="one or more list names (e.g. 'announce' 'general'); omit with --all-lists",
+    )
+    parser.add_argument(
+        "--all-lists",
+        action="store_true",
+        help="export every list that has at least one message",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        help="output file path ('.gz' suffix ⇒ gzip); required",
+    )
+    parser.add_argument("--db", metavar="PATH", help="override the database path")
+    return parser
+
+
+def export_main(argv: Sequence[str] | None = None) -> int:
+    parser = build_export_parser()
+    args = parser.parse_args(argv)
+    if args.all_lists and args.lists:
+        parser.error("give either list names or --all-lists, not both")
+    if not args.all_lists and not args.lists:
+        parser.error("specify at least one list name, or --all-lists")
+    if not args.output:
+        parser.error("-o/--output is required")
+
+    config = Config.load()
+    db_path = args.db or config.database_path
+
+    logging.basicConfig(
+        level=getattr(logging, config.log_level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    list_names = args.lists or None
+    try:
+        with Store(db_path) as store:
+            summary = export_lists(store, list_names, args.output, all_lists=args.all_lists)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    export_log.info("summary: %s", summary.as_line())
+    return 0
+
+
+# --- import command -----------------------------------------------------------
+
+
+def build_import_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="mail-ai-import",
+        description=(
+            "Import a JSON Lines export produced by mail-ai-export. Idempotent and "
+            "collision-safe (messages already present are skipped) and all-or-nothing "
+            "(one transaction, rolled back on any error). Gzip input is handled by the "
+            "'.gz' suffix."
+        ),
+    )
+    parser.add_argument("file", help="the export file to import ('.gz' suffix ⇒ gzip)")
+    parser.add_argument("--db", metavar="PATH", help="override the database path")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate and report what would be imported without writing",
+    )
+    return parser
+
+
+def import_main(argv: Sequence[str] | None = None) -> int:
+    parser = build_import_parser()
+    args = parser.parse_args(argv)
+
+    config = Config.load()
+    db_path = args.db or config.database_path
+
+    logging.basicConfig(
+        level=getattr(logging, config.log_level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    try:
+        with Store(db_path) as store:
+            summary = import_file(store, args.file, dry_run=args.dry_run)
+    except (ExportImportError, FileNotFoundError) as exc:
+        import_log.error("import failed: %s", exc)
+        return 1
+
+    prefix = "dry-run summary" if args.dry_run else "summary"
+    import_log.info("%s: %s", prefix, summary.as_line())
     return 0
 
 

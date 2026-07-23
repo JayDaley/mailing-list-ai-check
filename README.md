@@ -186,6 +186,15 @@ secrets out of commits:
 - **CI:** [`gitleaks`](.github/workflows/gitleaks.yml) runs on every push and
   pull request.
 
+## Versioning
+
+The app follows [semantic versioning](https://semver.org/); the current version
+is **1.0.0**. The minor version is bumped for any change to extraction or
+post-extraction processing (anything that could change the derived text or what
+is sent to Pangram), and the patch version for every other change. Each message
+records the pipeline version that last processed it, and importing an export
+made by a later version refreshes that message's extraction and score data.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

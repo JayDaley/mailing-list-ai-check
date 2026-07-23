@@ -7,11 +7,13 @@ import sqlite3
 
 import pytest
 
+from mailing_list_ai_check import __version__
 from mailing_list_ai_check.store import (
     EXTRACTION_STATUSES,
     Store,
     apply_migrations,
     sha256_text,
+    version_key,
 )
 
 
@@ -59,8 +61,8 @@ def test_migrations_are_idempotent(tmp_path):
             "v"
         ]
         row_count_after = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert version_before == version_after == 6
-    assert row_count_before == row_count_after == 6
+    assert version_before == version_after == 7
+    assert row_count_before == row_count_after == 7
 
 
 def test_reopening_database_is_a_noop(tmp_path):
@@ -72,7 +74,7 @@ def test_reopening_database_is_a_noop(tmp_path):
         rows = s.conn.execute("SELECT COUNT(*) AS c FROM lists").fetchone()["c"]
         version = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
     assert rows == 1
-    assert version == 6
+    assert version == 7
 
 
 def test_migration_003_rebadges_assisted_dominated_mixed(store):
@@ -111,12 +113,13 @@ def test_migration_003_rebadges_assisted_dominated_mixed(store):
             raw_response={"prediction_short": "Mixed"},
         )
     # Rewind to pre-003 and re-apply so the backfill runs over the rows. Drop
-    # the columns/index added by 004/005/006 too so those migrations re-apply
-    # cleanly alongside 003.
+    # the columns/index added by 004/005/006/007 too so those migrations
+    # re-apply cleanly alongside 003.
     store.conn.execute("DELETE FROM schema_version WHERE version >= 3")
     store.conn.execute("ALTER TABLE messages DROP COLUMN raw_html")
     store.conn.execute("ALTER TABLE lists DROP COLUMN last_message_at")
     store.conn.execute("DROP INDEX idx_messages_message_id")
+    store.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
     apply_migrations(store.conn)
     labels = [
         row["label"]
@@ -132,20 +135,21 @@ def test_migration_004_adds_raw_html_column(store):
 
 def test_migration_004_present_on_migrated_db(tmp_path):
     # A database rewound to pre-004 gains the raw_html column on re-open/migrate.
-    # last_message_at (005) and the message_id index (006) are dropped too so
-    # they re-apply cleanly.
+    # last_message_at (005), the message_id index (006) and pipeline_version
+    # (007) are dropped too so they re-apply cleanly.
     db = tmp_path / "migrated.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 4")
         s.conn.execute("ALTER TABLE messages DROP COLUMN raw_html")
         s.conn.execute("ALTER TABLE lists DROP COLUMN last_message_at")
         s.conn.execute("DROP INDEX idx_messages_message_id")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "raw_html" in cols
-    assert version == 6
+    assert version == 7
 
 
 def test_migration_005_adds_last_message_at_column(store):
@@ -155,26 +159,30 @@ def test_migration_005_adds_last_message_at_column(store):
 
 def test_migration_005_present_on_migrated_db(tmp_path):
     # A database rewound to pre-005 gains the last_message_at column on migrate.
-    # The message_id index (006) is dropped too so it re-applies cleanly.
+    # The message_id index (006) and pipeline_version (007) are dropped too so
+    # they re-apply cleanly.
     db = tmp_path / "migrated005.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 5")
         s.conn.execute("ALTER TABLE lists DROP COLUMN last_message_at")
         s.conn.execute("DROP INDEX idx_messages_message_id")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(lists)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "last_message_at" in cols
-    assert version == 6
+    assert version == 7
 
 
 def test_migration_006_present_on_migrated_db(tmp_path):
     # A database rewound to pre-006 gains the message_id index on migrate.
+    # pipeline_version (007) is dropped too so it re-applies cleanly.
     db = tmp_path / "migrated006.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 6")
         s.conn.execute("DROP INDEX idx_messages_message_id")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
         s.conn.commit()
     with Store(db) as s:
         indexes = {
@@ -183,7 +191,7 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         }
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "idx_messages_message_id" in indexes
-    assert version == 6
+    assert version == 7
 
 
 def test_expected_indexes_exist(store):
@@ -684,3 +692,122 @@ def test_suggest_person_merges(store):
     assert s.display_name == "Jane Doe"
     assert set(s.emails) == {"jane@work.example", "jane@home.example"}
     assert len(s.address_ids) == 2
+
+
+# --- pipeline_version (migration 007) -----------------------------------------
+
+
+def test_migration_007_adds_pipeline_version_column(store):
+    cols = {row["name"] for row in store.conn.execute("PRAGMA table_info(messages)").fetchall()}
+    assert "pipeline_version" in cols
+
+
+def test_migration_007_present_on_migrated_db(tmp_path):
+    # A database rewound to pre-007 gains the pipeline_version column on migrate.
+    db = tmp_path / "migrated007.db"
+    with Store(db) as s:
+        s.conn.execute("DELETE FROM schema_version WHERE version >= 7")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
+        s.conn.commit()
+    with Store(db) as s:
+        cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
+        version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
+    assert "pipeline_version" in cols
+    assert version == 7
+
+
+def test_message_pipeline_version_roundtrips(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    up = _add_message(store, lst.id, addr.id, message_id="<pv@x>", pipeline_version="1.2.3")
+    assert up.message.pipeline_version == "1.2.3"
+    assert store.get_message(up.message.id).pipeline_version == "1.2.3"
+
+
+def test_upsert_message_default_stamps_package_version(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    up = _add_message(store, lst.id, addr.id, message_id="<def@x>")
+    assert up.message.pipeline_version == __version__
+
+
+def test_upsert_message_honors_explicit_pipeline_version(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    up = _add_message(store, lst.id, addr.id, message_id="<exp@x>", pipeline_version="0.9.0")
+    assert up.message.pipeline_version == "0.9.0"
+
+
+def test_upsert_message_conflict_leaves_pipeline_version_untouched(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    _add_message(store, lst.id, addr.id, message_id="<c@x>", pipeline_version="1.0.0")
+    # A re-pull carrying a different version is a no-op; the stored value is kept.
+    second = _add_message(store, lst.id, addr.id, message_id="<c@x>", pipeline_version="2.0.0")
+    assert second.inserted is False
+    assert store.get_message(second.message.id).pipeline_version == "1.0.0"
+
+
+def test_insert_extraction_restamps_pipeline_version_default(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    m = _add_message(store, lst.id, addr.id, message_id="<e@x>", pipeline_version="0.1.0").message
+    assert store.get_message(m.id).pipeline_version == "0.1.0"
+    store.insert_extraction(message_id=m.id, extracted_text="x", method="m", status="ok")
+    assert store.get_message(m.id).pipeline_version == __version__
+
+
+def test_insert_extraction_restamps_pipeline_version_explicit(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    m = _add_message(store, lst.id, addr.id, message_id="<e@x>", pipeline_version="0.1.0").message
+    store.insert_extraction(
+        message_id=m.id, extracted_text="x", method="m", status="ok", pipeline_version="3.2.1"
+    )
+    assert store.get_message(m.id).pipeline_version == "3.2.1"
+
+
+def test_insert_score_restamps_pipeline_version_default(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    m = _add_message(store, lst.id, addr.id, message_id="<s@x>").message
+    # Pin the extraction stage to a distinct version so the score restamp shows.
+    ext = store.insert_extraction(
+        message_id=m.id, extracted_text="text", method="m", status="ok", pipeline_version="2.0.0"
+    )
+    assert store.get_message(m.id).pipeline_version == "2.0.0"
+    store.insert_score(extraction_id=ext.id, text_sha256="abc")
+    assert store.get_message(m.id).pipeline_version == __version__
+
+
+def test_insert_score_restamps_pipeline_version_explicit(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    m = _add_message(store, lst.id, addr.id, message_id="<s@x>").message
+    ext = store.insert_extraction(
+        message_id=m.id, extracted_text="text", method="m", status="ok", pipeline_version="2.0.0"
+    )
+    store.insert_score(extraction_id=ext.id, text_sha256="abc", pipeline_version="4.5.6")
+    assert store.get_message(m.id).pipeline_version == "4.5.6"
+
+
+# --- version_key --------------------------------------------------------------
+
+
+def test_version_key_parses_semver_tuple():
+    assert version_key("1.2.3") == (1, 2, 3)
+
+
+def test_version_key_orders_numerically_not_lexically():
+    # Lexical string comparison would rank "1.10.0" < "1.9.9"; tuple order must not.
+    assert version_key("1.10.0") > version_key("1.9.9")
+
+
+def test_version_key_none_and_unparsable_sort_oldest():
+    assert version_key(None) == (0, 0, 0)
+    assert version_key("garbage") == (0, 0, 0)
+    assert version_key("") == (0, 0, 0)
+    assert version_key("1.2") == (0, 0, 0)
+    assert version_key("1.2.3.4") == (0, 0, 0)
+    # Every real version outranks the (0, 0, 0) floor.
+    assert version_key("1.0.0") > version_key(None)

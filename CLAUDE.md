@@ -50,3 +50,21 @@ caps into test code as defaults (e.g. `--limit 10`), don't rely on remembering.
 - Python >= 3.11, `src/` layout.
 - Lint/format with `ruff`; test with `pytest`.
 - Access configuration through `Config.load()`, not `os.environ` directly.
+
+## Versioning
+
+The app uses [semantic versioning](https://semver.org/); the current version is
+**1.0.0**. The single source of truth is `mailing_list_ai_check.__version__`
+(in `__init__.py`); `pyproject.toml` reads it dynamically, so the two never
+drift.
+
+Bump policy (for now):
+
+- **minor** — any change to extraction or post-extraction processing
+  (`extraction.py`, `cleaning.py`, `html_text.py`, the scoring pipeline logic —
+  anything that could change the derived text or what is sent to Pangram).
+- **patch** — every other change.
+
+Each message records the pipeline version that last processed it
+(`messages.pipeline_version`), stamped on insert and re-stamped whenever its
+extraction or score is written.
