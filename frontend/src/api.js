@@ -39,6 +39,22 @@ export function get(path, params) {
   }).then(handle)
 }
 
+// Absolute URL for a path (base-aware). Handy for downloads / <a href> where a
+// raw fetch is done outside these JSON helpers.
+export function apiUrl(path, params) {
+  return `${BASE}${path}${buildQuery(params)}`
+}
+
+// POST a multipart FormData body (e.g. a file upload). Same JSON error handling
+// as the other helpers: {"error": ...} + non-2xx becomes a thrown Error.
+export function postForm(path, formData, params) {
+  return fetch(`${BASE}${path}${buildQuery(params)}`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body: formData,
+  }).then(handle)
+}
+
 export function postJson(path, body) {
   return fetch(`${BASE}${path}`, {
     method: 'POST',

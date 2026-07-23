@@ -20,13 +20,18 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
+import tempfile
+from dataclasses import asdict
+from datetime import datetime
 from typing import Any
 
-from flask import Blueprint, current_app, g, jsonify, request
+from flask import Blueprint, Response, current_app, g, jsonify, request
 
 from ..cleaning import clean_for_scoring
 from ..cli import run_extract, run_score
+from ..export_import import ExportImportError, export_lists, import_file
 from ..html_text import split_html_parts
 from ..fetcher import (
     DepthMode,
@@ -639,3 +644,101 @@ def delete_person(person_id: int) -> Any:
     if not store.delete_person(person_id):
         raise ApiError("person not found", 404)
     return jsonify({"deleted": person_id})
+
+
+# --- export / import ----------------------------------------------------------
+
+
+def _export_slug(list_name: str | None) -> str:
+    """A filename-safe slug for the export: the sanitized list name, or ``all``."""
+    if list_name is None:
+        return "all"
+    slug = re.sub(r"[^A-Za-z0-9._-]", "-", list_name)
+    return slug or "list"
+
+
+@api_bp.get("/export")
+def export() -> Any:
+    """Download a list's messages and pipeline state as a gzip JSON Lines export.
+
+    Query param ``list`` (optional) names one list to export (an unknown name is a
+    404); omitting it exports every list that has at least one message. When there
+    is nothing to export — an empty database, or no list has any message — the
+    response is a 404. The file is built via
+    :func:`mailing_list_ai_check.export_import.export_lists` into a temporary
+    ``.jsonl.gz`` file that is always removed before returning, and served as an
+    ``application/gzip`` attachment named
+    ``mlac-export-<slug>-<YYYYMMDD>.jsonl.gz``. A local database read only — no
+    IMAP or Pangram calls, and message bodies are never logged.
+    """
+    store = get_store()
+    list_name = request.args.get("list") or None
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".jsonl.gz")
+    os.close(fd)
+    try:
+        try:
+            if list_name is None:
+                summary = export_lists(store, None, tmp_path, all_lists=True)
+            else:
+                summary = export_lists(store, [list_name], tmp_path)
+        except ValueError as exc:
+            # Unknown list name (the only ValueError export_lists raises for input).
+            raise ApiError(str(exc), 404) from exc
+
+        if summary.lists == 0:
+            raise ApiError("nothing to export", 404)
+
+        with open(tmp_path, "rb") as fh:
+            data = fh.read()
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:  # pragma: no cover - best-effort cleanup
+            pass
+
+    filename = f"mlac-export-{_export_slug(list_name)}-{datetime.now().strftime('%Y%m%d')}.jsonl.gz"
+    return Response(
+        data,
+        mimetype="application/gzip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api_bp.post("/import")
+def import_() -> Any:
+    """Import an uploaded export file into the store (idempotent, all-or-nothing).
+
+    Expects a multipart upload with the export in the ``file`` field (missing ⇒
+    400). ``dry_run`` (query or form param, parsed like the other boolean params)
+    validates and reports without writing. The upload is saved to a temporary file
+    — preserving a ``.gz`` suffix so the importer's gzip sniffing works — passed to
+    :func:`mailing_list_ai_check.export_import.import_file`, and the temp file is
+    always removed. Returns the :class:`ImportSummary` fields plus ``"ok": true``;
+    a malformed or corrupt file surfaces as a 400.
+    """
+    upload = request.files.get("file")
+    if upload is None:
+        raise ApiError("no file uploaded (expected multipart field 'file')")
+
+    dry_run_raw = request.args.get("dry_run")
+    if dry_run_raw is None:
+        dry_run_raw = request.form.get("dry_run")
+    dry_run = bool(_parse_bool("dry_run", dry_run_raw))
+
+    suffix = ".jsonl.gz" if (upload.filename or "").endswith(".gz") else ".jsonl"
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    try:
+        upload.save(tmp_path)
+        try:
+            summary = import_file(get_store(), tmp_path, dry_run=dry_run)
+        except ExportImportError as exc:
+            raise ApiError(str(exc)) from exc
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:  # pragma: no cover - best-effort cleanup
+            pass
+
+    return jsonify({**asdict(summary), "ok": True})

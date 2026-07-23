@@ -144,6 +144,44 @@ a shareable link.
   so one contributor's mail is analyzed together.
 - **Lists** — per-list summary strips.
 
+### Exporting and importing lists
+
+Move a list's messages and their full pipeline state (extractions and Pangram
+scores) between databases as a single portable file — for backup, sharing, or
+seeding another checkout. Neither command touches IMAP or Pangram; both are pure
+local database operations.
+
+```bash
+# Export named lists to a file (gzip-compressed because the path ends '.gz')
+mail-ai-export announce last-call -o export.jsonl.gz
+
+# Export every list that has at least one message
+mail-ai-export --all-lists -o all-lists.jsonl.gz
+
+# Import into another database
+mail-ai-import export.jsonl.gz
+
+# Preview an import without writing anything
+mail-ai-import export.jsonl.gz --dry-run
+```
+
+`mail-ai-export` takes one or more list names, or `--all-lists` (not both), and
+requires `-o/--output`. A `.gz` suffix on the output path turns on gzip
+compression; `mail-ai-import` recognises the same suffix on input.
+
+Import is **idempotent and collision-safe**: a message already present in the
+target (same Message-ID on the same list) is skipped along with its
+extraction and score, so importing the same file twice — or back into the
+database it came from — is a no-op. The whole import is **all-or-nothing** (one
+transaction, rolled back on any error), and `--dry-run` runs the identical path
+but rolls back, so its report is exact. Exports carry the app version that
+produced them; when an imported message was processed by a **later** pipeline
+version than the target's copy, its extraction and score are refreshed from the
+file (the message body itself is never overwritten).
+
+Export and import are also available from the dashboard's **Messages** pane, via
+its Export and Import buttons.
+
 ## Cost & courtesy
 
 - **Pangram spend** is controlled three ways: the score cache never pays twice
@@ -189,7 +227,8 @@ secrets out of commits:
 ## Versioning
 
 The app follows [semantic versioning](https://semver.org/); the current version
-is **1.0.0**. The minor version is bumped for any change to extraction or
+lives in `mailing_list_ai_check.__version__` (`pyproject.toml` reads it
+dynamically). The minor version is bumped for any change to extraction or
 post-extraction processing (anything that could change the derived text or what
 is sent to Pangram), and the patch version for every other change. Each message
 records the pipeline version that last processed it, and importing an export
@@ -198,5 +237,3 @@ made by a later version refreshes that message's extraction and score data.
 ## License
 
 MIT — see [LICENSE](LICENSE).
-</content>
-</invoke>

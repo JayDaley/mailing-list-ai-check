@@ -9,6 +9,9 @@ and CORS headers in dev mode.
 
 from __future__ import annotations
 
+import gzip
+import io
+import json
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
@@ -813,3 +816,126 @@ def test_pull_fetch_failure_502(db_path, monkeypatch):
     resp = _pull_client(db_path).post("/api/pull", json={"list": "newlist", "count": 5})
     assert resp.status_code == 502
     assert "error" in resp.get_json()
+
+
+# --- /api/export, /api/import -------------------------------------------------
+#
+# The seed carries 15 messages across 3 lists, 13 extraction rows (every status),
+# and 9 scores; export/import counts below are read against those totals.
+
+
+def _empty_client(tmp_path, name="empty.db"):
+    """A dev-mode client over a fresh, schema-initialised but empty database."""
+    path = tmp_path / name
+    with Store(path):
+        pass  # opening a new path runs the migrations, creating an empty schema
+    app = create_app(_config(path), frontend_dist=None)
+    app.testing = True
+    return path, app.test_client()
+
+
+def _records(gz_bytes):
+    """Decode a gzip JSON Lines export body into its list of records."""
+    text = gzip.decompress(gz_bytes).decode("utf-8")
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def _multipart(data_bytes, filename="mlac-export.jsonl.gz"):
+    return {"file": (io.BytesIO(data_bytes), filename)}
+
+
+def test_export_all_lists(client):
+    resp = client.get("/api/export")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/gzip"
+    disposition = resp.headers["Content-Disposition"]
+    assert disposition.startswith("attachment;")
+    assert disposition.endswith('.jsonl.gz"')
+
+    records = _records(resp.data)
+    assert records[0]["type"] == "header"
+    assert records[0]["format"] == "mlac-export"
+    assert records[-1]["type"] == "trailer"
+    assert records[-1]["messages"] == 15
+
+
+def test_export_single_list(client):
+    resp = client.get("/api/export?list=announce")
+    assert resp.status_code == 200
+    header = _records(resp.data)[0]
+    # Only the requested list's folder is present.
+    assert header["folders"] == ["Shared Folders/announce"]
+
+
+def test_export_unknown_list_404(client):
+    resp = client.get("/api/export?list=does-not-exist")
+    assert resp.status_code == 404
+    assert "error" in resp.get_json()
+
+
+def test_export_empty_db_404(tmp_path):
+    _, c = _empty_client(tmp_path)
+    resp = c.get("/api/export")
+    assert resp.status_code == 404
+    assert "error" in resp.get_json()
+
+
+def test_import_roundtrip(client, tmp_path):
+    export_bytes = client.get("/api/export").data
+    _, c2 = _empty_client(tmp_path)
+
+    resp = c2.post("/api/import", data=_multipart(export_bytes), content_type="multipart/form-data")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["ok"] is True
+    assert body["dry_run"] is False
+    assert body["messages_inserted"] == 15
+    assert body["extractions_inserted"] == 13
+    assert body["scores_inserted"] == 9
+    # The imported data is now queryable in the target.
+    assert c2.get("/api/messages").get_json()["total"] == 15
+
+    # Re-importing the same file is a no-op: every message is skipped, nothing new.
+    again = c2.post(
+        "/api/import", data=_multipart(export_bytes), content_type="multipart/form-data"
+    ).get_json()
+    assert again["messages_skipped"] == 15
+    assert again["messages_inserted"] == 0
+    assert again["extractions_inserted"] == 0
+    assert again["scores_inserted"] == 0
+
+
+def test_import_dry_run_leaves_target_unchanged(client, tmp_path):
+    export_bytes = client.get("/api/export").data
+    _, c2 = _empty_client(tmp_path)
+
+    resp = c2.post(
+        "/api/import?dry_run=true",
+        data=_multipart(export_bytes),
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["dry_run"] is True
+    assert body["messages_inserted"] == 15  # reported...
+    assert c2.get("/api/messages").get_json()["total"] == 0  # ...but nothing written
+
+
+def test_import_no_file_400(tmp_path):
+    _, c2 = _empty_client(tmp_path)
+    resp = c2.post("/api/import", data={}, content_type="multipart/form-data")
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_import_corrupt_file_400(tmp_path):
+    _, c2 = _empty_client(tmp_path)
+    resp = c2.post(
+        "/api/import",
+        data=_multipart(b"this is not a valid export\n", filename="x.jsonl"),
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+    # All-or-nothing: the failed import left the target empty.
+    assert c2.get("/api/messages").get_json()["total"] == 0

@@ -5,7 +5,7 @@
 // writer of the filters store and the driver of the shared messages store.
 import { ref, computed, watch, onMounted } from 'vue'
 
-import { get } from '../api'
+import { get, apiUrl, postForm } from '../api'
 import { fmtDate, fmtInt } from '../lib/format'
 import { LABEL_ORDER, LABEL_SHORT } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
@@ -284,6 +284,115 @@ function clearAll() {
   })
 }
 
+// --- export / import ---
+// Export and import operate on whole lists (the pipeline state), not the
+// filtered message subset: export sends the current list-name filter (or all
+// lists when none is set); import ingests an uploaded .jsonl(.gz) dump. Both
+// surface their outcome in a transient toolbar status that auto-clears.
+const exporting = ref(false)
+const importing = ref(false)
+const fileInput = ref(null)
+const statusMsg = ref('')
+const statusIsError = ref(false)
+let statusTimer = null
+function showStatus(msg, isError) {
+  statusMsg.value = msg
+  statusIsError.value = isError
+  clearTimeout(statusTimer)
+  statusTimer = setTimeout(() => {
+    statusMsg.value = ''
+  }, 8000)
+}
+
+const exportTitle = computed(() =>
+  filters.list ? `Export list '${filters.list}' (the whole list)…` : 'Export all lists…',
+)
+
+// Pull the server-provided filename out of a Content-Disposition header,
+// preferring the RFC 5987 filename*=UTF-8'' form over the plain quoted one.
+function filenameFromDisposition(cd) {
+  if (!cd) return ''
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd)
+  if (star) {
+    try {
+      return decodeURIComponent(star[1])
+    } catch {
+      return star[1]
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(cd)
+  return plain ? plain[1] : ''
+}
+
+async function doExport() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const res = await fetch(apiUrl('/export', filters.list ? { list: filters.list } : undefined), {
+      headers: { Accept: 'application/gzip' },
+    })
+    if (!res.ok) {
+      let msg = `Export failed (${res.status})`
+      try {
+        const j = await res.json()
+        if (j && j.error) msg = j.error
+      } catch {
+        // keep the status-code fallback
+      }
+      throw new Error(msg)
+    }
+    const blob = await res.blob()
+    const fname =
+      filenameFromDisposition(res.headers.get('Content-Disposition')) || 'mailing-list-export.jsonl.gz'
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fname
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    showStatus(err instanceof Error ? err.message : String(err), true)
+  } finally {
+    exporting.value = false
+  }
+}
+
+function pickImport() {
+  if (importing.value) return
+  fileInput.value?.click()
+}
+
+async function onImportFile(e) {
+  const file = e.target.files && e.target.files[0]
+  e.target.value = '' // allow re-selecting the same file later
+  if (!file) return
+  importing.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', file, file.name) // preserve the .gz-bearing filename
+    const data = await postForm('/import', fd)
+    const parts = [
+      `imported ${fmtInt(data.messages_inserted || 0)}`,
+      `skipped ${fmtInt(data.messages_skipped || 0)}`,
+    ]
+    const updated = (data.extractions_updated || 0) + (data.scores_updated || 0)
+    if (updated) parts.push(`updated ${fmtInt(updated)}`)
+    if (data.body_mismatches) parts.push(`mismatches ${fmtInt(data.body_mismatches)}`)
+    showStatus(parts.join(' · '), false)
+    // Bring the pane in sync with the freshly imported data.
+    loadRefData()
+    loadSenderOptions()
+    messages.refresh()
+    loadMix()
+  } catch (err) {
+    showStatus(err instanceof Error ? err.message : String(err), true)
+  } finally {
+    importing.value = false
+  }
+}
+
 // --- rows ---
 const rows = computed(() =>
   messages.items.map((m) => {
@@ -380,6 +489,35 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
       >
         clear filters
       </button>
+      <span
+        v-if="statusMsg"
+        class="io-status"
+        :class="{ 'io-status-error': statusIsError }"
+        >{{ statusMsg }}</span
+      >
+      <button
+        class="io-btn"
+        :disabled="exporting"
+        :title="exportTitle"
+        @click="doExport"
+      >
+        {{ exporting ? 'exporting…' : 'export' }}
+      </button>
+      <button
+        class="io-btn"
+        :disabled="importing"
+        title="Import a list export (.jsonl / .gz)…"
+        @click="pickImport"
+      >
+        {{ importing ? 'importing…' : 'import' }}
+      </button>
+      <input
+        ref="fileInput"
+        type="file"
+        accept=".jsonl,.gz,.jsonl.gz,application/gzip"
+        style="display: none;"
+        @change="onImportFile"
+      />
     </div>
 
     <!-- scroll region -->
@@ -640,6 +778,29 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
   color: #2f6feb;
   cursor: pointer;
   padding: 0;
+}
+/* export / import: same lightweight text-button look as clear-filters, kept in
+   the toolbar's compact rhythm. */
+.io-btn {
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  background: none;
+  color: #2f6feb;
+  cursor: pointer;
+  padding: 0;
+}
+.io-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.io-status {
+  font-size: 10px;
+  color: #626a72;
+  font-family: var(--mono);
+}
+.io-status-error {
+  color: #b23636;
 }
 .messages-scroll {
   overflow: auto;
