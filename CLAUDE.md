@@ -54,7 +54,7 @@ caps into test code as defaults (e.g. `--limit 10`), don't rely on remembering.
 ## Versioning
 
 The app uses [semantic versioning](https://semver.org/); the current version is
-**1.0.0**. The single source of truth is `mailing_list_ai_check.__version__`
+**1.0.1**. The single source of truth is `mailing_list_ai_check.__version__`
 (in `__init__.py`); `pyproject.toml` reads it dynamically, so the two never
 drift.
 

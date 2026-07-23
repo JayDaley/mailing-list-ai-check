@@ -158,12 +158,22 @@ const detailCard = computed(() => {
     emails = p ? (p.addresses || []).map((a) => a.email) : []
   } else {
     // Address filter: a linked address shows its owning person; otherwise the
-    // address itself.
+    // address's display name — from the loaded senders table if it's there,
+    // else from the summary's by_address rows — falling back to the address.
     const owner = persons.value.find((p) =>
       (p.addresses || []).some((a) => a.email === filters.address),
     )
-    name = owner ? owner.canonical_name : filters.address
-    emails = owner ? (owner.addresses || []).map((a) => a.email) : [filters.address]
+    if (owner) {
+      name = owner.canonical_name
+      emails = (owner.addresses || []).map((a) => a.email)
+    } else {
+      const row = senders.value.find(
+        (e) => e.type === 'address' && (e.emails || []).includes(filters.address),
+      )
+      const addr = (s.by_address || []).find((a) => a.email === filters.address)
+      name = row?.name || addr?.display_name || filters.address
+      emails = [filters.address]
+    }
   }
   return {
     name,

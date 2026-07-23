@@ -21,7 +21,7 @@ const ui = useUiStore()
 const messages = useMessagesStore()
 
 // --- reference data (lists / persons) ---
-const lists = ref([]) // [{name, message_count}]
+const lists = ref([]) // [{name, message_count}] — only lists with messages
 const persons = ref([]) // [{id, canonical_name, message_count, addresses:[{email}]}]
 const personsById = computed(() => {
   const map = {}
@@ -34,12 +34,67 @@ const personsById = computed(() => {
 async function loadRefData() {
   try {
     const [l, p] = await Promise.all([get('/lists'), get('/persons')])
-    lists.value = l?.lists || []
+    lists.value = (l?.lists || []).filter((x) => x.message_count > 0)
     persons.value = p?.persons || []
   } catch {
     // Reference data is best-effort; controls still function without counts.
   }
 }
+
+// --- From dropdown: every sender (linked person or unlinked address) with
+// messages in the displayed list(s), alphabetical. Reloads when the list
+// filter changes; /api/senders is paged, so accumulate until `total`.
+const senderOptions = ref([]) // [{value: 'p:<person_id>'|'a:<email>', label}]
+let sendersToken = 0
+async function loadSenderOptions() {
+  const token = ++sendersToken
+  try {
+    const all = []
+    let pageNo = 1
+    let total = Infinity
+    while (all.length < total && pageNo <= 10) {
+      const data = await get('/senders', {
+        list: filters.list || undefined,
+        sort: 'name',
+        order: 'asc',
+        page: pageNo,
+        per_page: 200,
+      })
+      if (token !== sendersToken) return
+      const batch = data?.senders || []
+      if (!batch.length) break
+      all.push(...batch)
+      total = data?.total ?? all.length
+      pageNo += 1
+    }
+    senderOptions.value = all
+      .filter((s) => s.message_count > 0)
+      .map((s) =>
+        s.type === 'person'
+          ? { value: 'p:' + s.person_id, label: s.name }
+          : { value: 'a:' + (s.emails?.[0] || ''), label: s.name },
+      )
+  } catch {
+    if (token === sendersToken) senderOptions.value = []
+  }
+}
+
+// Keep the active person selectable even when the list scope excludes them.
+const fromOptions = computed(() => {
+  const opts = senderOptions.value
+  if (filters.person && !opts.some((o) => o.value === 'p:' + filters.person)) {
+    const name = personsById.value[filters.person]?.name || filters.person
+    return [{ value: 'p:' + filters.person, label: name }, ...opts]
+  }
+  return opts
+})
+
+const fromValue = computed(() => {
+  if (filters.person) return 'p:' + filters.person
+  const av = 'a:' + filters.address
+  if (filters.address && senderOptions.value.some((o) => o.value === av)) return av
+  return ''
+})
 
 // --- detection-mix (filtered summary) ---
 const mixCounts = ref({})
@@ -88,8 +143,14 @@ watch(filterKey, () => {
   loadMix()
 })
 
+watch(
+  () => filters.list,
+  () => loadSenderOptions(),
+)
+
 onMounted(() => {
   loadRefData()
+  loadSenderOptions()
   messages.refresh()
   loadMix()
 })
@@ -155,8 +216,11 @@ function pickList(opt) {
 }
 
 // --- person / address / subject controls ---
-function setPerson(e) {
-  filters.setFilter('person', e.target.value)
+function setFrom(e) {
+  const v = e.target.value
+  if (!v) filters.patch({ person: '', address: '' })
+  else if (v.startsWith('p:')) filters.setFilter('person', v.slice(2))
+  else filters.setFilter('address', v.slice(2))
 }
 function setAddress(e) {
   filters.setFilter('address', e.target.value.trim())
@@ -389,16 +453,16 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
             <div :style="{ padding: fromFilterPad, overflow: 'hidden' }">
               <span v-if="!ui.anonymous" style="display: flex; gap: 3px;">
                 <select
-                  :value="filters.person"
+                  :value="fromValue"
                   title="Sender"
                   class="fctl"
                   style="width: 92px; flex: none;"
-                  :style="{ border: `1px solid ${b(filters.person)}` }"
-                  @change="setPerson"
+                  :style="{ border: `1px solid ${b(filters.person || filters.address)}` }"
+                  @change="setFrom"
                 >
                   <option value="">anyone</option>
-                  <option v-for="p in persons" :key="p.id" :value="String(p.id)">
-                    {{ p.canonical_name }}
+                  <option v-for="o in fromOptions" :key="o.value" :value="o.value">
+                    {{ o.label }}
                   </option>
                 </select>
                 <input
