@@ -10,15 +10,14 @@ The pipeline runs as three idempotent, re-runnable stages over a local SQLite
 database: **pull** (fetch messages) → **extract** (isolate each author's new
 text) → **score** (Pangram verdict). A Flask + Vue dashboard reads the results.
 
-### Honest caveats
+### Limitations
 
 - AI detectors are probabilistic: Pangram returns a likelihood, not proof, and
   can be wrong in either direction.
 - Short texts are not scored: anything under 50 words is marked `too_short`
   rather than sent, because detection is unreliable below that length.
 - Extraction of an author's new text is heuristic: quote and signature stripping
-  is very good on typical mailing-list mail but not perfect, especially on unusual
-  formatting.
+  can fail on unusual formatting.
 
 ## Requirements
 
@@ -89,7 +88,7 @@ mail-ai-pull tls --since 2026-06-01 --dry-run
 
 Depth is one of `--count N`, `--since YYYY-MM-DD`, `--days N`, or
 `--incremental`. `--limit N` is a hard cap on messages fetched this run — use
-`--limit 10` when testing (see Cost & courtesy).
+`--limit 10` when testing (see Costs and usage limits).
 
 ### `mail-ai-extract` — isolate each author's new text
 
@@ -113,8 +112,8 @@ mail-ai-score --dry-run      # show what would be scored / gated / cached
 Requires `PANGRAM_API_KEY`. Extractions under 50 words are marked `too_short`
 and never sent. Identical text is served from the score cache without an API
 call. `--limit N` caps Pangram API calls per run (cache hits are free and
-uncapped) and **defaults to 10** so a stray run cannot spend much — pass a
-larger value for real runs. Pangram costs roughly **$0.05 per 1,000 words**.
+uncapped) and **defaults to 10** to limit accidental spending — pass a larger
+value for production runs. Pangram costs roughly **$0.05 per 1,000 words**.
 
 ### `mail-ai-web` — the dashboard
 
@@ -128,8 +127,7 @@ two-terminal workflow (see `make dev`).
 
 The dashboard shares a single filter bar (list, person/address, date range,
 Pangram label, likelihood range, free-text search) across every view, and that
-filter state lives in the URL query string — so any view you are looking at is
-a shareable link.
+filter state lives in the URL query string — so every view is a shareable link.
 
 - **Overview** — headline counts, score distribution, flagged-share-over-time
   chart, and top flagged senders/lists; each element drills into the message
@@ -182,13 +180,13 @@ file (the message body itself is never overwritten).
 Export and import are also available from the dashboard's **Messages** pane, via
 its Export and Import buttons.
 
-## Cost & courtesy
+## Costs and usage limits
 
 - **Pangram spend** is controlled three ways: the score cache never pays twice
   for identical text, the 50-word gate skips text too short to score reliably,
   and `--limit` (default 10) caps calls per run. Use `--dry-run` to preview.
-- **The archive IMAP server is a shared public service.** Be gentle: when testing
-  or experimenting, pull no more than **10 messages** per run (and send no more
+- **The archive IMAP server is a shared public service.** When testing or
+  experimenting, pull no more than **10 messages** per run (and send no more
   than 10 texts to Pangram). These are project conventions, not enforced limits.
 
 ## Development
@@ -210,7 +208,7 @@ Layout:
   real public-archive messages with expected extractions, used to grade the
   extractor).
 - `docs/findings/` — the Phase 0 spike findings (IMAP, extraction, Pangram) that
-  the design is built on, including why things are the way they are
+  the design is built on, including the rationale for the main design decisions
   (email-reply-parser over Talon, stdlib `sqlite3` over an ORM, the Pangram
   contract).
 

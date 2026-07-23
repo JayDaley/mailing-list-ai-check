@@ -25,7 +25,7 @@ Root: `100vh`, `overflow hidden`, column flex, `font-variant-numeric: tabular-nu
 
 All three panes share the card style: white bg, `1px solid #e2e5e9`, radius 6px, shadow `0 1px 2px rgba(20,24,28,0.05)`, `overflow hidden`, internal column flex with its own scroll region. Pane header bars: `#fafbfc` bg, bottom border `#e2e5e9`, padding `6px 12px`, title 12px 700, subtitle 11px `#8a929b`.
 
-Persist `topPct` / `leftPct` (localStorage is fine).
+Persist `topPct` / `leftPct` (use localStorage).
 
 ## Messages pane
 

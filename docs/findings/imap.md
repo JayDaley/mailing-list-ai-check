@@ -17,7 +17,7 @@ COMPRESS=DEFLATE MOVE WITHIN CONTEXT=SEARCH SEARCHRES SPECIAL-USE` and
 
 ## 1. Authentication — anonymous access works
 
-Anonymous access is open and required no credentials. The working incantation:
+Anonymous access is open and required no credentials. The working login:
 
 ```python
 M = imaplib.IMAP4_SSL("imap.<archive-host>", 993)
@@ -26,7 +26,7 @@ M.login("anonymous", "anonymous@example.com")   # any email-style password accep
 
 - Plain `LOGIN anonymous <email-style-string>` succeeds and returns full
   read capabilities (`RIGHTS=kxet` on selected folders — read-oriented ACL).
-- We did **not** need SASL `ANONYMOUS`; the first attempt (plain `LOGIN`)
+- SASL `ANONYMOUS` was **not** needed; the first attempt (plain `LOGIN`)
   succeeded, so the fallback paths in `probe_auth.py` were not exercised.
 - No credentials exist in this repo and none were created. The Phase 2 config
   should still expose `IMAP_USER`/`IMAP_PASSWORD` so an authenticated
@@ -50,7 +50,7 @@ M.login("anonymous", "anonymous@example.com")   # any email-style password accep
   `<meeting-number>all/attendees/companions/newcomers` folders inflate the
   count; real WG/area lists are a subset.
 
-## 3. Server-side UID SEARCH — works, use it
+## 3. Server-side UID SEARCH — supported
 
 All searches ran server-side and returned UID sets fast. Verified on
 `Shared Folders/last-call` (16,950 messages):
@@ -76,12 +76,12 @@ case-insensitive) is effective and matches domain, address, or display name:
 be done server-side, and combined in one `UID SEARCH`. The fetcher should push
 `--since`/`--from` down to the server rather than filtering client-side. Note
 `FROM` is a substring match, so a bare domain also matches display names that
-happen to contain it — fine for narrowing, but confirm the parsed address
+happen to contain it — sufficient for narrowing, but confirm the parsed address
 client-side if exactness matters.
 
 ## 4. UIDVALIDITY
 
-Stable per-folder values, nothing unusual:
+Stable per-folder values:
 
 | Folder | UIDVALIDITY | EXISTS | UIDNEXT |
 |---|---|---|---|
@@ -117,9 +117,9 @@ amortizes). No rate limiting, throttling, or connection drops observed.
 connections with no rejection (test stopped at 12; the real ceiling is higher).
 
 Implications: batch UIDs into one `UID FETCH` (a few hundred per command);
-`BODY.PEEK[]` (not `BODY[]`) to avoid setting `\Seen` — matters for correctness
-and keeps us strictly read-only. Modest parallelism is available if ever needed,
-but a single connection already saturates throughput for our volumes.
+`BODY.PEEK[]` (not `BODY[]`) to avoid setting `\Seen` and keep the session
+strictly read-only. Modest parallelism is available if ever needed, but a
+single connection already saturates throughput for the volumes involved.
 
 ## 7. Message format notes (for the Phase 3 parser)
 
@@ -147,8 +147,8 @@ Content-Type distribution from a 20-message sample of `last-call`:
 
 ## 8. Things the Phase 2 fetcher must handle
 
-- **Long server lines.** Set `imaplib._MAXLINE` high (we used 10 MB);
-  default 10 KB overflows on large `LIST`/`FETCH` responses.
+- **Long server lines.** Set `imaplib._MAXLINE` high (10 MB in the spike);
+  the 10 KB default overflows on large `LIST`/`FETCH` responses.
 - **Quote folder names** in `EXAMINE`/`SELECT` (contain `/` and hyphens).
 - **Read-only discipline:** `select(..., readonly=True)` (EXAMINE) and
   `BODY.PEEK[...]`, never `BODY[...]` or `SELECT` read-write.

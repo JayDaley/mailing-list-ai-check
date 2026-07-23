@@ -45,6 +45,14 @@ anything that is not an explicit user-requested production pull):
 Pangram calls cost real money and IMAP is a shared public service. Bake these
 caps into test code as defaults (e.g. `--limit 10`), don't rely on remembering.
 
+## Documentation style — hard rule
+
+All documentation (README, everything under `docs/`, and any other published
+prose) must be written in a simple, factual, impersonal style. No
+editorialising: no opinionated flourishes, colloquialisms, first-person
+voice, or subjective commentary — state facts, measurements, and rationale
+plainly.
+
 ## Conventions
 
 - Python >= 3.11, `src/` layout.
@@ -54,7 +62,7 @@ caps into test code as defaults (e.g. `--limit 10`), don't rely on remembering.
 ## Versioning
 
 The app uses [semantic versioning](https://semver.org/); the current version is
-**1.0.3**. The single source of truth is `mailing_list_ai_check.__version__`
+**1.0.4**. The single source of truth is `mailing_list_ai_check.__version__`
 (in `__init__.py`); `pyproject.toml` reads it dynamically, so the two never
 drift.
 

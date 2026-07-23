@@ -21,7 +21,7 @@ secrets are involved.
 - email-reply-parser additionally strips signatures; `talon.quotations` does
   not, and Talon's ML signature module is broken on this Python.
 - **Recommendation: email-reply-parser as the primary extractor, plus a small
-  custom quote-stripping / normalization pass.** Talon is not worth carrying.
+  custom quote-stripping / normalization pass.** Talon is not used.
 
 ---
 
@@ -41,7 +41,7 @@ untested here.
 pip install email-reply-parser   # → email-reply-parser 0.5.12
 ```
 
-Pure Python, zero dependencies, installs instantly. No friction.
+Pure Python, zero dependencies. Installs without issues.
 
 ### Talon — installable only with workarounds
 
@@ -85,14 +85,14 @@ Resulting versions: `talon 1.4.4`, `faust-cchardet 3.0.0`, `lxml 6.1.1`,
 `chardet 7.4.3`, `cssselect 1.4.0`, `html5lib 1.1`, `six 1.17.0`.
 
 > Note: `numpy`/`scipy`/`scikit-learn` are only pulled in by Talon's (broken)
-> ML signature path. If Phase 3 uses `talon.quotations` only, they are dead
-> weight — Talon's quotation stripper depends only on `lxml`, `regex`,
+> ML signature path. If Phase 3 uses `talon.quotations` only, they are
+> unused — Talon's quotation stripper depends only on `lxml`, `regex`,
 > `cssselect`, `html5lib`, and a `cchardet` module.
 
-**Verdict:** email-reply-parser is trivially compatible. Talon is compatible
+**Verdict:** email-reply-parser is fully compatible. Talon is compatible
 *only* for `talon.quotations` (+ regex `bruteforce` signature) and *only* after
 swapping in `faust-cchardet` and installing with `--no-deps`. Its ML signature
-extraction is a dead end on Python ≥ 3.12.
+extraction is unusable on Python ≥ 3.12.
 
 ---
 
@@ -147,7 +147,7 @@ Grades: **KEEP-ALL** (all author text kept, quotes + signatures removed),
 | **top-posted (22)** | KEEP-ALL 22/22 (quotes). Signatures not stripped. | KEEP-ALL 22/22. Signatures stripped. Tie on quotes, ERP better on sigs. |
 | **no-quote (45)** | Keeps whole body (correct); leaves signatures/footers in. | Keeps human prose + strips signatures (correct). **TRUNCATED on ~4** bot-generated digest/table mails with `----` separator lines (see §4). |
 
-**Headline number:** on the interleaved case — the one that matters most —
+**Summary:** on the interleaved case — the most important category —
 **email-reply-parser is correct 10/12 (83%) vs Talon 0/12 (0%).** On top/bottom
 posts the two tie on quote removal, with email-reply-parser additionally
 removing signatures.
@@ -178,7 +178,7 @@ You might also be interested in Marco and Marten's draft https://…/
   Hi
   You might also be interested in Marco and Marten's draft https://…/
   ```
-  Perfect: the greeting and the interleaved comment kept, all quotes removed.
+  The greeting and the interleaved comment are kept; all quotes are removed.
 
 ### Example B — `last-call__E22oZy…` : 6-way interleaved point-by-point reply
 
@@ -204,34 +204,33 @@ confidentiality-notice signature.
 
 - **Talon** → keeps the reply **but also keeps the entire `-- ` confidentiality
   notice** (no signature stripping).
-- **email-reply-parser** → keeps only the reply, strips the signature. Here
-  email-reply-parser is strictly better.
+- **email-reply-parser** → keeps only the reply, strips the signature.
 
 ### The one place email-reply-parser truncates — `general__6JNhAv…` (bot digest)
 
 A machine-generated stats table whose second line is `----+----+----`.
 email-reply-parser reads that dashed line as a signature boundary and drops
-everything after it. Talon keeps the whole table. This misfire only occurs on
+everything after it. Talon keeps the whole table. This failure only occurs on
 **dashed-separator machine mail** (NomCom stats, GitHub/qlog digests, session
 schedulers) — never on human prose in the corpus — and such messages are not
-meaningful AI-scoring targets anyway. It is worth a guard nonetheless (§6).
+AI-scoring targets. A guard is still required (§6).
 
 ### Shared weakness — `last-call__QqHZZ0…` (indented quotes)
 
 Quotes are indented (`    > text`, `>` not in column 0). **Both** libraries fail
 to strip them (6 leaked lines each). Same root cause as the leading-BOM case in
-`tls__yUDZ0…`. A trivial custom pass fixes both (§6).
+`tls__yUDZ0…`. A small custom pass fixes both (§6).
 
 ---
 
 ## 5. Recommendation
 
 **Use email-reply-parser as the primary extractor, complemented by a small
-custom quote-stripping + normalization pass. Do not carry Talon.**
+custom quote-stripping + normalization pass. Do not use Talon.**
 
-Rationale, grounded in the numbers:
+Rationale:
 
-- **Interleaved replies are the whole ballgame here, and Talon scores 0/12
+- **Interleaved replies are the most important category, and Talon scores 0/12
   there** — it returns quotes-and-all whenever new text is interspersed with
   quoted blocks, because its algorithm looks for one contiguous quoted tail.
   email-reply-parser's fragment model scores 10/12.
@@ -239,14 +238,14 @@ Rationale, grounded in the numbers:
   email-reply-parser doesn't already do — and email-reply-parser also removes
   signatures, which `talon.quotations` does not and Talon's ML signature module
   *cannot* on this Python.
-- Talon also carries real cost: a fragile install (`faust-cchardet` +
-  `--no-deps`) and a heavy, otherwise-unused numpy/scipy/scikit-learn stack.
-- email-reply-parser's only real failure (dashed-line bot digests) is on
-  non-human content and is cheaply guarded.
+- Talon also carries cost: a fragile install (`faust-cchardet` +
+  `--no-deps`) and a large, otherwise-unused numpy/scipy/scikit-learn stack.
+- email-reply-parser's only failure (dashed-line bot digests) is on
+  non-human content and is guarded with a simple check.
 
 A "both merged" or "Talon fallback" design was considered and rejected: the only
-place Talon out-performs email-reply-parser is exactly the machine-generated
-digests we don't want to score, and Talon fails the case we most need.
+place Talon out-performs email-reply-parser is the machine-generated digests
+that are not scoring targets, and Talon fails the most important case.
 
 ### Sketch of the Phase 3 pipeline
 
@@ -266,7 +265,7 @@ def extract_new_text(body: str) -> tuple[str, str]:   # (text, method)
         r"^\s*>+",                             # any-indent quoted line
         r"^\s*On\b.*\bwrote:\s*$",             # "On <date>, X wrote:"
         r"^.*<[^>]+@[^>]+>\s+wrote:\s*$",      # "Name <a@b> wrote:"
-        r"^\s*(--\s*$)",                       # signature delimiter (belt-and-braces)
+        r"^\s*(--\s*$)",                       # signature delimiter (redundant safeguard)
     ])
     text = drop_mailing_list_footer(text)      # "____ mailing list", "To unsubscribe…"
 
@@ -293,11 +292,11 @@ def extract_new_text(body: str) -> tuple[str, str]:   # (text, method)
 
 ## 6. Fixtures to promote to Phase 2/3 tests
 
-All under `spikes/extraction/corpus/`. These pin the behaviors that matter:
+All under `spikes/extraction/corpus/`. These pin the key behaviors:
 
-| Fixture | Why it's worth pinning |
+| Fixture | Behavior pinned |
 |---|---|
-| `last-call__E22oZyg-pUNhqi6lF32vpCz0st4.eml` | Gold interleaved case: 6-way point-by-point reply. The single most important regression guard. |
+| `last-call__E22oZyg-pUNhqi6lF32vpCz0st4.eml` | Reference interleaved case: 6-way point-by-point reply. The primary regression guard. |
 | `quic__Mwo6ZbD6sOL8cUhlWOXJ5Jbpw7c.eml` | Interleaved: greeting + one comment between deep-nested quotes. |
 | `last-call__ku5TSOfHj-95ntPHqjeiKBADRrc.eml` | Interleaved with an author elision marker `[...]` that must be kept. |
 | `tls__yUDZ03qD8njrMQtD0oR5nUYDcUM.eml` | Interleaved **with leading BOM** — pins the normalization step. |

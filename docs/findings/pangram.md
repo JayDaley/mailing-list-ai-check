@@ -63,8 +63,8 @@ x-api-key: <PANGRAM_API_KEY>
 | Plagiarism check | `POST` | `https://plagiarism.api.pangram.com` |
 
 **Single-text detection is asynchronous**, even though the SDK's `predict()`
-hides it behind one blocking call: `POST /task` returns a `task_id`, then you
-poll `GET /task/{task_id}` until `stage` is terminal. Phase 4 only needs the
+hides it behind one blocking call: `POST /task` returns a `task_id`, then the
+caller polls `GET /task/{task_id}` until `stage` is terminal. Phase 4 only needs the
 single-text and (optionally) bulk endpoints; file-upload and plagiarism are out
 of scope for scoring mailing-list text.
 
@@ -77,8 +77,8 @@ of scope for scoring mailing-list text.
 ```
 
 `public_dashboard_link` is optional (default `false`); when `true` the completed
-result includes a `dashboard_link` URL to a hosted result page. We do **not**
-want public dashboard links for private mailing-list mail — leave it `false`.
+result includes a `dashboard_link` URL to a hosted result page. Public dashboard
+links must not be created for private mailing-list mail — leave it `false`.
 
 There is **no sliding-window request option** in v3. The service windows the
 text itself and returns per-window scores (see below). In v2 there were separate
@@ -98,7 +98,7 @@ or
 ```
 
 `id` is an optional caller-defined key echoed back with the item's status and
-result — useful for mapping results to our `extractions.id`. `POST /bulk`
+result — useful for mapping results to `extractions.id`. `POST /bulk`
 returns HTTP **202** with `bulk_id`, `status` (`"queued"`), `total_items`,
 `accepted_items`, `failed_items`. Poll `GET /bulk/{bulk_id}` until `status` is
 terminal (`succeeded` / `failed` / `partial`), then page through
@@ -132,8 +132,8 @@ From the SDK docstring and README, a successful result dict contains:
 
 **The three `fraction_*` fields are mutually exclusive and sum to 1.0.** There
 is no single scalar "AI likelihood" field in v3 — the closest analogue is
-`fraction_ai` (or `fraction_ai + fraction_ai_assisted` if we treat any AI
-involvement as positive). `prediction_short` is the categorical label.
+`fraction_ai` (or `fraction_ai + fraction_ai_assisted` if any AI involvement
+is treated as positive). `prediction_short` is the categorical label.
 
 ### `windows[]` — per-window sub-scores
 
@@ -150,8 +150,8 @@ Each element:
 | `word_count` | int | Words in the window. |
 | `token_length` | int | Token length of the window. |
 
-Windows are non-overlapping and let us later highlight which passages drove the
-verdict in the dashboard (Phase 6 detail view).
+Windows are non-overlapping and allow the dashboard (Phase 6 detail view) to
+highlight which passages drove the verdict.
 
 ### Error shape
 
@@ -179,8 +179,8 @@ Task-level failures come back as `stage: "STAGE_FAILED"` with a `headline` /
   very long message (e.g. a 5000-word thread digest) during live verification.
 
 **Recommended "too short to score" threshold for Phase 4: < 50 words.**
-Rationale: it matches Pangram's own documented reliability floor exactly, so we
-never pay for — or store — a verdict the vendor itself says is untrustworthy.
+Rationale: it matches Pangram's own documented reliability floor exactly, so no
+verdict the vendor documents as unreliable is ever paid for or stored.
 Brief mailing-list replies ("+1", "LGTM", "see inline") fall well under this and
 should be marked `too_short` in `extractions.status` and never sent. (The PLAN's
 "roughly under 100 chars" note is a looser proxy; prefer the 50-*word* rule and
@@ -214,14 +214,14 @@ Reasons:
    two-call POST/poll loop.
 2. Phase 4 needs behaviour the SDK does **not** provide: retry with backoff and
    explicit 429/5xx handling. The SDK raises a plain `ValueError` on any
-   non-2xx and does no retry — we'd be wrapping it anyway.
-3. We must guarantee the key is only ever read from `Config` and never logged;
-   owning the HTTP layer makes that trivial to audit.
+   non-2xx and does no retry — it would need wrapping anyway.
+3. The key must only ever be read from `Config` and never logged; owning the
+   HTTP layer makes that straightforward to audit.
 4. The wire contract is small and stable enough to reimplement safely, using the
    SDK source as the reference (constants copied into `verify_api.py`).
 
 Keep `spikes/pangram/verify_api.py` as the contract oracle: it mirrors the SDK's
-endpoints/stages so a live run confirms our hand-rolled client matches.
+endpoints/stages so a live run confirms the hand-rolled client matches.
 
 ---
 
@@ -232,7 +232,7 @@ endpoints/stages so a live run confirms our hand-rolled client matches.
 - Normalized columns:
   - `ai_likelihood` ← store **`fraction_ai`** (primary scalar). Consider also
     persisting `fraction_ai_assisted` and `fraction_human` as their own columns,
-    since "AI-assisted" is a distinct and interesting category for list authors
+    since "AI-assisted" is a distinct category
     — recommend adding `fraction_ai_assisted` and `fraction_human` to the schema
     rather than collapsing to one number.
   - `label` ← store **`prediction_short`** (`AI` / `AI-Assisted` / `Human` /
@@ -248,11 +248,11 @@ endpoints/stages so a live run confirms our hand-rolled client matches.
   `headline`, `prediction`, `num_*_segments`, and the full `windows` array. The
   windows power the Phase 6 highlight view; keeping them only in the blob avoids
   a second table now.
-- Do **not** store `dashboard_link` (we send `public_dashboard_link=false`).
+- Do **not** store `dashboard_link` (the client sends `public_dashboard_link=false`).
 
 **Too-short threshold:** `< 50 words` → mark extraction `too_short`, never send.
-Belt-and-braces: also skip empties and anything `< ~250 chars` only if it is
-also `< 50 words` (words is the authoritative gate; the char check just avoids
+As an additional guard, also skip empty text and anything `< ~250 chars` only if
+it is also `< 50 words` (words is the authoritative gate; the char check avoids
 edge cases like a 50-word run of single characters). Store the reason so the
 dashboard can distinguish "too short" from "scored".
 
@@ -269,8 +269,8 @@ dashboard can distinguish "too short" from "scored".
 
 **Cost-control recommendations:**
 
-- **Cache hard on `text_sha256`** — never pay twice for identical extracted
-  text (already in the Phase 1 schema; this is the single biggest saver given
+- **Cache on `text_sha256`** — never pay twice for identical extracted
+  text (already in the Phase 1 schema; this is the largest cost saving given
   repeated quoted/boilerplate content).
 - Enforce the 50-word floor *before* any network call.
 - Honour the PLAN's `--limit N` per run and print a running word/call total and

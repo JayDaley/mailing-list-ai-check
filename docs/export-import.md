@@ -112,7 +112,7 @@ applies). But its derived data may now be refreshed:
    usual) and its score when present, and update the message's
    `pipeline_version` to the file's value. A file message whose extraction is
    null clears the target's extraction/score (the later pipeline produced
-   nothing — that is the newer truth). Counted as `extractions_updated` and
+   no extraction, so that result supersedes). Counted as `extractions_updated` and
    `scores_updated` in the summary (the message still counts in
    `messages_skipped` — its own row was not inserted).
 
