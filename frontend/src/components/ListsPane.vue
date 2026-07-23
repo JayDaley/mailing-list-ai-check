@@ -9,7 +9,7 @@
 //      (stat tiles, detection-mix summary, last-50-messages rug, pull footer).
 //
 // Sender (person/address) details live in the Senders pane, not here.
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { get, postJson } from '../api'
@@ -264,6 +264,228 @@ async function regenerate() {
   }
 }
 
+// --- add-list popover (index mode) -----------------------------------------
+// One popover open at a time, anchored under the clicked row. Its two tabs
+// preview server-side messages ("new since last fetch" / "before last fetch")
+// and, from the same views, pull-and-score a chosen range via POST /pull/range.
+const popoverList = ref(null) // name of the list whose Add popover is open
+const popoverTab = ref('new') // 'new' | 'before'
+// Inline fixed-position style for the teleported popover (see toggleAddPopover).
+const popoverStyle = ref({})
+const POPOVER_WIDTH = 400
+
+// Tab 1 — "new since last fetch".
+const newPreview = ref(null) // {mode, list, total, shown, more, messages}
+const newPreviewLoading = ref(false)
+const newPreviewError = ref('')
+const newCountInput = ref('all') // "all" or a positive integer (as a string)
+
+// Tab 2 — "before last fetch".
+const beforePreview = ref(null)
+const beforePreviewLoading = ref(false)
+const beforePreviewError = ref('')
+const beforeCount = ref(25) // requested preview window (1..1000)
+const beforePreviewedCount = ref(0) // the count the last successful preview used
+const beforePreviewed = ref(false) // a preview has run → enable "Fetch and check"
+
+// Shared pull/range status shown in the popover footer.
+const rangeRunning = ref(false)
+const rangeMsg = ref('')
+const rangeError = ref(false)
+
+function senderName(m) {
+  return m.from_name || m.from_email || '(unknown)'
+}
+// The other half of the sender pair as a tooltip (email when a name is shown).
+function senderTitle(m) {
+  return m.from_name ? m.from_email || '' : ''
+}
+
+function resetPopover() {
+  newPreview.value = null
+  newPreviewError.value = ''
+  newCountInput.value = 'all'
+  beforePreview.value = null
+  beforePreviewError.value = ''
+  beforeCount.value = 25
+  beforePreviewedCount.value = 0
+  beforePreviewed.value = false
+  rangeMsg.value = ''
+  rangeError.value = false
+}
+
+function closeAddPopover() {
+  popoverList.value = null
+}
+// Fixed-position style anchored to the clicked Add button. The popover is
+// teleported to <body>, so no ancestor overflow clips it; it right-aligns to
+// the button, clamps to the viewport, and flips above when room below is tight.
+function computePopoverStyle(btn) {
+  const rect = btn.getBoundingClientRect()
+  const gap = 4
+  const margin = 8
+  // Horizontal clamping is left to CSS (100vw resolves in the layout engine,
+  // which knows the real viewport even in embedded webviews where
+  // window.innerWidth reports 0).
+  const style = {
+    position: 'fixed',
+    width: `min(${POPOVER_WIDTH}px, calc(100vw - ${2 * margin}px))`,
+    left: `clamp(${margin}px, ${Math.round(rect.right - POPOVER_WIDTH)}px, calc(100vw - ${POPOVER_WIDTH + margin}px))`,
+  }
+  const viewH = window.innerHeight || document.documentElement.clientHeight
+  const spaceBelow = viewH - rect.bottom
+  // Open upward (anchored by its bottom edge) only when below is tight and
+  // above has more room; without a usable JS viewport height (viewH 0) open
+  // downward. The popover grows with its content either way.
+  if (viewH && spaceBelow < 260 && rect.top > spaceBelow) {
+    style.bottom = `calc(100vh - ${Math.round(rect.top - gap)}px)`
+  } else {
+    style.top = `${Math.round(rect.bottom + gap)}px`
+  }
+  return style
+}
+
+// Toggle from a row's "Add" button; clicking another row's Add moves it.
+function toggleAddPopover(name, event) {
+  if (popoverList.value === name) {
+    closeAddPopover()
+    return
+  }
+  if (event && event.currentTarget) {
+    popoverStyle.value = computePopoverStyle(event.currentTarget)
+  }
+  popoverList.value = name
+  popoverTab.value = 'new'
+  resetPopover()
+  loadNewPreview()
+}
+function setPopoverTab(tab) {
+  popoverTab.value = tab
+  // Lazily load tab 1 the first time it is shown (or after an error clears).
+  if (tab === 'new' && !newPreview.value && !newPreviewLoading.value && !newPreviewError.value) {
+    loadNewPreview()
+  }
+}
+
+async function loadNewPreview() {
+  const name = popoverList.value
+  if (!name) return
+  newPreviewLoading.value = true
+  newPreviewError.value = ''
+  try {
+    newPreview.value = await postJson('/lists/preview', { list: name, mode: 'new' })
+  } catch (err) {
+    newPreview.value = null
+    newPreviewError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    newPreviewLoading.value = false
+  }
+}
+
+async function runBeforePreview() {
+  const name = popoverList.value
+  if (!name || beforePreviewLoading.value) return
+  let count = parseInt(beforeCount.value, 10)
+  if (!Number.isFinite(count)) count = 25
+  count = Math.min(1000, Math.max(1, count))
+  beforeCount.value = count
+  beforePreviewLoading.value = true
+  beforePreviewError.value = ''
+  try {
+    beforePreview.value = await postJson('/lists/preview', { list: name, mode: 'before', count })
+    beforePreviewedCount.value = count
+    beforePreviewed.value = true
+  } catch (err) {
+    beforePreview.value = null
+    beforePreviewError.value = err instanceof Error ? err.message : String(err)
+    beforePreviewed.value = false
+  } finally {
+    beforePreviewLoading.value = false
+  }
+}
+
+// Restore the tab-1 fetch input to "all" when it is cleared.
+function normaliseNewCount() {
+  if (String(newCountInput.value).trim() === '') newCountInput.value = 'all'
+}
+
+function rangeSummaryLine(name, r) {
+  let line = pullSummaryLine(name, r)
+  if (r.capped) line += ' · capped at 1,000'
+  return line
+}
+
+// Pull-and-score a range for the open popover's list, then refresh the pane and
+// re-run the active tab's preview so the listing reflects the new state.
+async function runRange(mode) {
+  const name = popoverList.value
+  if (!name || rangeRunning.value) return
+  let count
+  if (mode === 'new') {
+    const raw = String(newCountInput.value).trim()
+    if (raw === '' || raw === 'all') {
+      count = null
+    } else {
+      count = parseInt(raw, 10)
+      if (!Number.isFinite(count) || count < 1) count = null
+    }
+  } else {
+    count = beforePreviewedCount.value
+  }
+  rangeRunning.value = true
+  rangeMsg.value = ''
+  rangeError.value = false
+  try {
+    const r = await postJson('/pull/range', { list: name, mode, count })
+    rangeMsg.value = rangeSummaryLine(name, r)
+    rangeError.value = false
+    await loadLists()
+    if (mode === 'new') await loadNewPreview()
+    else await runBeforePreview()
+  } catch (err) {
+    rangeMsg.value = err instanceof Error ? err.message : String(err)
+    rangeError.value = true
+  } finally {
+    rangeRunning.value = false
+  }
+}
+
+// Close on Escape or a click outside the open popover (the row's own Add button
+// handles its own toggle). Capture phase so it runs regardless of @click.stop.
+function onPopoverKeydown(e) {
+  if (e.key === 'Escape') closeAddPopover()
+}
+function onPopoverDocClick(e) {
+  if (!popoverList.value) return
+  const el = e.target
+  if (el.closest && (el.closest('.add-popover') || el.closest('.row-add-btn'))) return
+  closeAddPopover()
+}
+// The anchor row can scroll out from under a fixed-position popover, so close
+// on any scroll that does not originate inside the popover itself.
+function onPopoverScroll(e) {
+  if (!popoverList.value) return
+  const el = e.target
+  if (el && el.nodeType === 1 && el.closest && el.closest('.add-popover')) return
+  closeAddPopover()
+}
+watch(popoverList, (open) => {
+  if (open) {
+    document.addEventListener('keydown', onPopoverKeydown)
+    document.addEventListener('click', onPopoverDocClick, true)
+    document.addEventListener('scroll', onPopoverScroll, true)
+  } else {
+    document.removeEventListener('keydown', onPopoverKeydown)
+    document.removeEventListener('click', onPopoverDocClick, true)
+    document.removeEventListener('scroll', onPopoverScroll, true)
+  }
+})
+onUnmounted(() => {
+  document.removeEventListener('keydown', onPopoverKeydown)
+  document.removeEventListener('click', onPopoverDocClick, true)
+  document.removeEventListener('scroll', onPopoverScroll, true)
+})
+
 // --- list-stats mode --------------------------------------------------------
 const listMeta = computed(() => lists.value.find((l) => l.name === filters.list) || null)
 const listCard = computed(() => {
@@ -291,42 +513,33 @@ function pullList() {
     <div class="pane-header">
       <span class="pane-title">Lists</span>
       <span class="pane-subtitle">{{ contextSub }}</span>
-      <span
+      <label
         v-if="mode !== 'list'"
-        class="seg"
-        role="group"
-        aria-label="List visibility"
+        class="show-all"
+        :title="`Show all (${fmtInt(totalListCount)})`"
       >
-        <button
-          type="button"
-          class="seg-btn"
-          :class="{ 'seg-on': showActive }"
-          :aria-pressed="showActive"
-          @click="showActive = true"
-        >
-          Show active
-        </button>
-        <button
-          type="button"
-          class="seg-btn"
-          :class="{ 'seg-on': !showActive }"
-          :aria-pressed="!showActive"
-          @click="showActive = false"
-        >
-          Show all ({{ fmtInt(totalListCount) }})
-        </button>
-      </span>
+        <input
+          type="checkbox"
+          class="show-all-input"
+          role="switch"
+          :checked="!showActive"
+          :aria-checked="!showActive"
+          @change="(e) => (showActive = !e.target.checked)"
+        />
+        <span class="switch" aria-hidden="true"><span class="switch-knob"></span></span>
+        <span class="show-all-text">Show All</span>
+      </label>
       <span class="header-actions">
         <button
           v-if="!pullFormOpen"
-          class="btn-primary"
+          class="io-btn"
           :disabled="pulling"
           @click="openPullForm"
         >
-          + Add list
+          Add list
         </button>
-        <button class="btn-secondary" :disabled="regenerating" @click="regenerate">
-          Regenerate index
+        <button class="io-btn" :disabled="regenerating" @click="regenerate">
+          Rebuild index
         </button>
       </span>
     </div>
@@ -411,6 +624,7 @@ function pullList() {
           <span style="text-align: right;">Msgs</span>
           <span>{{ MIX_CAPTION }}</span>
           <span style="text-align: right;">Synced</span>
+          <span></span>
         </div>
         <div v-if="showActiveEmpty" class="index-empty">
           No active lists — add a list, or switch to Show all.
@@ -425,6 +639,144 @@ function pullList() {
           <span class="index-count mono">{{ l.count }}</span>
           <MixBar :counts="l.counts" :height="9" />
           <span class="index-synced mono">{{ l.synced }}</span>
+          <button
+            type="button"
+            class="io-btn row-add-btn"
+            @click.stop="toggleAddPopover(l.name, $event)"
+          >
+            Add
+          </button>
+
+          <!-- per-row add-and-check popover; teleported to <body> so no ancestor
+               overflow (scrolling pane body, clipped card) can hide it -->
+          <Teleport to="body">
+          <div v-if="popoverList === l.name" class="add-popover" :style="popoverStyle" @click.stop>
+            <div class="pop-head">
+              <div class="pop-tabs" role="tablist">
+                <button
+                  type="button"
+                  class="pop-tab"
+                  :class="{ 'pop-tab-on': popoverTab === 'new' }"
+                  :aria-selected="popoverTab === 'new'"
+                  @click="setPopoverTab('new')"
+                >
+                  New since last fetch
+                </button>
+                <button
+                  type="button"
+                  class="pop-tab"
+                  :class="{ 'pop-tab-on': popoverTab === 'before' }"
+                  :aria-selected="popoverTab === 'before'"
+                  @click="setPopoverTab('before')"
+                >
+                  Before last fetch
+                </button>
+              </div>
+              <button type="button" class="pop-close" title="Close" @click="closeAddPopover">✕</button>
+            </div>
+
+            <!-- Tab 1 — new since last fetch -->
+            <div v-if="popoverTab === 'new'" class="pop-view">
+              <div v-if="newPreviewLoading" class="pop-status">checking server…</div>
+              <div v-else-if="newPreviewError" class="pop-status pop-error">{{ newPreviewError }}</div>
+              <template v-else-if="newPreview">
+                <div v-if="newPreview.total === 0" class="pop-status">
+                  No new messages since the last fetch.
+                </div>
+                <template v-else>
+                  <div class="pop-list">
+                    <div v-for="(m, i) in newPreview.messages" :key="i" class="pop-msg">
+                      <span class="pop-from" :title="senderTitle(m)">{{ senderName(m) }}</span>
+                      <span class="pop-subj">{{ m.subject || '(no subject)' }}</span>
+                      <span class="pop-date mono">{{ fmtDate(m.date) }}</span>
+                    </div>
+                  </div>
+                  <div v-if="newPreview.more > 0" class="pop-more">
+                    + {{ fmtInt(newPreview.more) }} more not shown
+                  </div>
+                </template>
+              </template>
+              <div class="pop-fetch-row">
+                <label class="pop-label">
+                  Messages to fetch:
+                  <input
+                    type="text"
+                    class="pop-input"
+                    :value="newCountInput"
+                    @input="(e) => (newCountInput = e.target.value)"
+                    @change="normaliseNewCount"
+                    @blur="normaliseNewCount"
+                  />
+                </label>
+                <button type="button" class="io-btn" :disabled="rangeRunning" @click="runRange('new')">
+                  Fetch and check
+                </button>
+              </div>
+            </div>
+
+            <!-- Tab 2 — before last fetch -->
+            <div v-else class="pop-view">
+              <div class="pop-fetch-row">
+                <label class="pop-label">
+                  Messages to preview:
+                  <input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    class="pop-input pop-input-num"
+                    :value="beforeCount"
+                    @input="(e) => (beforeCount = e.target.value)"
+                  />
+                </label>
+                <button
+                  type="button"
+                  class="io-btn"
+                  :disabled="beforePreviewLoading"
+                  @click="runBeforePreview"
+                >
+                  Preview
+                </button>
+              </div>
+              <div v-if="beforePreviewLoading" class="pop-status">checking server…</div>
+              <div v-else-if="beforePreviewError" class="pop-status pop-error">
+                {{ beforePreviewError }}
+              </div>
+              <template v-else-if="beforePreview">
+                <div v-if="beforePreview.total === 0" class="pop-status">No messages found.</div>
+                <template v-else>
+                  <div class="pop-list">
+                    <div v-for="(m, i) in beforePreview.messages" :key="i" class="pop-msg">
+                      <span class="pop-from" :title="senderTitle(m)">{{ senderName(m) }}</span>
+                      <span class="pop-subj">{{ m.subject || '(no subject)' }}</span>
+                      <span class="pop-date mono">{{ fmtDate(m.date) }}</span>
+                    </div>
+                  </div>
+                  <div v-if="beforePreview.more > 0" class="pop-more">
+                    + {{ fmtInt(beforePreview.more) }} more not shown
+                  </div>
+                </template>
+              </template>
+              <div class="pop-fetch-row">
+                <button
+                  type="button"
+                  class="io-btn"
+                  :disabled="!beforePreviewed || rangeRunning"
+                  @click="runRange('before')"
+                >
+                  Fetch and check
+                </button>
+              </div>
+            </div>
+
+            <div class="pop-footer">
+              <div v-if="rangeRunning" class="pop-status">fetching and checking…</div>
+              <div v-else-if="rangeMsg" class="pop-status" :class="{ 'pop-error': rangeError }">
+                {{ rangeMsg }}
+              </div>
+              <div class="pop-note">Scoring sends extracted text to the paid Pangram API.</div>
+            </div>
+          </div>
+          </Teleport>
         </div>
       </template>
     </div>
@@ -585,7 +937,7 @@ function pullList() {
 /* --- index mode --- */
 .index-caption {
   display: grid;
-  grid-template-columns: 1fr 44px 150px 88px;
+  grid-template-columns: 1fr 44px 150px 88px 34px;
   gap: 6px;
   border-bottom: 1px solid var(--border);
   padding: 2px 0;
@@ -597,13 +949,14 @@ function pullList() {
 }
 .index-row {
   display: grid;
-  grid-template-columns: 1fr 44px 150px 88px;
+  grid-template-columns: 1fr 44px 150px 88px 34px;
   gap: 6px;
   align-items: center;
   border-bottom: 1px solid var(--border-row);
   cursor: pointer;
   padding: 3px 0;
   font-size: 11.5px;
+  position: relative; /* anchors the per-row add-and-check popover */
 }
 .index-name {
   font-weight: 500;
@@ -628,31 +981,208 @@ function pullList() {
   color: var(--text-muted);
 }
 
-/* --- segmented "Show active / Show all" toggle --- */
-.seg {
+/* --- "Show All" toggle switch --- */
+.show-all {
   display: inline-flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 6px;
   height: 22px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
 }
-.seg-btn {
+.show-all-text {
   font-size: 11px;
   font-weight: 600;
-  padding: 0 9px;
-  border: none;
-  background: var(--surface);
   color: var(--text-secondary);
-  cursor: pointer;
   white-space: nowrap;
 }
-.seg-btn + .seg-btn {
-  border-left: 1px solid var(--border);
+/* Native checkbox drives state/focus but is visually replaced by the switch. */
+.show-all-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  margin: 0;
 }
-.seg-btn.seg-on {
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 26px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--border);
+  transition: background 0.12s ease;
+  flex: none;
+}
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+  transition: transform 0.12s ease;
+}
+.show-all-input:checked + .switch {
   background: var(--accent);
-  color: #ffffff;
+}
+.show-all-input:checked + .switch .switch-knob {
+  transform: translateX(12px);
+}
+.show-all-input:focus-visible + .switch {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- lightweight text buttons (matches MessagesPane .io-btn) --- */
+.io-btn {
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  background: none;
+  color: #2f6feb;
+  cursor: pointer;
+  padding: 0;
+}
+.io-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.row-add-btn {
+  justify-self: end;
+}
+
+/* --- add-and-check popover --- */
+.add-popover {
+  /* position / top / bottom / left / width are set inline (see computePopoverStyle) */
+  position: fixed;
+  z-index: 200;
+  width: 400px;
+  max-width: 92vw;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  padding: 10px;
+  cursor: default;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pop-tabs {
+  display: inline-flex;
+  gap: 6px;
+}
+.pop-tab {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 1px 3px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.pop-tab-on {
+  color: var(--text-name);
+  border-bottom-color: var(--accent);
+}
+.pop-close {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.pop-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border-row);
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+.pop-msg {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr auto;
+  gap: 6px;
+  align-items: baseline;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border-row);
+}
+.pop-msg:last-child {
+  border-bottom: none;
+}
+.pop-from {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-name);
+}
+.pop-subj {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.pop-date {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.pop-more {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.pop-status {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  padding: 3px 0;
+}
+.pop-error {
+  color: var(--danger);
+}
+.pop-fetch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+.pop-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.pop-input {
+  font-size: 11px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  width: 60px;
+}
+.pop-input-num {
+  width: 60px;
+}
+.pop-footer {
+  margin-top: 6px;
+}
+.pop-note {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
 }
 
 /* --- header actions + pull form --- */

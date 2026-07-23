@@ -33,7 +33,7 @@ from email import policy
 from email.message import EmailMessage
 from email.utils import parseaddr, parsedate_to_datetime
 
-from .imap_client import FOLDER_PREFIX, ImapClient, build_search_criteria
+from .imap_client import DEFAULT_BATCH_SIZE, FOLDER_PREFIX, ImapClient, build_search_criteria
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -113,6 +113,21 @@ class ParsedMessage:
     html_body: str | None = None
 
 
+@dataclass(frozen=True)
+class ParsedHeader:
+    """The header-only fields a message-list preview shows for a candidate message.
+
+    The read-only preview path (see the dashboard's "Add messages" popover) fetches
+    only ``From``/``Subject``/``Date`` and never a body, so this is the subset of
+    :class:`ParsedMessage` derivable from those headers alone.
+    """
+
+    from_email: str
+    from_name: str | None
+    subject: str | None
+    date: str | None
+
+
 def iso_to_imap_date(iso_date: str) -> str:
     """Convert ``YYYY-MM-DD`` to IMAP's ``DD-Mon-YYYY`` (for ``SINCE``)."""
     dt = datetime.strptime(iso_date, "%Y-%m-%d")
@@ -160,6 +175,35 @@ def _extract_body(msg: EmailMessage) -> tuple[str | None, bool, str | None]:
     return None, (html_part is not None), html_body
 
 
+def _date_header_to_iso(msg: EmailMessage) -> str | None:
+    """Parse a message's ``Date`` header to a UTC ISO-8601 string, or ``None``.
+
+    Shared by :func:`parse_message` and :func:`parse_header` so a preview's date
+    matches exactly what a full pull would store. Prefers the ``policy=default``
+    header's parsed ``datetime`` and falls back to :func:`parsedate_to_datetime`;
+    a naive (offset-less) datetime is assumed to be UTC. Returns ``None`` for a
+    missing or unparsable header.
+    """
+    date_hdr = msg["Date"]
+    if date_hdr is None:
+        return None
+    dt = None
+    try:
+        dt = date_hdr.datetime  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        dt = None
+    if dt is None:
+        try:
+            dt = parsedate_to_datetime(str(date_hdr))
+        except (TypeError, ValueError):
+            dt = None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat()
+
+
 def parse_message(raw: bytes, *, uid: int | None = None, folder: str = "") -> ParsedMessage:
     """Parse raw RFC 5322 bytes into a :class:`ParsedMessage`.
 
@@ -177,24 +221,6 @@ def parse_message(raw: bytes, *, uid: int | None = None, folder: str = "") -> Pa
     from_email = addr.strip().lower()
     from_name = display_name.strip() or None
 
-    date_iso: str | None = None
-    date_hdr = msg["Date"]
-    if date_hdr is not None:
-        dt = None
-        try:
-            dt = date_hdr.datetime  # type: ignore[attr-defined]
-        except (AttributeError, ValueError):
-            dt = None
-        if dt is None:
-            try:
-                dt = parsedate_to_datetime(str(date_hdr))
-            except (TypeError, ValueError):
-                dt = None
-        if dt is not None:
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=UTC)
-            date_iso = dt.astimezone(UTC).isoformat()
-
     body, html_only, html_body = _extract_body(msg)
 
     return ParsedMessage(
@@ -202,11 +228,29 @@ def parse_message(raw: bytes, *, uid: int | None = None, folder: str = "") -> Pa
         from_email=from_email,
         from_name=from_name,
         subject=_header_str(msg, "Subject"),
-        date=date_iso,
+        date=_date_header_to_iso(msg),
         in_reply_to=_header_str(msg, "In-Reply-To"),
         body=body,
         html_only=html_only,
         html_body=html_body,
+    )
+
+
+def parse_header(raw: bytes) -> ParsedHeader:
+    """Parse a header-only FETCH blob (``FROM``/``SUBJECT``/``DATE``) into a header.
+
+    Uses the same stdlib :mod:`email` parser and ``policy=default`` as
+    :func:`parse_message`, so the sender, subject and normalized UTC date a
+    preview shows match exactly what a full pull would persist. The ``From``
+    address is lowercased and stripped identically. No body is present or parsed.
+    """
+    msg = email.message_from_bytes(raw, policy=policy.default)
+    display_name, addr = parseaddr(str(msg["From"] or ""))
+    return ParsedHeader(
+        from_email=addr.strip().lower(),
+        from_name=display_name.strip() or None,
+        subject=_header_str(msg, "Subject"),
+        date=_date_header_to_iso(msg),
     )
 
 
@@ -395,7 +439,9 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
         if remaining is not None:
             uids = uids[:remaining] if remaining < len(uids) else uids
 
-        list_count = _fetch_folder(client, store, mlist.id, folder, uids, request, summary)
+        list_count = _fetch_folder(
+            client, store, mlist.id, folder, uids, request.batch_size, summary
+        )
         summary.per_list[name] = list_count
 
         if uids:
@@ -423,13 +469,13 @@ def _fetch_folder(
     list_id: int,
     folder: str,
     uids: Sequence[int],
-    request: FetchRequest,
+    batch_size: int,
     summary: FetchSummary,
 ) -> int:
     """Fetch, parse and upsert ``uids`` from ``folder``. Returns rows fetched."""
     name = list_name_for_folder(folder)
     fetched_here = 0
-    for uid, raw in client.fetch_bodies(uids, batch_size=request.batch_size):
+    for uid, raw in client.fetch_bodies(uids, batch_size=batch_size):
         try:
             parsed = parse_message(raw, uid=uid, folder=folder)
         except Exception:
@@ -463,6 +509,40 @@ def _fetch_folder(
             summary.duplicates += 1
     log.info("%s: %d fetched", name, fetched_here)
     return fetched_here
+
+
+def run_fetch_uids(
+    client: ImapClient,
+    store: Store,
+    folder: str,
+    uids: Sequence[int],
+    *,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+) -> FetchSummary:
+    """Fetch, parse and upsert an explicit, pre-computed UID set for one folder.
+
+    A thin wrapper over :func:`_fetch_folder` for callers that have already
+    resolved the exact UIDs to pull (the dashboard's ranged "new"/"before" pull),
+    rather than going through :func:`compute_uids`' depth modes. The list row is
+    upserted from ``folder`` (created if new, like :func:`run_fetch`), the bodies
+    are fetched with ``BODY.PEEK[]`` and upserted idempotently, and a
+    :class:`FetchSummary` is returned with ``matched`` set to ``len(uids)``.
+
+    Cursor (``pull_state``), ``last_synced_at`` and ``last_message_at``
+    bookkeeping are intentionally left to the caller, because whether the
+    incremental cursor may advance depends on the pull direction (a "before" pull
+    must never move it) — see the webapp's ``/api/pull/range`` endpoint.
+    """
+    name = list_name_for_folder(folder)
+    mlist = store.upsert_list(name, folder)
+    # A UID FETCH requires the mailbox to be selected; EXAMINE keeps it read-only
+    # and makes this wrapper self-contained regardless of what the caller selected.
+    client.examine(folder)
+    summary = FetchSummary()
+    summary.matched = len(uids)
+    fetched = _fetch_folder(client, store, mlist.id, folder, uids, batch_size, summary)
+    summary.per_list[name] = fetched
+    return summary
 
 
 def open_client(host: str, port: int, username: str, password: str) -> ImapClient:

@@ -603,6 +603,42 @@ class Store:
         row = self.conn.execute("SELECT * FROM lists WHERE id = ?", (list_id,)).fetchone()
         return MailingList.from_row(row) if row else None
 
+    def get_list_by_name(self, name: str) -> MailingList | None:
+        """Return the list whose ``name`` matches exactly, or ``None``.
+
+        Names are unique (schema ``UNIQUE`` constraint), so at most one row
+        matches. Used by the ranged-pull / preview endpoints to resolve a
+        user-supplied list name to an existing row without ever creating one.
+        """
+        row = self.conn.execute("SELECT * FROM lists WHERE name = ?", (name,)).fetchone()
+        return MailingList.from_row(row) if row else None
+
+    def min_uid_for_list(self, list_id: int) -> int | None:
+        """Return the smallest stored IMAP ``uid`` for ``list_id``, or ``None``.
+
+        Ignores rows with a NULL ``uid`` (messages imported without one). ``None``
+        means the list has no UID-bearing message, so there is nothing to anchor a
+        "before" (older-than-earliest-stored) pull against.
+        """
+        row = self.conn.execute(
+            "SELECT MIN(uid) AS u FROM messages WHERE list_id = ? AND uid IS NOT NULL",
+            (list_id,),
+        ).fetchone()
+        return row["u"] if row and row["u"] is not None else None
+
+    def max_uid_for_list(self, list_id: int) -> int | None:
+        """Return the largest stored IMAP ``uid`` for ``list_id``, or ``None``.
+
+        Ignores rows with a NULL ``uid``. Used as the baseline for a "new"
+        (newer-than-anything-stored) pull when no incremental cursor exists for
+        the list's current UIDVALIDITY.
+        """
+        row = self.conn.execute(
+            "SELECT MAX(uid) AS u FROM messages WHERE list_id = ? AND uid IS NOT NULL",
+            (list_id,),
+        ).fetchone()
+        return row["u"] if row and row["u"] is not None else None
+
     def set_list_synced(self, list_id: int, when: str | None = None) -> None:
         """Stamp ``lists.last_synced_at`` (defaults to now)."""
         self.conn.execute(

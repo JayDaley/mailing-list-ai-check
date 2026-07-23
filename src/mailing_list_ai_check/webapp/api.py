@@ -23,6 +23,7 @@ import math
 import os
 import re
 import tempfile
+from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any
@@ -37,10 +38,13 @@ from ..fetcher import (
     DepthMode,
     FetchRequest,
     open_client,
+    parse_header,
     refresh_lists_index,
     resolve_folders,
     run_fetch,
+    run_fetch_uids,
 )
+from ..imap_client import build_search_criteria
 from ..pangram import PangramClient
 from ..store import (
     DEFAULT_PER_PAGE,
@@ -452,6 +456,303 @@ def pull() -> Any:
 
     return jsonify(
         {
+            "fetched": fetch_summary.fetched,
+            "duplicates": fetch_summary.duplicates,
+            "parse_errors": fetch_summary.parse_errors,
+            "extracted": status_counts.get("ok", 0),
+            "empty": status_counts.get("empty", 0),
+            "too_short": too_short,
+            "scored": scored,
+            "cache_hits": cache_hits,
+            "api_calls": api_calls,
+            "scoring_skipped": scoring_skipped,
+        }
+    )
+
+
+# --- add messages: preview + ranged pull -------------------------------------
+#
+# Two endpoints back the dashboard's "Add messages" popover. Both work in a
+# direction relative to what is already stored for a list:
+#   - "new":    messages with a UID greater than the incremental cursor (or, with
+#               no cursor valid for the folder's current UIDVALIDITY, greater than
+#               the largest stored UID; else everything);
+#   - "before": messages with a UID smaller than the earliest stored UID.
+# /lists/preview is strictly read-only (EXAMINE + UID SEARCH + a header-only
+# FETCH — no store write, no pull_state change, no Pangram). /pull/range then
+# fetches the chosen bodies and runs the same extract/score pipeline as /pull.
+
+#: How many messages a preview shows (the first N for "new", the last N for
+#: "before"); also the default "before" ``count``.
+_PREVIEW_COUNT = 25
+
+
+def _open_client_or_502(config: Any) -> Any:
+    """Open an IMAP client, mapping any connection failure to a 502 ``ApiError``."""
+    try:
+        return open_client(
+            config.imap_host, config.imap_port, config.imap_username, config.imap_password
+        )
+    except Exception as exc:  # noqa: BLE001 - report any connection failure cleanly
+        raise ApiError(f"could not connect to the IMAP server: {exc}", 502) from exc
+
+
+def _close_client_quietly(client: Any) -> None:
+    """Close and log out ``client``, never letting teardown mask the real result."""
+    try:
+        client.close()
+        client.logout()
+    except Exception:  # noqa: BLE001 - teardown errors are irrelevant to the result
+        pass
+
+
+def _list_and_mode(data: dict[str, Any]) -> tuple[str, str]:
+    """Validate and return the shared ``(list_name, mode)`` for both endpoints.
+
+    Raises a 400 ``ApiError`` for a missing/ill-formed list name (same rule as
+    :func:`pull`) or a ``mode`` that is not exactly ``"new"`` or ``"before"``.
+    List-row existence (a 404) is checked separately by the caller.
+    """
+    list_name = data.get("list")
+    if not isinstance(list_name, str) or not list_name.strip():
+        raise ApiError("list is required")
+    list_name = list_name.strip()
+    if not _LIST_NAME_RE.match(list_name):
+        raise ApiError("list name may contain only letters, digits, '.', '-' and '_'")
+
+    mode = data.get("mode")
+    if mode not in ("new", "before"):
+        raise ApiError("mode must be 'new' or 'before'")
+    return list_name, mode
+
+
+def _resolve_list_or_404(store: Store, list_name: str) -> Any:
+    """Return the existing list row for ``list_name`` or raise a 404 ``ApiError``.
+
+    Never creates a row — preview and ranged pull operate only on lists already
+    known to the store (indexed or previously pulled).
+    """
+    row = store.get_list_by_name(list_name)
+    if row is None:
+        raise ApiError(f"unknown list {list_name!r}", 404)
+    return row
+
+
+def _preview_count(data: dict[str, Any]) -> int:
+    """Parse the "before" preview ``count``: default 25, clamped to 1..1000.
+
+    A non-integer (including ``bool``) is a 400; an out-of-range integer is
+    clamped rather than rejected.
+    """
+    count = data.get("count")
+    if count is None:
+        return _PREVIEW_COUNT
+    if isinstance(count, bool) or not isinstance(count, int):
+        raise ApiError("count must be an integer")
+    return max(_MIN_PULL_COUNT, min(count, _MAX_PULL_COUNT))
+
+
+def _range_count(data: dict[str, Any], mode: str) -> int | None:
+    """Parse the ranged-pull ``count`` per mode.
+
+    ``mode "new"``: a missing/``null`` count means "all" (returned as ``None``;
+    the caller caps at :data:`_MAX_PULL_COUNT`); a provided value must be an
+    integer in 1..1000. ``mode "before"``: ``count`` is required and must be an
+    integer in 1..1000. ``bool`` is never a valid integer here (mirrors
+    :func:`pull`). Out-of-range or ill-typed values are a 400.
+    """
+    count = data.get("count")
+    if mode == "new" and count is None:
+        return None
+    if isinstance(count, bool) or not isinstance(count, int):
+        raise ApiError("count must be an integer")
+    if not (_MIN_PULL_COUNT <= count <= _MAX_PULL_COUNT):
+        raise ApiError(f"count must be between {_MIN_PULL_COUNT} and {_MAX_PULL_COUNT}")
+    return count
+
+
+def _candidate_uids(client: Any, store: Store, list_row: Any, mode: str) -> tuple[int, list[int]]:
+    """Return ``(uidvalidity, uids)`` for the "new"/"before" candidate set.
+
+    Shared by preview and the ranged pull so both agree on the full set before
+    slicing. EXAMINEs the folder read-only, then runs one UID SEARCH:
+
+    - ``"new"``: the baseline is the incremental cursor's ``last_uid`` when a
+      cursor exists whose UIDVALIDITY matches the folder's current one, else the
+      largest stored UID, else 0. The set is ``UID SEARCH {baseline+1}:*``
+      filtered to ``uid > baseline`` (dropping the ``n:*`` echo of the top UID),
+      ascending.
+    - ``"before"``: anchored on the smallest stored UID; a 404 when the list has
+      no UID-bearing message to anchor against. The set is ``UID SEARCH
+      1:{min_uid-1}`` (empty when ``min_uid <= 1``), ascending.
+    """
+    status = client.examine(list_row.folder)
+    uidvalidity = status.uidvalidity
+
+    if mode == "new":
+        cursor = store.get_pull_state(list_row.id)
+        if cursor is not None and cursor.uidvalidity == uidvalidity:
+            baseline = cursor.last_uid
+        else:
+            baseline = store.max_uid_for_list(list_row.id) or 0
+        found = client.uid_search(build_search_criteria(uid_range=f"{baseline + 1}:*"))
+        return uidvalidity, sorted(u for u in found if u > baseline)
+
+    min_uid = store.min_uid_for_list(list_row.id)
+    if min_uid is None:
+        raise ApiError(
+            f"list {list_row.name!r} has no stored messages to anchor a 'before' pull",
+            404,
+        )
+    if min_uid <= 1:
+        return uidvalidity, []
+    found = client.uid_search(build_search_criteria(uid_range=f"1:{min_uid - 1}"))
+    return uidvalidity, sorted(found)
+
+
+def _preview_rows(client: Any, uids: Sequence[int]) -> list[dict[str, Any]]:
+    """Fetch header-only rows for ``uids`` and shape them, ascending by UID.
+
+    Only ``From``/``Subject``/``Date`` are fetched (``BODY.PEEK[HEADER.FIELDS]``)
+    and parsed via :func:`~mailing_list_ai_check.fetcher.parse_header`, so a
+    preview never touches a body or the ``\\Seen`` flag. UIDs missing from the
+    server response (or an un-mapped echo) are skipped.
+    """
+    by_uid: dict[int, dict[str, Any]] = {}
+    for uid, raw in client.fetch_headers(uids):
+        if uid is None:
+            continue
+        header = parse_header(raw)
+        by_uid[uid] = {
+            "from_name": header.from_name,
+            "from_email": header.from_email,
+            "subject": header.subject,
+            "date": header.date,
+        }
+    return [by_uid[u] for u in sorted(by_uid)]
+
+
+@api_bp.post("/lists/preview")
+def preview() -> Any:
+    """Preview candidate messages to add for a list, storing nothing.
+
+    Body: ``{"list": "<name>", "mode": "new"|"before", "count": <int>}``. Strictly
+    read-only: EXAMINE + UID SEARCH + a header-only FETCH; no body is fetched, no
+    row is written, the ``pull_state`` cursor is untouched, and Pangram is never
+    called. ``mode "new"`` always previews the first (oldest) 25 newer-than-stored
+    messages; ``mode "before"`` previews the last ``count`` (default 25, clamped
+    1..1000) messages immediately preceding the earliest stored one. Rows come
+    back in ascending UID order. An IMAP connect/enumeration failure is a 502.
+    """
+    data = _json_body()
+    list_name, mode = _list_and_mode(data)
+    store = get_store()
+    list_row = _resolve_list_or_404(store, list_name)
+    count = _preview_count(data) if mode == "before" else _PREVIEW_COUNT
+
+    config = current_app.config["APP_CONFIG"]
+    client = _open_client_or_502(config)
+    try:
+        _uidvalidity, uids = _candidate_uids(client, store, list_row, mode)
+        chosen = uids[:_PREVIEW_COUNT] if mode == "new" else uids[-count:]
+        rows = _preview_rows(client, chosen)
+    except ApiError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - IMAP/enumeration failures become a 502
+        raise ApiError(f"IMAP preview failed for list {list_name!r}: {exc}", 502) from exc
+    finally:
+        _close_client_quietly(client)
+
+    total = len(uids)
+    shown = len(rows)
+    return jsonify(
+        {
+            "mode": mode,
+            "list": list_name,
+            "total": total,
+            "shown": shown,
+            "more": total - shown,
+            "messages": rows,
+        }
+    )
+
+
+@api_bp.post("/pull/range")
+def pull_range() -> Any:
+    """Fetch → extract → (optionally) score a directional range of a list's messages.
+
+    Body: ``{"list": "<name>", "mode": "new"|"before", "count": <int|null>}``.
+    ``mode "new"`` pulls the first ``count`` newer-than-stored messages (a
+    missing/``null`` count means all, capped at 1000); ``mode "before"`` pulls the
+    last ``count`` messages preceding the earliest stored one (``count``
+    required). The candidate set is recomputed exactly as :func:`preview` does.
+    Scoring runs only when a Pangram API key is configured. The ``pull_state``
+    cursor advances for a "new" pull (never regressing) and is never touched by a
+    "before" pull. An IMAP failure is a 502.
+    """
+    data = _json_body()
+    list_name, mode = _list_and_mode(data)
+    store = get_store()
+    list_row = _resolve_list_or_404(store, list_name)
+    count = _range_count(data, mode)
+
+    config = current_app.config["APP_CONFIG"]
+    client = _open_client_or_502(config)
+    try:
+        uidvalidity, uids = _candidate_uids(client, store, list_row, mode)
+        matched = len(uids)
+        capped = False
+        if mode == "new":
+            if count is None:
+                capped = matched > _MAX_PULL_COUNT
+                chosen = uids[:_MAX_PULL_COUNT]
+            else:
+                chosen = uids[:count]
+        else:  # before — count is a required int here
+            chosen = uids[-count:] if count is not None and count < len(uids) else uids
+
+        fetch_summary = run_fetch_uids(client, store, list_row.folder, chosen)
+
+        # Cursor bookkeeping: a "new" pull may only ever advance the cursor; a
+        # "before" pull reaches into older UIDs and must never move it.
+        if mode == "new" and chosen:
+            max_uid = max(chosen)
+            cursor = store.get_pull_state(list_row.id)
+            if cursor is None or cursor.uidvalidity != uidvalidity or max_uid > cursor.last_uid:
+                store.set_pull_state(list_row.id, uidvalidity, max_uid)
+        store.set_list_synced(list_row.id)
+        # Best-effort activity stamp, exactly like run_fetch — never fatal.
+        try:
+            when = client.last_message_internaldate(list_row.folder)
+            if when is not None:
+                store.set_list_last_message(list_row.id, when)
+        except Exception:  # noqa: BLE001 - an activity check never fails a pull
+            pass
+    except ApiError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - IMAP/fetch failures become a 502
+        raise ApiError(f"IMAP ranged pull failed for list {list_name!r}: {exc}", 502) from exc
+    finally:
+        _close_client_quietly(client)
+
+    limit = len(chosen)
+    status_counts, _method_counts = run_extract(store, limit=limit)
+
+    scoring_skipped = not config.pangram_api_key
+    scored = cache_hits = api_calls = too_short = 0
+    if not scoring_skipped:
+        pangram = PangramClient(config.pangram_api_key)
+        score_summary = run_score(store, pangram, limit=limit)
+        scored = score_summary.scored
+        cache_hits = score_summary.cache_hits
+        api_calls = score_summary.api_calls
+        too_short = score_summary.too_short
+
+    return jsonify(
+        {
+            "mode": mode,
+            "matched": matched,
+            "capped": capped,
             "fetched": fetch_summary.fetched,
             "duplicates": fetch_summary.duplicates,
             "parse_errors": fetch_summary.parse_errors,

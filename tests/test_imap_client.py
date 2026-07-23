@@ -135,6 +135,38 @@ def test_fetch_bodies_maps_uid_and_batches():
     assert all(raw.startswith(b"Message-ID") or b"Message-ID" in raw for _, raw in got)
 
 
+def test_fetch_headers_maps_uid_and_batches():
+    fd = FakeFolder(uidvalidity=1, uidnext=10)
+    for uid in (5, 6, 7):
+        fd.messages[uid] = make_raw(message_id=f"<{uid}@x>", subject=f"S{uid}")
+    conn = FakeImapConn(folders={"f": fd})
+    client = ImapClient(conn)
+    client.examine("f")
+    got = list(client.fetch_headers([5, 6, 7], batch_size=2))
+    uids = [u for u, _ in got]
+    assert uids == [5, 6, 7]
+    # batch_size=2 → two FETCH round-trips, header-field FETCH item on the wire.
+    assert len(conn.fetch_calls) == 2
+    assert conn.fetch_calls[0] == "5,6"
+    # The returned bytes carry the requested headers (the fake serves full raw).
+    assert all(b"Subject" in raw for _, raw in got)
+
+
+def test_fetch_headers_failure_raises():
+    class Boom(FakeImapConn):
+        def uid(self, command, *args):
+            if command == "FETCH":
+                return ("NO", [b"denied"])
+            return super().uid(command, *args)
+
+    fd = FakeFolder(uidvalidity=1, uidnext=10)
+    fd.messages[1] = make_raw(message_id="<1@x>")
+    client = ImapClient(Boom(folders={"f": fd}))
+    client.examine("f")
+    with pytest.raises(ImapError):
+        list(client.fetch_headers([1]))
+
+
 def test_last_message_internaldate_parses_to_utc_iso():
     fd = FakeFolder(uidvalidity=1, uidnext=10, exists=2)
     fd.messages[1] = make_raw(message_id="<1@x>")

@@ -205,19 +205,21 @@ class ImapClient:
 
     # -- fetch ----------------------------------------------------------------
 
-    def fetch_bodies(
-        self, uids: Sequence[int], *, batch_size: int = DEFAULT_BATCH_SIZE
+    def _fetch(
+        self, uids: Sequence[int], fetch_item: str, batch_size: int
     ) -> Iterator[tuple[int | None, bytes]]:
-        """Yield ``(uid, raw_rfc822_bytes)`` for ``uids``, batched.
+        """Yield ``(uid, raw_bytes)`` for a batched ``UID FETCH`` of ``fetch_item``.
 
-        Uses ``(UID BODY.PEEK[])`` — ``PEEK`` leaves ``\\Seen`` untouched, and the
-        explicit ``UID`` item lets us map each body back to its UID regardless of
-        server response ordering.
+        Shared by :meth:`fetch_bodies` and :meth:`fetch_headers`. ``fetch_item`` is
+        the parenthesised FETCH data item (e.g. ``(UID BODY.PEEK[])``). Each
+        response tuple's descriptor line carries the ``UID`` token that maps the
+        returned literal back to its UID regardless of server ordering; malformed
+        or non-literal items are skipped rather than raising.
         """
         for start in range(0, len(uids), batch_size):
             chunk = uids[start : start + batch_size]
             id_list = ",".join(str(u) for u in chunk)
-            typ, data = self._conn.uid("FETCH", id_list, "(UID BODY.PEEK[])")  # type: ignore[attr-defined]
+            typ, data = self._conn.uid("FETCH", id_list, fetch_item)  # type: ignore[attr-defined]
             if typ != "OK":
                 raise ImapError(f"UID FETCH failed: {typ}")
             for item in data:
@@ -232,6 +234,35 @@ class ImapClient:
                     if match:
                         uid = int(match.group(1))
                 yield uid, bytes(raw)
+
+    def fetch_bodies(
+        self, uids: Sequence[int], *, batch_size: int = DEFAULT_BATCH_SIZE
+    ) -> Iterator[tuple[int | None, bytes]]:
+        """Yield ``(uid, raw_rfc822_bytes)`` for ``uids``, batched.
+
+        Uses ``(UID BODY.PEEK[])`` — ``PEEK`` leaves ``\\Seen`` untouched, and the
+        explicit ``UID`` item lets us map each body back to its UID regardless of
+        server response ordering.
+        """
+        yield from self._fetch(uids, "(UID BODY.PEEK[])", batch_size)
+
+    def fetch_headers(
+        self, uids: Sequence[int], *, batch_size: int = DEFAULT_BATCH_SIZE
+    ) -> Iterator[tuple[int | None, bytes]]:
+        """Yield ``(uid, raw_header_bytes)`` for ``uids`` — header fields only, batched.
+
+        Uses ``(UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])``: ``PEEK`` leaves
+        ``\\Seen`` untouched and only the three named header fields are transferred,
+        so a message-list preview is far cheaper than a full-body fetch. The
+        returned bytes are just those headers (parse with the stdlib
+        :mod:`email` package). Response tuples are matched with the same lenient
+        shape as :meth:`fetch_bodies` — servers echo the requested item as e.g.
+        ``BODY[HEADER.FIELDS (...)]`` — and the ``UID`` item maps each blob to its
+        UID regardless of ordering.
+        """
+        yield from self._fetch(
+            uids, "(UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])", batch_size
+        )
 
     # -- lifecycle ------------------------------------------------------------
 

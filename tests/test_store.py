@@ -379,6 +379,39 @@ def test_pull_state_roundtrip_and_uidvalidity_change(store):
     assert store.conn.execute("SELECT COUNT(*) AS c FROM pull_state").fetchone()["c"] == 1
 
 
+# --- list lookup / uid bounds -------------------------------------------------
+
+
+def test_get_list_by_name(store):
+    created = store.upsert_list("announce", "Shared Folders/announce")
+    assert store.get_list_by_name("announce").id == created.id
+    assert store.get_list_by_name("nope") is None
+
+
+def test_min_and_max_uid_for_list_ignore_null_uids(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    # No messages yet -> both None.
+    assert store.min_uid_for_list(lst.id) is None
+    assert store.max_uid_for_list(lst.id) is None
+
+    for mid, uid in (("<a@x>", 10), ("<b@x>", 4), ("<c@x>", 7), ("<d@x>", None)):
+        _add_message(store, lst.id, addr.id, message_id=mid, uid=uid)
+
+    assert store.min_uid_for_list(lst.id) == 4
+    assert store.max_uid_for_list(lst.id) == 10
+
+
+def test_uid_bounds_are_scoped_per_list(store):
+    a = store.upsert_list("announce", "Shared Folders/announce")
+    b = store.upsert_list("quic", "Shared Folders/quic")
+    addr = store.upsert_address("a@x.org")
+    _add_message(store, a.id, addr.id, message_id="<a@x>", uid=5)
+    _add_message(store, b.id, addr.id, message_id="<b@x>", uid=50)
+    assert store.max_uid_for_list(a.id) == 5
+    assert store.min_uid_for_list(b.id) == 50
+
+
 # --- addresses ----------------------------------------------------------------
 
 

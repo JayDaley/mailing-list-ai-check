@@ -14,13 +14,17 @@ import io
 import json
 from collections import Counter
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from conftest import FakeFolder, FakeImapConn, make_raw
+
 from mailing_list_ai_check.cli import ScoreSummary
 from mailing_list_ai_check.config import Config
 from mailing_list_ai_check.fetcher import FetchSummary
+from mailing_list_ai_check.imap_client import ImapClient
 from mailing_list_ai_check.store import Store
 from mailing_list_ai_check.webapp import DEV_CORS_ORIGIN, api as webapp_api, create_app
 
@@ -939,3 +943,341 @@ def test_import_corrupt_file_400(tmp_path):
     assert "error" in resp.get_json()
     # All-or-nothing: the failed import left the target empty.
     assert c2.get("/api/messages").get_json()["total"] == 0
+
+
+# --- /api/lists/preview + /api/pull/range -------------------------------------
+#
+# Both endpoints back the dashboard's "Add messages" popover. open_client is
+# monkeypatched to return a real ImapClient over the network-free FakeImapConn
+# (so EXAMINE / UID SEARCH / header + body FETCH all run against an in-memory
+# folder), while run_extract / run_score / PangramClient are faked at the api
+# boundary so no test touches the network or the paid Pangram API.
+
+
+def _server_folder(uids, *, uidvalidity=1000, name="announce"):
+    """A FakeFolder of real messages at ``uids`` (distinct sender/subject each)."""
+    fd = FakeFolder(uidvalidity=uidvalidity, uidnext=(max(uids) + 1 if uids else 1))
+    fd.exists = len(uids)
+    for uid in uids:
+        fd.messages[uid] = make_raw(
+            message_id=f"<msg{uid}@x>",
+            from_header=f"User{uid} <user{uid}@example.org>",
+            subject=f"Subject {uid}",
+            date="Mon, 06 Jan 2025 10:00:00 +0000",
+        )
+        fd.dates[uid] = datetime(2025, 1, 6, 10, 0, 0)
+        fd.froms[uid] = f"user{uid}@example.org"
+    return fd
+
+
+def _range_db(tmp_path, *, stored_uids, cursor=None, name="announce"):
+    """A fresh db with list ``name``, messages at ``stored_uids`` and opt. cursor."""
+    db = tmp_path / "range.db"
+    with Store(db) as store:
+        lst = store.upsert_list(name, f"Shared Folders/{name}")
+        addr = store.upsert_address("stored@example.org", "Stored")
+        for uid in stored_uids:
+            store.upsert_message(
+                message_id=f"<stored{uid}@x>",
+                list_id=lst.id,
+                address_id=addr.id,
+                subject=f"stored {uid}",
+                date="2025-01-01T00:00:00+00:00",
+                in_reply_to=None,
+                raw_body="stored body",
+                uid=uid,
+            )
+        if cursor is not None:
+            store.set_pull_state(lst.id, cursor[0], cursor[1])
+    return db
+
+
+def _client_over(db, conn, monkeypatch, *, pangram_key=""):
+    monkeypatch.setattr(webapp_api, "open_client", lambda *a, **k: ImapClient(conn))
+    config = replace(_config(db), pangram_api_key=pangram_key)
+    app = create_app(config, frontend_dist=None)
+    app.testing = True
+    return app.test_client()
+
+
+# --- preview ------------------------------------------------------------------
+
+
+def test_preview_new_lists_first_25_ascending(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[])  # nothing stored -> baseline 0
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 31))})
+    c = _client_over(db, conn, monkeypatch)
+
+    body = c.post("/api/lists/preview", json={"list": "announce", "mode": "new"}).get_json()
+    assert body["mode"] == "new"
+    assert body["list"] == "announce"
+    assert body["total"] == 30
+    assert body["shown"] == 25  # only the first 25 are previewed
+    assert body["more"] == 5
+    # First 25 ascending: uids 1..25, oldest first.
+    assert [m["from_email"] for m in body["messages"][:2]] == [
+        "user1@example.org",
+        "user2@example.org",
+    ]
+    assert body["messages"][-1]["from_email"] == "user25@example.org"
+    assert body["messages"][0]["subject"] == "Subject 1"
+    assert body["messages"][0]["date"] == "2025-01-06T10:00:00+00:00"
+
+
+def test_preview_before_lists_last_count_ascending(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5])  # earliest stored uid is 5
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 11))})
+    c = _client_over(db, conn, monkeypatch)
+
+    body = c.post(
+        "/api/lists/preview", json={"list": "announce", "mode": "before", "count": 2}
+    ).get_json()
+    assert body["mode"] == "before"
+    # Older-than-5 uids on the server are 1..4.
+    assert body["total"] == 4
+    assert body["shown"] == 2
+    assert body["more"] == 2
+    # The LAST 2 (immediately preceding uid 5), ascending: uids 3, 4.
+    assert [m["from_email"] for m in body["messages"]] == [
+        "user3@example.org",
+        "user4@example.org",
+    ]
+
+
+def test_preview_before_no_stored_uids_404(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[])  # nothing to anchor "before"
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 5))})
+    c = _client_over(db, conn, monkeypatch)
+    resp = c.post("/api/lists/preview", json={"list": "announce", "mode": "before"})
+    assert resp.status_code == 404
+    assert "error" in resp.get_json()
+
+
+def test_preview_unknown_list_404(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[1])
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder([1])})
+    c = _client_over(db, conn, monkeypatch)
+    resp = c.post("/api/lists/preview", json={"list": "nope", "mode": "new"})
+    assert resp.status_code == 404
+    assert "error" in resp.get_json()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"mode": "new"},  # missing list
+        {"list": "bad name", "mode": "new"},  # space not allowed
+        {"list": "announce"},  # missing mode
+        {"list": "announce", "mode": "sideways"},  # bad mode
+        {"list": "announce", "mode": "before", "count": "ten"},  # non-int count
+        {"list": "announce", "mode": "before", "count": True},  # bool not an int
+    ],
+)
+def test_preview_validation_400(tmp_path, monkeypatch, payload):
+    db = _range_db(tmp_path, stored_uids=[5])
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 6))})
+    c = _client_over(db, conn, monkeypatch)
+    resp = c.post("/api/lists/preview", json=payload)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_preview_imap_connect_failure_502(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5])
+
+    def _boom(*a, **k):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(webapp_api, "open_client", _boom)
+    config = replace(_config(db), pangram_api_key="")
+    app = create_app(config, frontend_dist=None)
+    app.testing = True
+    resp = app.test_client().post("/api/lists/preview", json={"list": "announce", "mode": "new"})
+    assert resp.status_code == 502
+    assert "error" in resp.get_json()
+
+
+# --- ranged pull --------------------------------------------------------------
+
+
+def _fake_pipeline(monkeypatch, calls, *, scored=False):
+    def fake_extract(store, limit=None):
+        calls["extract_limit"] = limit
+        return Counter({"ok": 1}), Counter({"email-reply-parser": 1})
+
+    monkeypatch.setattr(webapp_api, "run_extract", fake_extract)
+
+    def fake_score(store, client, *, limit=None, **kw):
+        calls["score_limit"] = limit
+        return ScoreSummary(scored=2, cache_hits=1, too_short=0, api_calls=2)
+
+    monkeypatch.setattr(webapp_api, "run_score", fake_score)
+    monkeypatch.setattr(webapp_api, "PangramClient", lambda key: None)
+
+
+def test_pull_range_new_with_cursor_advances_pull_state(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5], cursor=(1000, 5))
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 9))})
+    calls: dict = {}
+    _fake_pipeline(monkeypatch, calls)
+    c = _client_over(db, conn, monkeypatch)
+
+    body = c.post(
+        "/api/pull/range", json={"list": "announce", "mode": "new", "count": 2}
+    ).get_json()
+    # Baseline is the cursor's last_uid 5, so new uids are 6,7,8; first 2 -> 6,7.
+    assert body["mode"] == "new"
+    assert body["matched"] == 3
+    assert body["capped"] is False
+    assert body["fetched"] == 2
+    assert body["scoring_skipped"] is True  # no api key on this client
+    assert calls["extract_limit"] == 2
+    # Cursor advanced to the max fetched uid (7), same UIDVALIDITY.
+    with Store(db) as store:
+        lst = store.get_list_by_name("announce")
+        ps = store.get_pull_state(lst.id)
+        assert (ps.uidvalidity, ps.last_uid) == (1000, 7)
+
+
+def test_pull_range_new_without_cursor_falls_back_to_max_stored_uid(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5])  # no cursor
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 9))})
+    calls: dict = {}
+    _fake_pipeline(monkeypatch, calls)
+    c = _client_over(db, conn, monkeypatch)
+
+    body = c.post("/api/pull/range", json={"list": "announce", "mode": "new"}).get_json()
+    # Baseline = max stored uid (5); new = 6,7,8; count omitted -> all.
+    assert body["matched"] == 3
+    assert body["capped"] is False
+    assert body["fetched"] == 3
+    with Store(db) as store:
+        lst = store.get_list_by_name("announce")
+        assert store.get_pull_state(lst.id).last_uid == 8
+
+
+def test_pull_range_new_uidvalidity_mismatch_ignores_stale_cursor(tmp_path, monkeypatch):
+    # Cursor is from a DIFFERENT UIDVALIDITY with a high last_uid; it must be
+    # ignored in favour of the max stored uid, and then rewritten.
+    db = _range_db(tmp_path, stored_uids=[5], cursor=(999, 100))
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 9))})
+    calls: dict = {}
+    _fake_pipeline(monkeypatch, calls)
+    c = _client_over(db, conn, monkeypatch)
+
+    body = c.post("/api/pull/range", json={"list": "announce", "mode": "new"}).get_json()
+    assert body["matched"] == 3  # 6,7,8 (baseline fell back to stored max 5)
+    with Store(db) as store:
+        lst = store.get_list_by_name("announce")
+        ps = store.get_pull_state(lst.id)
+        assert (ps.uidvalidity, ps.last_uid) == (1000, 8)  # rewritten to server's
+
+
+def test_pull_range_before_never_touches_pull_state(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5, 6], cursor=(1000, 6))
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 7))})
+    calls: dict = {}
+    _fake_pipeline(monkeypatch, calls)
+    c = _client_over(db, conn, monkeypatch)
+
+    body = c.post(
+        "/api/pull/range", json={"list": "announce", "mode": "before", "count": 2}
+    ).get_json()
+    # Older-than-5 uids are 1..4; last 2 -> 3,4.
+    assert body["mode"] == "before"
+    assert body["matched"] == 4
+    assert body["capped"] is False
+    assert body["fetched"] == 2
+    with Store(db) as store:
+        lst = store.get_list_by_name("announce")
+        ps = store.get_pull_state(lst.id)
+        assert (ps.uidvalidity, ps.last_uid) == (1000, 6)  # unchanged
+
+
+def test_pull_range_new_all_caps_at_max(tmp_path, monkeypatch):
+    # 1001 new uids with count omitted ("all") must be capped to _MAX_PULL_COUNT.
+    db = _range_db(tmp_path, stored_uids=[])
+    fd = FakeFolder(uidvalidity=1000, uidnext=1003)
+    fd.exists = 1001
+    for uid in range(1, 1002):
+        fd.messages[uid] = b""  # search only needs the keys; run_fetch_uids is faked
+    conn = FakeImapConn(folders={"Shared Folders/announce": fd})
+
+    calls: dict = {}
+    _fake_pipeline(monkeypatch, calls)
+
+    def fake_fetch_uids(client, store, folder, uids, *, batch_size=200):
+        calls["n_uids"] = len(uids)
+        return FetchSummary(fetched=len(uids))
+
+    monkeypatch.setattr(webapp_api, "run_fetch_uids", fake_fetch_uids)
+    c = _client_over(db, conn, monkeypatch)
+
+    body = c.post("/api/pull/range", json={"list": "announce", "mode": "new"}).get_json()
+    assert body["matched"] == 1001
+    assert body["capped"] is True
+    assert calls["n_uids"] == 1000  # trimmed to the cap
+    assert body["fetched"] == 1000
+
+
+def test_pull_range_scores_when_api_key_present(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5], cursor=(1000, 5))
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 9))})
+    calls: dict = {}
+    _fake_pipeline(monkeypatch, calls)
+    c = _client_over(db, conn, monkeypatch, pangram_key="test-key")
+
+    body = c.post(
+        "/api/pull/range", json={"list": "announce", "mode": "new", "count": 3}
+    ).get_json()
+    assert body["scoring_skipped"] is False
+    assert body["scored"] == 2
+    assert body["cache_hits"] == 1
+    assert body["api_calls"] == 2
+    assert calls["score_limit"] == 3  # limit = number of uids fetched
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"list": "announce", "mode": "before"},  # before requires count
+        {"list": "announce", "mode": "before", "count": 0},  # below min
+        {"list": "announce", "mode": "before", "count": 1001},  # above max
+        {"list": "announce", "mode": "before", "count": "x"},  # non-int
+        {"list": "announce", "mode": "before", "count": True},  # bool not an int
+        {"list": "announce", "mode": "new", "count": 0},  # below min
+        {"list": "announce", "mode": "new", "count": 1001},  # above max
+        {"list": "announce", "mode": "sideways", "count": 5},  # bad mode
+    ],
+)
+def test_pull_range_validation_400(tmp_path, monkeypatch, payload):
+    db = _range_db(tmp_path, stored_uids=[5])
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 6))})
+    c = _client_over(db, conn, monkeypatch)
+    resp = c.post("/api/pull/range", json=payload)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_pull_range_unknown_list_404(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5])
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 6))})
+    c = _client_over(db, conn, monkeypatch)
+    resp = c.post("/api/pull/range", json={"list": "nope", "mode": "new"})
+    assert resp.status_code == 404
+    assert "error" in resp.get_json()
+
+
+def test_pull_range_imap_connect_failure_502(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5])
+
+    def _boom(*a, **k):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(webapp_api, "open_client", _boom)
+    config = replace(_config(db), pangram_api_key="")
+    app = create_app(config, frontend_dist=None)
+    app.testing = True
+    resp = app.test_client().post("/api/pull/range", json={"list": "announce", "mode": "new"})
+    assert resp.status_code == 502
+    assert "error" in resp.get_json()

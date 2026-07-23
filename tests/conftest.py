@@ -65,8 +65,12 @@ class FakeFolder:
             if tok == "ALL":
                 j += 1
             elif tok == "UID":
-                lo = int(crit[j + 1].split(":")[0])
+                lo_s, _, hi_s = crit[j + 1].partition(":")
+                lo = int(lo_s)
                 result &= {u for u in uids if u >= lo}
+                if hi_s and hi_s != "*":
+                    hi = int(hi_s)
+                    result &= {u for u in uids if u <= hi}
                 j += 2
             elif tok == "SINCE":
                 since = datetime.strptime(crit[j + 1], "%d-%b-%Y")

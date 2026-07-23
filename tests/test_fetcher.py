@@ -13,10 +13,12 @@ from mailing_list_ai_check.fetcher import (
     folder_for_list,
     iso_to_imap_date,
     list_name_for_folder,
+    parse_header,
     parse_message,
     refresh_lists_index,
     resolve_folders,
     run_fetch,
+    run_fetch_uids,
 )
 from mailing_list_ai_check.imap_client import ImapClient
 from mailing_list_ai_check.store import Store
@@ -209,6 +211,46 @@ def test_parse_message_captures_in_reply_to():
     raw = make_raw(in_reply_to="<parent@example.org>")
     parsed = parse_message(raw)
     assert parsed.in_reply_to == "<parent@example.org>"
+
+
+# --- header-only parse (preview) ----------------------------------------------
+
+
+def test_parse_header_extracts_from_subject_and_utc_date():
+    raw = (
+        b"From: =?UTF-8?Q?Andr=C3=A9?= <Andre@Example.ORG>\r\n"
+        b"Subject: =?UTF-8?Q?Caf=C3=A9_meeting?=\r\n"
+        b"Date: Mon, 06 Jan 2025 10:00:00 +0200\r\n"
+        b"\r\n"
+    )
+    header = parse_header(raw)
+    assert header.from_name == "André"
+    assert header.from_email == "andre@example.org"  # lowercased/stripped
+    assert header.subject == "Café meeting"
+    assert header.date == "2025-01-06T08:00:00+00:00"  # normalized to UTC
+
+
+def test_parse_header_matches_parse_message_on_full_message():
+    raw = make_raw(
+        from_header="Bob <bob@example.org>",
+        subject="Hello there",
+        date="Tue, 07 Jan 2025 09:00:00 +0000",
+    )
+    header = parse_header(raw)
+    message = parse_message(raw)
+    assert (header.from_email, header.from_name, header.subject, header.date) == (
+        message.from_email,
+        message.from_name,
+        message.subject,
+        message.date,
+    )
+
+
+def test_parse_header_missing_date_is_none():
+    raw = b"From: a@x.org\r\nSubject: no date\r\n\r\n"
+    header = parse_header(raw)
+    assert header.date is None
+    assert header.subject == "no date"
 
 
 # --- UID computation ----------------------------------------------------------
@@ -432,4 +474,50 @@ def test_run_fetch_stores_raw_html():
     ).fetchone()
     assert "the plain body" in row["raw_body"]
     assert "the html body" in row["raw_html"]
+    store.close()
+
+
+# --- run_fetch_uids -----------------------------------------------------------
+
+
+def test_run_fetch_uids_fetches_exact_set_and_upserts():
+    fd = _folder({u: (datetime(2025, 1, u), f"user{u}@example.org") for u in range(1, 6)})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    # Pull only an explicit subset (uids 2 and 4), not the whole folder.
+    summary = run_fetch_uids(client, store, "Shared Folders/t", [2, 4])
+    assert summary.fetched == 2
+    assert summary.matched == 2
+    assert summary.per_list["t"] == 2
+    mlist = store.get_list_by_name("t")
+    stored = {
+        row["uid"]
+        for row in store.conn.execute(
+            "SELECT uid FROM messages WHERE list_id = ?", (mlist.id,)
+        ).fetchall()
+    }
+    assert stored == {2, 4}
+    store.close()
+
+
+def test_run_fetch_uids_leaves_cursor_and_sync_to_caller():
+    fd = _folder({u: (datetime(2025, 1, u), "a@example.org") for u in range(1, 4)})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    run_fetch_uids(client, store, "Shared Folders/t", [1, 2, 3])
+    mlist = store.get_list_by_name("t")
+    # The wrapper deliberately does not touch pull_state or last_synced_at.
+    assert store.get_pull_state(mlist.id) is None
+    assert store.get_list(mlist.id).last_synced_at is None
+    store.close()
+
+
+def test_run_fetch_uids_is_idempotent_on_repull():
+    fd = _folder({u: (datetime(2025, 1, u), "a@example.org") for u in range(1, 4)})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    run_fetch_uids(client, store, "Shared Folders/t", [1, 2, 3])
+    second = run_fetch_uids(client, store, "Shared Folders/t", [1, 2, 3])
+    assert second.fetched == 0
+    assert second.duplicates == 3
     store.close()
