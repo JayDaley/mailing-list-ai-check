@@ -25,8 +25,9 @@ export const LABEL_SHORT = {
   AI: 'AI',
 }
 
-// The mix-bar caption text shared everywhere.
-export const MIX_CAPTION = 'Human · Mixed · Assisted · AI'
+// The mix-bar caption text shared everywhere. No spaces around the separators
+// so the uppercased header fits on one line.
+export const MIX_CAPTION = 'Human·Mixed·Assisted·AI'
 
 // Return the score band ({name, text, bg}) for a fraction_ai in [0,1].
 // null / undefined / NaN → the unscored band.

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#2f6feb"></rect>
+  <rect x="10" y="21" width="38" height="26" rx="4" fill="none" stroke="#ffffff" stroke-width="4"></rect>
+  <path d="M12 24 L29 37 L46 24" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+  <circle cx="48" cy="16" r="12" fill="#f4a83a" stroke="#2f6feb" stroke-width="3"></circle>
+  <text x="48" y="20.5" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="12" font-weight="800" fill="#1c2024" text-anchor="middle">AI</text>
+</svg>
