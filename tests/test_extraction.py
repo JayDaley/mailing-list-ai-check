@@ -220,13 +220,25 @@ def test_is_quote_line_false(line):
         "On Tue, Jul 7, 2026, at 03:25, Dan Wing wrote:",
         "Martin Thomson via Datatracker <noreply@example.org> wrote:",
         "Am Montag, dem 20.07.2026 um 22:55 +0200 schrieb Dennis Jackson:",
+        # Japanese (Spark): "<date>、<who>のメール:" — "mail from <who>".
+        "2026年7月22日 18:12 +0900、Alex Konviser <ietf@gravit.space>のメール:",
+        "2026/07/22 18:12、Alex Konviser <ietf@gravit.space>のメール:",
     ],
 )
 def test_is_attribution_line_true(line):
     assert is_attribution_line(line)
 
 
-@pytest.mark.parametrize("line", ["Just wrote some code.", "On the other hand, no.", "Hi Roy,"])
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Just wrote some code.",
+        "On the other hand, no.",
+        "Hi Roy,",
+        # A のメール: ending without the leading date never matches.
+        "アレックスのメール:",
+    ],
+)
 def test_is_attribution_line_false(line):
     assert not is_attribution_line(line)
 
@@ -480,6 +492,81 @@ def test_find_quote_header_block_requires_signal_field():
     # A lone "From:" with no Sent/Date/To/Cc/Subject following is not a block.
     lines = ["From: someone", "Just ordinary prose here.", "More prose."]
     assert find_quote_header_block(lines) is None
+
+
+def test_strip_after_chinese_original_message_divider():
+    # The Chinese Outlook divider "-----邮件原件-----" (and QQ Mail's
+    # "-----原始邮件-----") truncates like "-----Original Message-----".
+    lines = ["My reply.", "-----邮件原件-----", "发件人: Li Ming <li@example.org>", "Quoted."]
+    assert strip_after_original_message_divider(lines) == ["My reply."]
+    lines = ["My reply.", "------------------ 原始邮件 ------------------", "Quoted."]
+    assert strip_after_original_message_divider(lines) == ["My reply."]
+
+
+def test_find_quote_header_block_chinese_alibaba():
+    # Alibaba Mail style: CJK labels, full-width colons with no space after
+    # them, 主　题 padded with an ideographic space (U+3000), and a dashed
+    # divider drawn above the block.
+    lines = (
+        "Looking forward to the discussions.\n"
+        "Regards,\nWei Zhang\n"
+        "------------------------------------------------------------------\n"
+        "发件人：Li Ming <li.ming@example.org>\n"
+        "发送时间：2026年7月15日(周三) 10:05\n"
+        "收件人：Anna Schmidt<anna.schmidt@example.org>\n"
+        "主　题：[wg] Re: charter scope\n"
+        "Old quoted content here.\n"
+    ).split("\n")
+    idx = find_quote_header_block(lines)
+    assert idx is not None
+    assert lines[idx].startswith("发件人")
+
+
+def test_find_quote_header_block_chinese_outlook_ascii_colon():
+    # Chinese Outlook style: CJK labels with an ASCII colon and a space.
+    lines = (
+        "Thanks for the summary.\n\n"
+        "发件人: Anna Schmidt [mailto:anna.schmidt@example.org]\n"
+        "发送时间: 2026年7月15日 8:40\n"
+        "收件人: Li Ming <li.ming@example.org>; wg@example.org\n"
+        "主题: [wg] Re: charter scope\n"
+        "Old quoted content here.\n"
+    ).split("\n")
+    idx = find_quote_header_block(lines)
+    assert idx is not None
+    assert lines[idx].startswith("发件人")
+
+
+def test_strip_after_chinese_quote_header_drops_dangling_divider():
+    # Truncating at an Alibaba-style block also drops the dashed divider the
+    # client drew above it — furniture, not author content. A dashed rule
+    # elsewhere in the body is untouched.
+    body = (
+        "First point.\n"
+        "----------\n"
+        "Second point after an author-drawn rule.\n"
+        "Regards,\nWei Zhang\n"
+        "------------------------------------------------------------------\n"
+        "发件人：Li Ming <li.ming@example.org>\n"
+        "发送时间：2026年7月15日(周三) 10:05\n"
+        "收件人：Anna Schmidt<anna.schmidt@example.org>\n"
+        "主　题：[wg] Re: charter scope\n"
+        "Old quoted content here.\n"
+        " Anna Schmidt\n"
+        " Mobile: +49-000000000\n"
+        " Mail: anna.schmidt@example.org <mailto:anna.schmidt@example.org >\n"
+        "From:Third Person <third@example.org <mailto:third@example.org >>\n"
+        "To:Li Ming <li.ming@example.org <mailto:li.ming@example.org >>\n"
+    )
+    result = extract_new_text(body)
+    lines = [ln for ln in result.text.split("\n") if ln.strip()]
+    assert lines[0] == "First point."
+    assert "----------" in lines  # the author's own rule survives
+    assert lines[-1] == "Wei Zhang"
+    assert "发件人" not in result.text
+    assert "Anna Schmidt" not in result.text.split("Regards,")[-1]
+    assert "Mobile:" not in result.text
+    assert "From:Third Person" not in result.text
 
 
 def test_toppost_outlook_quoteheader_fixture_extracts_author_only():

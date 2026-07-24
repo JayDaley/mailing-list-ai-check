@@ -43,7 +43,10 @@ The custom pass fixes, in a general way, the cases where raw email-reply-parser
   the sign-off precedes); stage 2 strips the sign-off.
 - **Forwarded / quote-header blocks**: an Outlook-style ``From:``/``Sent:``/
   ``To:``/``Subject:`` block introducing quoted content with no ``>`` markers,
-  and everything after it, is dropped.
+  and everything after it, is dropped. Localized label sets are recognized too
+  (German; Chinese 发件人/发送时间/收件人/主题 with full-width colons, as
+  produced by Alibaba Mail and Chinese Outlook), along with the dashed divider
+  Alibaba Mail draws above the block.
 - **"Original message" dividers**: the dashed ``-------- Original message
   --------`` (or ``-----Original Message-----`` / "Forwarded message") divider
   and everything after it is dropped — including when HTML-to-text conversion
@@ -190,12 +193,18 @@ _ATTRIBUTION_RES = (
     # "<who> via Datatracker <a@b> wrote:" and similar are covered by the above.
     # German: "Am <date> schrieb <who>:"
     re.compile(r"^[ \t]*Am\b.*\bschrieb\b.*:[ \t]*$"),
+    # Japanese (Spark / Apple Mail): "2026年7月22日 18:12 +0900、<who>のメール:"
+    # ("mail from <who>"). Anchored on a leading year so prose mentioning
+    # someone's mail never matches.
+    re.compile(r"^[ \t]*\d{4}(?:年|[/.-]).*のメール:[ \t]*$"),
 )
 
 # For two-line-wrapped attributions: a start token and a terminator that may
 # appear on the following line(s). Structured per language for easy extension.
-_ATTRIBUTION_START_RE = re.compile(r"^[ \t]*(?:On|Am|Le|El|El día)\b")
-_ATTRIBUTION_END_RE = re.compile(r"(?:\bwrote:|\bschrieb\b.*:|\ba écrit\s*:|\bescribió:)[ \t]*$")
+_ATTRIBUTION_START_RE = re.compile(r"^[ \t]*(?:(?:On|Am|Le|El|El día)\b|\d{4}(?:年|[/.-]))")
+_ATTRIBUTION_END_RE = re.compile(
+    r"(?:\bwrote:|\bschrieb\b.*:|\ba écrit\s*:|\bescribió:|のメール:)[ \t]*$"
+)
 
 
 def is_attribution_line(line: str) -> bool:
@@ -391,25 +400,41 @@ def strip_after_signoff_boundary(lines: list[str]) -> list[str]:
 #
 # followed by the entire quoted message with *no* leading ``>``. Everything from
 # such a block to the end of the body is quoted content the author did not write.
+#
+# Chinese clients (Alibaba Mail, Chinese Outlook) localize the labels — 发件人 /
+# 发送时间 / 收件人 / 抄送 / 主题 — often with a full-width colon (：) and no space
+# after it, and 主题 sometimes padded with an ideographic space (主　题). Alibaba
+# Mail additionally draws a long dashed divider line directly above the block.
 
-# The block always opens with a ``From:`` line.
-_FROM_LINE_RE = re.compile(r"^[ \t]*From:[ \t]*\S")
+# The block always opens with a ``From:`` (or localized 发件人) line.
+_FROM_LINE_RE = re.compile(r"^[ \t]*(?:From:|发件人[ \t]*[:：])[ \t]*\S")
 
-# Any RFC5322-looking header field ("Name: …" / "Name:"). Used to (a) recognize
-# that a ``From:`` sits *inside* an existing header run — as with the pasted
-# header "evidence" in the threadstarter-rfc2047-header fixture, where every
-# From: is preceded by another header line, so it is not the top of a genuine
-# quote header — and (b) walk the run once a real block has started. Requiring
-# whitespace or end-of-line after the colon keeps "https://…" and other
-# scheme-like prose (no space after the colon) from matching.
-_HEADER_FIELD_RE = re.compile(r"^[ \t]*[A-Za-z][A-Za-z-]{0,40}:(?:[ \t]|$)")
+# A CJK header label: a CJK char, then up to 10 more CJK chars / ideographic
+# spaces (U+3000, as in 主　题), then an ASCII or full-width colon. No whitespace
+# is required after the colon — a full-width colon cannot occur in a URL scheme,
+# and an ASCII colon is safe here because the label itself is CJK.
+_CJK_HEADER_LABEL = r"[\u4e00-\u9fff][\u4e00-\u9fff\u3000]{0,10}[ \t]*[:：]"
+
+# Any RFC5322-looking header field ("Name: …" / "Name:"), ASCII or CJK-labeled.
+# Used to (a) recognize that a ``From:`` sits *inside* an existing header run —
+# as with the pasted header "evidence" in the threadstarter-rfc2047-header
+# fixture, where every From: is preceded by another header line, so it is not
+# the top of a genuine quote header — and (b) walk the run once a real block has
+# started. Requiring whitespace or end-of-line after an ASCII label's colon
+# keeps "https://…" and other scheme-like prose (no space after the colon) from
+# matching.
+_HEADER_FIELD_RE = re.compile(
+    rf"^[ \t]*(?:[A-Za-z][A-Za-z-]{{0,40}}:(?:[ \t]|$)|{_CJK_HEADER_LABEL})"
+)
 
 # The fields that mark a run of headers as an email quote header (rather than a
 # stray "Foo:" line). Structured as an alternation so more clients / languages
-# are easy to add (German: Gesendet/An/Betreff).
+# are easy to add (German: Gesendet/An/Betreff; Chinese: 发送时间/收件人/抄送/
+# 日期/主题, the latter also as 主　题).
 _QUOTE_HEADER_SIGNAL_RE = re.compile(
-    r"^[ \t]*(?:Sent|Date|To|Cc|Bcc|Reply-To|Subject"
-    r"|Gesendet|An|Betreff)[ \t]*:(?:[ \t]|$)",
+    r"^[ \t]*(?:(?:Sent|Date|To|Cc|Bcc|Reply-To|Subject"
+    r"|Gesendet|An|Betreff)[ \t]*:(?:[ \t]|$)"
+    r"|(?:发送时间|收件人|抄送人?|日期|主\u3000?题)[ \t]*[:：])",
     re.IGNORECASE,
 )
 
@@ -456,10 +481,28 @@ def find_quote_header_block(lines: list[str]) -> int | None:
     return None
 
 
+# The separator Alibaba Mail draws directly above its quote-header block. Only
+# consulted for the line left dangling at the truncation point, so mid-body
+# dashed rules (digest separators) are never touched.
+_QUOTE_HEADER_DIVIDER_RE = re.compile(r"^[ \t]*-{6,}[ \t]*$")
+
+
 def strip_after_quote_header_block(lines: list[str]) -> list[str]:
-    """Truncate everything from a forwarded/quote-header block to the end."""
+    """Truncate everything from a forwarded/quote-header block to the end.
+
+    A dashed divider line left dangling directly above the removed block (the
+    Alibaba Mail style) is client furniture, not author content, and is dropped
+    with the block.
+    """
     idx = find_quote_header_block(lines)
-    return lines if idx is None else lines[:idx]
+    if idx is None:
+        return lines
+    out = lines[:idx]
+    while out and not out[-1].strip():
+        out.pop()
+    if out and _QUOTE_HEADER_DIVIDER_RE.match(out[-1]):
+        out.pop()
+    return out
 
 
 # --- custom cleanup pass ------------------------------------------------------
@@ -475,9 +518,10 @@ def strip_after_quote_header_block(lines: list[str]) -> list[str]:
 # divider to the end of the author's text ("…questions.-------- Original
 # message --------From: …"), so the divider can sit mid-line — the author's
 # prefix before it is kept. Dashes are required on BOTH sides, so prose that
-# merely mentions an "original message" never matches.
+# merely mentions an "original message" never matches. Chinese clients localize
+# the wording: 邮件原件 (Chinese Outlook) and 原始邮件 (QQ Mail / Foxmail).
 _ORIGINAL_MESSAGE_DIVIDER_RE = re.compile(
-    r"-{2,}[ \t]*(?:Original|Forwarded)[ \t]+Message[ \t]*-{2,}",
+    r"-{2,}[ \t]*(?:(?:Original|Forwarded)[ \t]+Message|邮件原件|原始邮件)[ \t]*-{2,}",
     re.IGNORECASE,
 )
 

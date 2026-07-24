@@ -23,13 +23,20 @@ them, and the detail view can show the author exactly what was set aside.
 
 The removal steps, in order (order matters — see the notes):
 
-1. ``-- `` signature delimiter: that line and everything after it.
-2. **Trailing sign-off debris** (bare links/domains after a sign-off, with the
-   two-anchor rules) — run *before* step 3 because its bare-name anchor needs the
-   identifier/contact lines still present as evidence; step 3 would erase them.
+1. ``-- `` signature delimiter: that line and everything after it. A custom
+   punctuation-rule divider ("========" in Spark signatures) truncates the same
+   way when the line above it is blank and a name line follows — the two anchors
+   that distinguish a signature divider from a Markdown heading underline or an
+   authored section break.
+2. **Trailing sign-off debris** (bare links/domains and "Label: URL" lines after
+   a sign-off, with the two-anchor rules) — run *before* step 3 because its
+   bare-name anchor needs the identifier/contact lines still present as
+   evidence; step 3 would erase them.
 3. **Individually droppable signature debris**: "~ Name" sign-offs, titled
    contact lines, corporate contact lines (phone / piped address+URL),
-   personal-identifier lines (ORCID/LinkedIn/…), mailing-list footers, PGP lines.
+   personal-identifier lines (ORCID/LinkedIn/…/D-U-N-S, with up to two prefix
+   words — "VSO BLOG: …"), postal-address lines ("Tokyo Office: … 150-0021 …"),
+   mailing-list footers, PGP lines.
 4. One opening greeting line (multilingual — see :data:`_GREETING_WORDS`).
 5. Mobile/client taglines ("Sent from my iPhone", "Get Outlook for iOS", …).
 6. **Trailing confidentiality/legal disclaimer paragraphs** ("This email and any
@@ -66,6 +73,7 @@ import re
 from dataclasses import dataclass
 
 from .extraction import (
+    _is_signoff_name_like,
     _normalize_line_for_diff,
     _SIGNOFF_LINE_RE,
     _signoff_name_index,
@@ -100,6 +108,13 @@ _SIG_DELIM_RE = re.compile(r"^--[ \t]*$")
 def is_signature_delimiter(line: str) -> bool:
     """True for the ``-- `` signature delimiter (not "--eh." or "-markku")."""
     return bool(_SIG_DELIM_RE.match(line))
+
+
+# A punctuation-rule line some clients let users draw above a custom signature
+# ("========" in Spark signatures). Dashes are deliberately excluded: ``--`` is
+# the RFC 3676 delimiter handled above, and dashed rules appear as authored
+# separators in digests.
+_CUSTOM_SIG_DIVIDER_RE = re.compile(r"^[ \t]*[=~*#_]{3,}[ \t]*$")
 
 
 # --- individually droppable signature-debris lines ----------------------------
@@ -142,13 +157,26 @@ _CONTACT_CUE_RE = re.compile(
 # followed by a colon and a handle/id ("ORCID: 0009-0007-4602-5624",
 # "Email: a@b"), or by a bracketed URL and nothing else ("LinkedIn
 # <https://www.linkedin.com/in/…>" — the plain-text rendering of a hyperlink).
-# The colon / lone-bracketed-URL requirement keeps prose ("Happy to upload
-# these as GitHub issues") safe. Extend the keyword alternation as new
-# services show up.
+# Up to two short capitalized prefix words are allowed before the keyword
+# ("VSO BLOG: https://…", "Company Website: …"); the (?-i:…) group keeps the
+# prefix requirement case-sensitive inside an otherwise IGNORECASE pattern, so
+# running prose ("you can reach me by email: …") never qualifies. The colon /
+# lone-bracketed-URL requirement keeps prose ("Happy to upload these as GitHub
+# issues") safe. Extend the keyword alternation as new services show up.
 _IDENTIFIER_LINE_RE = re.compile(
-    r"^[ \t]*(?:ORCID|LinkedIn|GitHub|GitLab|Mastodon|Bluesky|Twitter|Skype|Signal"
-    r"|Telegram|WhatsApp|WeChat|Matrix|IRC|Website?|Homepage|Blog|E-?mail)"
+    r"^[ \t]*(?:(?-i:[A-Z])[\w.()&-]*[ \t]+){0,2}"
+    r"(?:ORCID|LinkedIn|GitHub|GitLab|Mastodon|Bluesky|Twitter|Skype|Signal"
+    r"|Telegram|WhatsApp|WeChat|Matrix|IRC|Website?|Homepage|Blog|E-?mail|D-?U-?N-?S)"
     r"[ \t]*(?::[ \t]*\S|<https?://[^>]+>[ \t]*$)",
+    re.IGNORECASE,
+)
+
+# A postal-address contact line: an "Office"/"Address"-labelled line (with up to
+# two prefix words — "Tokyo Office: …") whose value carries a digit (street
+# number or postal code). The digit requirement keeps prose like "Address: see
+# the wiki" safe.
+_ADDRESS_LINE_RE = re.compile(
+    r"^[ \t]*(?:\S+[ \t]+){0,2}(?:Office|Address)[ \t]*:[ \t]*[^\n]*\d",
     re.IGNORECASE,
 )
 
@@ -189,6 +217,7 @@ def _is_droppable_signature_line(line: str) -> bool:
         _TILDE_SIGNOFF_RE.match(line)
         or _CONTACT_RE.match(line)
         or _IDENTIFIER_LINE_RE.match(line)
+        or _ADDRESS_LINE_RE.match(line)
         or _LIST_FOOTER_RE.match(line)
         or _PGP_RE.match(line)
         or _is_contact_signature_line(line)
@@ -209,6 +238,12 @@ _LINK_ONLY_LINE_RE = re.compile(
     r"|(?:[\w-]+\.){1,6}[A-Za-z]{2,24}(?:/\S*)?"
     r")[ \t]*$"
 )
+
+# "Label: URL" — a short free-form label, a colon, then only a URL ("Overview:
+# https://example.org/overview/", "VCP Explorer (Demo): https://…"). Like
+# :data:`_LINK_ONLY_LINE_RE`, only consulted inside a sign-off's all-debris
+# tail — an authored "Draft: https://…" line mid-prose is never touched.
+_LABELED_LINK_LINE_RE = re.compile(r"^[ \t]*[^:\n]{1,40}:[ \t]*(?:https?://|www\.)\S+[ \t]*$")
 
 
 def strip_trailing_signoff_debris(lines: list[str]) -> list[str]:
@@ -242,7 +277,10 @@ def strip_trailing_signoff_debris(lines: list[str]) -> list[str]:
         if not tail:
             continue
         if all(
-            _is_droppable_signature_line(line) or _LINK_ONLY_LINE_RE.match(line) for line in tail
+            _is_droppable_signature_line(line)
+            or _LINK_ONLY_LINE_RE.match(line)
+            or _LABELED_LINK_LINE_RE.match(line)
+            for line in tail
         ) and (not need_droppable or any(_is_droppable_signature_line(line) for line in tail)):
             return lines[: name_idx + 1]
     return lines
@@ -367,6 +405,27 @@ def _truncate_at_signature_delimiter(pairs: list[tuple[int, str]]) -> list[tuple
     return pairs
 
 
+def _truncate_at_custom_signature_divider(pairs: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Truncate at a punctuation-rule divider that opens a signature block.
+
+    Two anchors keep authored content safe: the line directly above the divider
+    must be blank (or the divider must open the text) — a Markdown-style heading
+    underline sits directly UNDER its heading line and so never qualifies — and
+    the first non-blank line after the divider must be a plausible name line
+    (optionally with a title/affiliation tail), which is what marks the block as
+    a signature rather than a section break.
+    """
+    for pos, (_idx, line) in enumerate(pairs):
+        if not _CUSTOM_SIG_DIVIDER_RE.match(line):
+            continue
+        if pos > 0 and pairs[pos - 1][1].strip():
+            continue  # heading underline, not a signature divider
+        nxt = next((ln for _i, ln in pairs[pos + 1 :] if ln.strip()), None)
+        if nxt is not None and _is_signoff_name_like(nxt):
+            return pairs[:pos]
+    return pairs
+
+
 def _strip_trailing_debris_pairs(pairs: list[tuple[int, str]]) -> list[tuple[int, str]]:
     kept = strip_trailing_signoff_debris([line for _idx, line in pairs])
     return pairs[: len(kept)]
@@ -461,6 +520,7 @@ def _clean_pass(
 ) -> list[tuple[int, str]]:
     """One full pass of every removal step, in order."""
     pairs = _truncate_at_signature_delimiter(pairs)
+    pairs = _truncate_at_custom_signature_divider(pairs)
     # Trailing-debris before the per-line debris drop: its bare-name anchor needs
     # the identifier/contact lines still present as evidence.
     pairs = _strip_trailing_debris_pairs(pairs)

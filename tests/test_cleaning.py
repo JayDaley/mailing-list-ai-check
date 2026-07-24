@@ -68,6 +68,39 @@ def test_truncates_at_hard_delimiter():
     assert scored(text) == "Real content."
 
 
+def test_truncates_at_custom_signature_divider():
+    # The Spark custom-signature shape: a "========" rule after a blank line,
+    # then a name line opening a long contact block.
+    text = (
+        "Real content.\n\nThank you,\n\n"
+        "========\n"
+        "Tokachi Kamimura\n"
+        "Executive Director\n"
+        "Standards Organization\n"
+        "Overview: https://example.org/overview/\n"
+    )
+    cleaned = scored(text)
+    assert cleaned == "Real content."
+    assert "Kamimura" not in cleaned
+
+
+def test_markdown_heading_underline_is_not_a_signature_divider():
+    # A "====" rule directly under a text line is a heading underline; nothing
+    # is truncated even when a name-like line follows.
+    text = "Reviewers\n=========\nJohn Smith\nJane Doe\n\nBoth approved the draft."
+    cleaned = scored(text)
+    assert "John Smith" in cleaned
+    assert "Both approved the draft." in cleaned
+
+
+def test_divider_without_name_line_is_kept():
+    # A rule after a blank line but followed by prose is an authored section
+    # break, not a signature.
+    text = "Part one.\n\n====\n\nThe second part continues the argument here."
+    cleaned = scored(text)
+    assert "The second part continues the argument here." in cleaned
+
+
 # --- individually droppable signature debris ----------------------------------
 
 
@@ -127,6 +160,20 @@ def test_drops_identifier_line_but_not_prose():
     assert scored("Body.\nLinkedIn <https://www.linkedin.com/in/kunalghosh87/>") == "Body."
     kept = scored("Happy to upload any of these as GitHub issues if the authors prefer.")
     assert "GitHub issues" in kept
+
+
+def test_drops_prefixed_identifier_and_address_lines():
+    # Short capitalized prefixes before an identifier keyword are furniture.
+    assert scored("Body.\nVSO BLOG: https://example.org/blog/") == "Body."
+    assert scored("Body.\nD-U-N-S: 698368529") == "Body."
+    # An Office/Address line whose value carries a digit is a postal address.
+    assert scored("Body.\nTokyo Office: Ebisu, Shibuya-ku, Tokyo 150-0021, Japan") == "Body."
+    # Running prose in front of the keyword never qualifies.
+    kept = scored("Body.\nyou can reach me by email: kunal@example.org anytime")
+    assert "reach me by email" in kept
+    # An Address line with no digit is kept.
+    kept = scored("Body.\nAddress: see the wiki for directions")
+    assert "see the wiki" in kept
 
 
 # --- trailing sign-off debris -------------------------------------------------
