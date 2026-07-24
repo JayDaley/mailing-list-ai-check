@@ -268,6 +268,35 @@ def _address_id_list(data: dict[str, Any], key: str) -> list[int]:
     return ids
 
 
+def _validate_list_name(data: dict[str, Any]) -> str:
+    """Validate and return the request's ``list`` (same rule as :func:`pull`).
+
+    Raises a 400 ``ApiError`` for a missing/blank name or one containing any
+    character outside :data:`_LIST_NAME_RE`.
+    """
+    list_name = data.get("list")
+    if not isinstance(list_name, str) or not list_name.strip():
+        raise ApiError("list is required")
+    list_name = list_name.strip()
+    if not _LIST_NAME_RE.match(list_name):
+        raise ApiError("list name may contain only letters, digits, '.', '-' and '_'")
+    return list_name
+
+
+def _required_count(data: dict[str, Any], name: str) -> int:
+    """Validate a required integer field in 1..1000 (same rule as :func:`pull`).
+
+    A missing value, a non-integer, or a ``bool`` (never a valid integer here)
+    is a 400; an out-of-range integer is a 400. Returns the validated value.
+    """
+    value = data.get(name)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ApiError(f"{name} must be an integer")
+    if not (_MIN_PULL_COUNT <= value <= _MAX_PULL_COUNT):
+        raise ApiError(f"{name} must be between {_MIN_PULL_COUNT} and {_MAX_PULL_COUNT}")
+    return value
+
+
 # --- message endpoints --------------------------------------------------------
 
 
@@ -413,6 +442,33 @@ def _fetch_for_list(config: Any, store: Store, list_name: str, count: int) -> An
             pass
 
 
+def _run_score_stage(config: Any, store: Store, limit: int) -> dict[str, Any]:
+    """Run the score stage for up to ``limit`` unscored extractions.
+
+    Scoring runs only when a Pangram API key is configured; otherwise it is
+    skipped, Pangram is never called, and ``scoring_skipped`` is true. Returns
+    the score summary fields shared by :func:`pull`, :func:`pull_range`, and the
+    standalone :func:`score` endpoint.
+    """
+    if not config.pangram_api_key:
+        return {
+            "scored": 0,
+            "cache_hits": 0,
+            "api_calls": 0,
+            "too_short": 0,
+            "scoring_skipped": True,
+        }
+    pangram = PangramClient(config.pangram_api_key)
+    score_summary = run_score(store, pangram, limit=limit)
+    return {
+        "scored": score_summary.scored,
+        "cache_hits": score_summary.cache_hits,
+        "api_calls": score_summary.api_calls,
+        "too_short": score_summary.too_short,
+        "scoring_skipped": False,
+    }
+
+
 @api_bp.post("/pull")
 def pull() -> Any:
     """Fetch → extract → (optionally) score the most recent messages of a list.
@@ -468,6 +524,77 @@ def pull() -> Any:
             "scoring_skipped": scoring_skipped,
         }
     )
+
+
+# --- pull stages (fetch / extract / score run as separate calls) --------------
+#
+# The combined /pull above runs fetch → extract → score in one request. The
+# endpoints below expose the same three stages individually so the dashboard can
+# drive them as sequential HTTP calls and show real per-stage progress. Each
+# reuses the exact helpers and validation /pull uses; /pull itself is unchanged.
+
+
+@api_bp.post("/pull/fetch")
+def pull_fetch() -> Any:
+    """Run only the fetch stage of :func:`pull` for a list.
+
+    Body: ``{"list": "<name>", "count": <int 1-1000>}`` — validated exactly as
+    :func:`pull`. Runs :func:`_fetch_for_list` and nothing else. ``limit`` echoes
+    ``count`` so the client can pass it to the extract and score stages. An IMAP
+    failure is a 502.
+    """
+    data = _json_body()
+    list_name = _validate_list_name(data)
+    count = _required_count(data, "count")
+
+    config = current_app.config["APP_CONFIG"]
+    store = get_store()
+
+    fetch_summary = _fetch_for_list(config, store, list_name, count)
+
+    return jsonify(
+        {
+            "fetched": fetch_summary.fetched,
+            "duplicates": fetch_summary.duplicates,
+            "parse_errors": fetch_summary.parse_errors,
+            "limit": count,
+        }
+    )
+
+
+@api_bp.post("/extract")
+def extract() -> Any:
+    """Run only the extract stage over up to ``limit`` un-extracted messages.
+
+    Body: ``{"limit": <int 1-1000>}`` — validated exactly as :func:`pull`'s
+    ``count``. Local work only; no IMAP or Pangram calls.
+    """
+    data = _json_body()
+    limit = _required_count(data, "limit")
+
+    status_counts, _method_counts = run_extract(get_store(), limit=limit)
+
+    return jsonify(
+        {
+            "extracted": status_counts.get("ok", 0),
+            "empty": status_counts.get("empty", 0),
+        }
+    )
+
+
+@api_bp.post("/score")
+def score() -> Any:
+    """Run only the score stage over up to ``limit`` unscored extractions.
+
+    Body: ``{"limit": <int 1-1000>}`` — validated exactly as :func:`pull`'s
+    ``count``. Scoring runs only when a Pangram API key is configured; otherwise
+    Pangram is never called and ``scoring_skipped`` is true.
+    """
+    data = _json_body()
+    limit = _required_count(data, "limit")
+
+    config = current_app.config["APP_CONFIG"]
+    return jsonify(_run_score_stage(config, get_store(), limit))
 
 
 # --- add messages: preview + ranged pull -------------------------------------
@@ -677,26 +804,19 @@ def preview() -> Any:
     )
 
 
-@api_bp.post("/pull/range")
-def pull_range() -> Any:
-    """Fetch → extract → (optionally) score a directional range of a list's messages.
+def _run_range_fetch(
+    config: Any, store: Store, list_row: Any, mode: str, count: int | None
+) -> dict[str, Any]:
+    """Perform the fetch stage of a ranged pull, returning its summary.
 
-    Body: ``{"list": "<name>", "mode": "new"|"before", "count": <int|null>}``.
-    ``mode "new"`` pulls the first ``count`` newer-than-stored messages (a
-    missing/``null`` count means all, capped at 1000); ``mode "before"`` pulls the
-    last ``count`` messages preceding the earliest stored one (``count``
-    required). The candidate set is recomputed exactly as :func:`preview` does.
-    Scoring runs only when a Pangram API key is configured. The ``pull_state``
-    cursor advances for a "new" pull (never regressing) and is never touched by a
-    "before" pull. An IMAP failure is a 502.
+    Shared verbatim by :func:`pull_range` and :func:`pull_range_fetch`: candidate
+    UID selection, capping, :func:`run_fetch_uids`, the "new"-mode ``pull_state``
+    cursor advance (never regressing; never touched for "before"),
+    :meth:`Store.set_list_synced`, and the best-effort activity stamp. Runs no
+    extract or score. An IMAP failure is a 502. The returned dict carries
+    ``mode``, ``matched``, ``capped``, ``fetched``, ``duplicates``,
+    ``parse_errors``, and ``limit`` (the number of messages actually chosen).
     """
-    data = _json_body()
-    list_name, mode = _list_and_mode(data)
-    store = get_store()
-    list_row = _resolve_list_or_404(store, list_name)
-    count = _range_count(data, mode)
-
-    config = current_app.config["APP_CONFIG"]
     client = _open_client_or_502(config)
     try:
         uidvalidity, uids = _candidate_uids(client, store, list_row, mode)
@@ -731,40 +851,80 @@ def pull_range() -> Any:
     except ApiError:
         raise
     except Exception as exc:  # noqa: BLE001 - IMAP/fetch failures become a 502
-        raise ApiError(f"IMAP ranged pull failed for list {list_name!r}: {exc}", 502) from exc
+        raise ApiError(f"IMAP ranged pull failed for list {list_row.name!r}: {exc}", 502) from exc
     finally:
         _close_client_quietly(client)
 
-    limit = len(chosen)
-    status_counts, _method_counts = run_extract(store, limit=limit)
+    return {
+        "mode": mode,
+        "matched": matched,
+        "capped": capped,
+        "fetched": fetch_summary.fetched,
+        "duplicates": fetch_summary.duplicates,
+        "parse_errors": fetch_summary.parse_errors,
+        "limit": len(chosen),
+    }
 
-    scoring_skipped = not config.pangram_api_key
-    scored = cache_hits = api_calls = too_short = 0
-    if not scoring_skipped:
-        pangram = PangramClient(config.pangram_api_key)
-        score_summary = run_score(store, pangram, limit=limit)
-        scored = score_summary.scored
-        cache_hits = score_summary.cache_hits
-        api_calls = score_summary.api_calls
-        too_short = score_summary.too_short
+
+@api_bp.post("/pull/range")
+def pull_range() -> Any:
+    """Fetch → extract → (optionally) score a directional range of a list's messages.
+
+    Body: ``{"list": "<name>", "mode": "new"|"before", "count": <int|null>}``.
+    ``mode "new"`` pulls the first ``count`` newer-than-stored messages (a
+    missing/``null`` count means all, capped at 1000); ``mode "before"`` pulls the
+    last ``count`` messages preceding the earliest stored one (``count``
+    required). The candidate set is recomputed exactly as :func:`preview` does.
+    Scoring runs only when a Pangram API key is configured. The ``pull_state``
+    cursor advances for a "new" pull (never regressing) and is never touched by a
+    "before" pull. An IMAP failure is a 502.
+    """
+    data = _json_body()
+    list_name, mode = _list_and_mode(data)
+    store = get_store()
+    list_row = _resolve_list_or_404(store, list_name)
+    count = _range_count(data, mode)
+
+    config = current_app.config["APP_CONFIG"]
+    fetch_result = _run_range_fetch(config, store, list_row, mode, count)
+    limit = fetch_result.pop("limit")
+
+    status_counts, _method_counts = run_extract(store, limit=limit)
+    score_result = _run_score_stage(config, store, limit)
 
     return jsonify(
         {
-            "mode": mode,
-            "matched": matched,
-            "capped": capped,
-            "fetched": fetch_summary.fetched,
-            "duplicates": fetch_summary.duplicates,
-            "parse_errors": fetch_summary.parse_errors,
+            **fetch_result,
             "extracted": status_counts.get("ok", 0),
             "empty": status_counts.get("empty", 0),
-            "too_short": too_short,
-            "scored": scored,
-            "cache_hits": cache_hits,
-            "api_calls": api_calls,
-            "scoring_skipped": scoring_skipped,
+            "too_short": score_result["too_short"],
+            "scored": score_result["scored"],
+            "cache_hits": score_result["cache_hits"],
+            "api_calls": score_result["api_calls"],
+            "scoring_skipped": score_result["scoring_skipped"],
         }
     )
+
+
+@api_bp.post("/pull/range/fetch")
+def pull_range_fetch() -> Any:
+    """Run only the fetch stage of :func:`pull_range` for a directional range.
+
+    Body: ``{"list": "<name>", "mode": "new"|"before", "count": <int|null>}`` —
+    validated exactly as :func:`pull_range`. Performs everything :func:`pull_range`
+    does through the IMAP fetch (candidate selection, capping, the "new"-mode
+    cursor advance, ``set_list_synced``, the activity stamp) but runs no extract or
+    score. ``limit`` is the number of messages chosen, for the client to pass to
+    the extract and score stages. An IMAP failure is a 502.
+    """
+    data = _json_body()
+    list_name, mode = _list_and_mode(data)
+    store = get_store()
+    list_row = _resolve_list_or_404(store, list_name)
+    count = _range_count(data, mode)
+
+    config = current_app.config["APP_CONFIG"]
+    return jsonify(_run_range_fetch(config, store, list_row, mode, count))
 
 
 # --- entity endpoints ---------------------------------------------------------

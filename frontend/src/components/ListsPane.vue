@@ -4,9 +4,18 @@
 //
 //   1. Lists index (default)  — every list with a mix bar (GET /api/lists).
 //      "+ Add list" and "Regenerate index" live in the pane header, in every
-//      mode (POST /api/pull, POST /api/lists/regenerate).
+//      mode (POST /api/lists/regenerate).
 //   2. List stats (a `list` filter) — per-list aggregates from GET /api/summary
-//      (stat tiles, detection-mix summary, last-50-messages rug, pull footer).
+//      (stat tiles, detection-mix summary, last-50-messages rug, Add footer).
+//
+// "Run process ($)" buttons (the Add-list form and the Add popover) do not
+// pull-and-score in one call. They close their own UI and open the
+// RunProcessModal, which drives the three pipeline stages sequentially via
+// separate endpoints: fetch (POST /api/pull/fetch or /api/pull/range/fetch),
+// then extract (POST /api/extract), then check (POST /api/score). The Add
+// popover opens from each index row's "Add" button and from the list-stats
+// footer's "Add" button; only "Regenerate index" keeps its older single-call
+// flow.
 //
 // Sender (person/address) details live in the Senders pane, not here.
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
@@ -18,6 +27,7 @@ import { MIX_CAPTION, labelColor } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
+import RunProcessModal from './RunProcessModal.vue'
 
 const filters = useFiltersStore()
 const route = useRoute()
@@ -131,44 +141,133 @@ function fmtSynced(iso) {
 }
 
 // --- pull / regenerate status (shared by index + list-stats footer) --------
-const pulling = ref(false)
 const pullMsg = ref('')
 const regenerating = ref(false)
 const regenMsg = ref('')
 const statusMsg = computed(() =>
-  pulling.value
-    ? 'pulling and scoring…'
-    : regenerating.value
-      ? 'enumerating server folders…'
-      : pullMsg.value || regenMsg.value,
+  regenerating.value ? 'enumerating server folders…' : pullMsg.value || regenMsg.value,
 )
 
-function pullSummaryLine(name, r) {
-  const scored = r.scoring_skipped ? 'skipped' : fmtInt(r.scored)
-  return (
-    `${name}: fetched ${fmtInt(r.fetched)} · extracted ${fmtInt(r.extracted)} · ` +
-    `scored ${scored} · too short ${fmtInt(r.too_short)}`
-  )
+// --- staged run modal (fetch → extract → check) -----------------------------
+// The "Run process ($)" buttons drive the pipeline in three sequential POSTs,
+// surfacing each stage's status in RunProcessModal. runProcess owns the
+// reactive stage state; the modal is presentational. The Add-list form and the
+// popover differ only in the fetch endpoint/body and detail formatter.
+const STAGE_DEFS = [
+  { key: 'fetch', label: 'Fetch' },
+  { key: 'extract', label: 'Extract' },
+  { key: 'check', label: 'Check' },
+]
+const processRunning = ref(false) // a stage is in flight → guard + disable Close
+const processModalOpen = ref(false)
+const processTitle = ref('')
+const processStages = ref([])
+const processModalTitle = computed(() => `Run process — ${processTitle.value}`)
+
+function initStages() {
+  processStages.value = STAGE_DEFS.map((d) => ({ ...d, status: 'pending', detail: '' }))
+}
+function setStage(key, status, detail) {
+  const s = processStages.value.find((x) => x.key === key)
+  if (!s) return
+  s.status = status
+  if (detail !== undefined) s.detail = detail
+}
+function errMsg(err) {
+  return err instanceof Error ? err.message : String(err)
 }
 
-async function runPull(name, count) {
-  if (pulling.value) return false
-  pulling.value = true
-  pullMsg.value = ''
-  regenMsg.value = ''
-  let ok = false
+// Fetch-stage detail lines. Plain: the Add-list form flow; range: the popover
+// flow (prepends the matched count, appends the cap note when the API capped).
+function fetchDetailPlain(r) {
+  return (
+    `fetched ${fmtInt(r.fetched)} · duplicates ${fmtInt(r.duplicates)} · ` +
+    `parse errors ${fmtInt(r.parse_errors)}`
+  )
+}
+function fetchDetailRange(r) {
+  let line =
+    `matched ${fmtInt(r.matched)} · fetched ${fmtInt(r.fetched)} · ` +
+    `duplicates ${fmtInt(r.duplicates)} · parse errors ${fmtInt(r.parse_errors)}`
+  if (r.capped) line += ' · capped at 1,000'
+  return line
+}
+
+// Run the three stages strictly in order. fetchFn returns the fetch response
+// (which echoes the `limit` fed to extract/score); fetchDetailFn formats it. On
+// any stage error the run stops, that stage shows the message, later stages stay
+// pending, and Close is re-enabled. The pane refreshes whether or not the run
+// completed: an error after (or during) the fetch stage may still have
+// inserted messages.
+async function runProcess(name, fetchFn, fetchDetailFn) {
+  if (processRunning.value) return
+  processTitle.value = name
+  initStages()
+  processModalOpen.value = true
+  processRunning.value = true
   try {
-    const r = await postJson('/pull', { list: name, count })
-    pullMsg.value = pullSummaryLine(name, r)
-    ok = true
+    // Fetch
+    setStage('fetch', 'running')
+    let fetchRes
+    try {
+      fetchRes = await fetchFn()
+    } catch (err) {
+      setStage('fetch', 'error', errMsg(err))
+      return
+    }
+    setStage('fetch', 'done', fetchDetailFn(fetchRes))
+
+    const limit = fetchRes.limit
+    if (limit === 0) {
+      // Range matched nothing — nothing to extract or score.
+      setStage('extract', 'done', 'nothing to process')
+      setStage('check', 'done', 'nothing to process')
+    } else {
+      // Extract
+      setStage('extract', 'running')
+      let extractRes
+      try {
+        extractRes = await postJson('/extract', { limit })
+      } catch (err) {
+        setStage('extract', 'error', errMsg(err))
+        return
+      }
+      setStage(
+        'extract',
+        'done',
+        `extracted ${fmtInt(extractRes.extracted)} · empty ${fmtInt(extractRes.empty)}`,
+      )
+
+      // Check
+      setStage('check', 'running')
+      let scoreRes
+      try {
+        scoreRes = await postJson('/score', { limit })
+      } catch (err) {
+        setStage('check', 'error', errMsg(err))
+        return
+      }
+      if (scoreRes.scoring_skipped) {
+        setStage('check', 'skipped', 'skipped (no Pangram API key)')
+      } else {
+        setStage(
+          'check',
+          'done',
+          `scored ${fmtInt(scoreRes.scored)} · cache hits ${fmtInt(scoreRes.cache_hits)} · ` +
+            `API calls ${fmtInt(scoreRes.api_calls)} · too short ${fmtInt(scoreRes.too_short)}`,
+        )
+      }
+    }
+  } finally {
+    processRunning.value = false
     await loadLists()
     if (mode.value === 'list') await Promise.all([loadSummary(), loadRug()])
-  } catch (err) {
-    pullMsg.value = err instanceof Error ? err.message : String(err)
-  } finally {
-    pulling.value = false
   }
-  return ok
+}
+
+function closeProcessModal() {
+  if (processRunning.value) return
+  processModalOpen.value = false
 }
 
 // --- index mode -------------------------------------------------------------
@@ -231,12 +330,11 @@ function submitPull() {
   let count = parseInt(pullCount.value, 10)
   if (!Number.isFinite(count)) count = 50
   count = Math.min(1000, Math.max(1, count))
-  runPull(name, count).then((ok) => {
-    if (ok) {
-      pullFormOpen.value = false
-      pullName.value = ''
-    }
-  })
+  // Close the form and clear the name input, then drive the staged run in the
+  // modal (fetch → extract → check).
+  pullFormOpen.value = false
+  pullName.value = ''
+  runProcess(name, () => postJson('/pull/fetch', { list: name, count }), fetchDetailPlain)
 }
 // Summarise the POST /api/lists/regenerate response. Appends the per-list
 // server-activity check counts when the backend reports them.
@@ -264,10 +362,12 @@ async function regenerate() {
   }
 }
 
-// --- add-list popover (index mode) -----------------------------------------
-// One popover open at a time, anchored under the clicked row. Its two tabs
-// preview server-side messages ("new since last fetch" / "before last fetch")
-// and, from the same views, pull-and-score a chosen range via POST /pull/range.
+// --- add-and-check popover ---------------------------------------------------
+// One popover open at a time, anchored under the Add button that opened it (an
+// index row's or the list-stats footer's). Its two tabs
+// preview server-side messages ("new since last fetch" / "before last fetch").
+// Each "Run process ($)" button closes the popover and hands the chosen range
+// to runProcess, which drives the staged fetch/extract/check run in the modal.
 const popoverList = ref(null) // name of the list whose Add popover is open
 const popoverTab = ref('new') // 'new' | 'before'
 // Inline fixed-position style for the teleported popover (see toggleAddPopover).
@@ -286,12 +386,7 @@ const beforePreviewLoading = ref(false)
 const beforePreviewError = ref('')
 const beforeCount = ref(25) // requested preview window (1..1000)
 const beforePreviewedCount = ref(0) // the count the last successful preview used
-const beforePreviewed = ref(false) // a preview has run → enable "Fetch and check"
-
-// Shared pull/range status shown in the popover footer.
-const rangeRunning = ref(false)
-const rangeMsg = ref('')
-const rangeError = ref(false)
+const beforePreviewed = ref(false) // a preview has run → enable "Run process ($)"
 
 function senderName(m) {
   return m.from_name || m.from_email || '(unknown)'
@@ -310,8 +405,6 @@ function resetPopover() {
   beforeCount.value = 25
   beforePreviewedCount.value = 0
   beforePreviewed.value = false
-  rangeMsg.value = ''
-  rangeError.value = false
 }
 
 function closeAddPopover() {
@@ -345,7 +438,8 @@ function computePopoverStyle(btn) {
   return style
 }
 
-// Toggle from a row's "Add" button; clicking another row's Add moves it.
+// Toggle from an "Add" button (index row or list-stats footer); clicking a
+// different list's Add moves the popover there.
 function toggleAddPopover(name, event) {
   if (popoverList.value === name) {
     closeAddPopover()
@@ -409,17 +503,12 @@ function normaliseNewCount() {
   if (String(newCountInput.value).trim() === '') newCountInput.value = 'all'
 }
 
-function rangeSummaryLine(name, r) {
-  let line = pullSummaryLine(name, r)
-  if (r.capped) line += ' · capped at 1,000'
-  return line
-}
-
-// Pull-and-score a range for the open popover's list, then refresh the pane and
-// re-run the active tab's preview so the listing reflects the new state.
-async function runRange(mode) {
+// A "Run process ($)" button in the popover: compute the range the same way the
+// preview tabs do, close the popover, and hand the run to the staged modal.
+// 'new': input "all"/empty → null (all new). 'before': the previewed count.
+function startPopoverProcess(mode) {
   const name = popoverList.value
-  if (!name || rangeRunning.value) return
+  if (!name) return
   let count
   if (mode === 'new') {
     const raw = String(newCountInput.value).trim()
@@ -432,22 +521,8 @@ async function runRange(mode) {
   } else {
     count = beforePreviewedCount.value
   }
-  rangeRunning.value = true
-  rangeMsg.value = ''
-  rangeError.value = false
-  try {
-    const r = await postJson('/pull/range', { list: name, mode, count })
-    rangeMsg.value = rangeSummaryLine(name, r)
-    rangeError.value = false
-    await loadLists()
-    if (mode === 'new') await loadNewPreview()
-    else await runBeforePreview()
-  } catch (err) {
-    rangeMsg.value = err instanceof Error ? err.message : String(err)
-    rangeError.value = true
-  } finally {
-    rangeRunning.value = false
-  }
+  closeAddPopover()
+  runProcess(name, () => postJson('/pull/range/fetch', { list: name, mode, count }), fetchDetailRange)
 }
 
 // Close on Escape or a click outside the open popover (the row's own Add button
@@ -503,9 +578,6 @@ const listCard = computed(() => {
 function closeList() {
   filters.setFilter('list', '')
 }
-function pullList() {
-  runPull(filters.list, 50)
-}
 </script>
 
 <template>
@@ -530,12 +602,7 @@ function pullList() {
         <span class="show-all-text">Show All</span>
       </label>
       <span class="header-actions">
-        <button
-          v-if="!pullFormOpen"
-          class="io-btn"
-          :disabled="pulling"
-          @click="openPullForm"
-        >
+        <button v-if="!pullFormOpen" class="io-btn" @click="openPullForm">
           Add list
         </button>
         <button class="io-btn" :disabled="regenerating" @click="regenerate">
@@ -561,7 +628,9 @@ function pullList() {
             class="pull-count"
             @input="(e) => (pullCount = e.target.value)"
           />
-          <button class="btn-primary btn-go" :disabled="pulling" @click="submitPull">Go</button>
+          <button class="btn-primary btn-go" :disabled="processRunning" @click="submitPull">
+            Run process ($)
+          </button>
           <button class="btn-cancel" @click="cancelPull">✕</button>
         </div>
         <div class="pull-note">Scoring sends extracted text to the paid Pangram API.</div>
@@ -611,7 +680,13 @@ function pullList() {
             ></span>
           </div>
           <div class="pull-footer">
-            <button class="btn-secondary" :disabled="pulling" @click="pullList">Pull 50 newest</button>
+            <button
+              type="button"
+              class="io-btn row-add-btn"
+              @click.stop="toggleAddPopover(filters.list, $event)"
+            >
+              Add
+            </button>
             <span class="status-mono">{{ statusMsg }}</span>
           </div>
         </template>
@@ -646,140 +721,146 @@ function pullList() {
           >
             Add
           </button>
-
-          <!-- per-row add-and-check popover; teleported to <body> so no ancestor
-               overflow (scrolling pane body, clipped card) can hide it -->
-          <Teleport to="body">
-          <div v-if="popoverList === l.name" class="add-popover" :style="popoverStyle" @click.stop>
-            <div class="pop-head">
-              <div class="pop-tabs" role="tablist">
-                <button
-                  type="button"
-                  class="pop-tab"
-                  :class="{ 'pop-tab-on': popoverTab === 'new' }"
-                  :aria-selected="popoverTab === 'new'"
-                  @click="setPopoverTab('new')"
-                >
-                  New since last fetch
-                </button>
-                <button
-                  type="button"
-                  class="pop-tab"
-                  :class="{ 'pop-tab-on': popoverTab === 'before' }"
-                  :aria-selected="popoverTab === 'before'"
-                  @click="setPopoverTab('before')"
-                >
-                  Before last fetch
-                </button>
-              </div>
-              <button type="button" class="pop-close" title="Close" @click="closeAddPopover">✕</button>
-            </div>
-
-            <!-- Tab 1 — new since last fetch -->
-            <div v-if="popoverTab === 'new'" class="pop-view">
-              <div v-if="newPreviewLoading" class="pop-status">checking server…</div>
-              <div v-else-if="newPreviewError" class="pop-status pop-error">{{ newPreviewError }}</div>
-              <template v-else-if="newPreview">
-                <div v-if="newPreview.total === 0" class="pop-status">
-                  No new messages since the last fetch.
-                </div>
-                <template v-else>
-                  <div class="pop-list">
-                    <div v-for="(m, i) in newPreview.messages" :key="i" class="pop-msg">
-                      <span class="pop-from" :title="senderTitle(m)">{{ senderName(m) }}</span>
-                      <span class="pop-subj">{{ m.subject || '(no subject)' }}</span>
-                      <span class="pop-date mono">{{ fmtDate(m.date) }}</span>
-                    </div>
-                  </div>
-                  <div v-if="newPreview.more > 0" class="pop-more">
-                    + {{ fmtInt(newPreview.more) }} more not shown
-                  </div>
-                </template>
-              </template>
-              <div class="pop-fetch-row">
-                <label class="pop-label">
-                  Messages to fetch:
-                  <input
-                    type="text"
-                    class="pop-input"
-                    :value="newCountInput"
-                    @input="(e) => (newCountInput = e.target.value)"
-                    @change="normaliseNewCount"
-                    @blur="normaliseNewCount"
-                  />
-                </label>
-                <button type="button" class="io-btn" :disabled="rangeRunning" @click="runRange('new')">
-                  Fetch and check
-                </button>
-              </div>
-            </div>
-
-            <!-- Tab 2 — before last fetch -->
-            <div v-else class="pop-view">
-              <div class="pop-fetch-row">
-                <label class="pop-label">
-                  Messages to preview:
-                  <input
-                    type="number"
-                    min="1"
-                    max="1000"
-                    class="pop-input pop-input-num"
-                    :value="beforeCount"
-                    @input="(e) => (beforeCount = e.target.value)"
-                  />
-                </label>
-                <button
-                  type="button"
-                  class="io-btn"
-                  :disabled="beforePreviewLoading"
-                  @click="runBeforePreview"
-                >
-                  Preview
-                </button>
-              </div>
-              <div v-if="beforePreviewLoading" class="pop-status">checking server…</div>
-              <div v-else-if="beforePreviewError" class="pop-status pop-error">
-                {{ beforePreviewError }}
-              </div>
-              <template v-else-if="beforePreview">
-                <div v-if="beforePreview.total === 0" class="pop-status">No messages found.</div>
-                <template v-else>
-                  <div class="pop-list">
-                    <div v-for="(m, i) in beforePreview.messages" :key="i" class="pop-msg">
-                      <span class="pop-from" :title="senderTitle(m)">{{ senderName(m) }}</span>
-                      <span class="pop-subj">{{ m.subject || '(no subject)' }}</span>
-                      <span class="pop-date mono">{{ fmtDate(m.date) }}</span>
-                    </div>
-                  </div>
-                  <div v-if="beforePreview.more > 0" class="pop-more">
-                    + {{ fmtInt(beforePreview.more) }} more not shown
-                  </div>
-                </template>
-              </template>
-              <div class="pop-fetch-row">
-                <button
-                  type="button"
-                  class="io-btn"
-                  :disabled="!beforePreviewed || rangeRunning"
-                  @click="runRange('before')"
-                >
-                  Fetch and check
-                </button>
-              </div>
-            </div>
-
-            <div class="pop-footer">
-              <div v-if="rangeRunning" class="pop-status">fetching and checking…</div>
-              <div v-else-if="rangeMsg" class="pop-status" :class="{ 'pop-error': rangeError }">
-                {{ rangeMsg }}
-              </div>
-              <div class="pop-note">Scoring sends extracted text to the paid Pangram API.</div>
-            </div>
-          </div>
-          </Teleport>
         </div>
       </template>
     </div>
+
+    <!-- add-and-check popover, anchored to whichever Add button opened it (an
+         index row's or the list-stats footer's); teleported to <body> so no
+         ancestor overflow (scrolling pane body, clipped card) can hide it -->
+    <Teleport to="body">
+      <div v-if="popoverList" class="add-popover" :style="popoverStyle" @click.stop>
+        <div class="pop-head">
+          <div class="pop-tabs" role="tablist">
+            <button
+              type="button"
+              class="pop-tab"
+              :class="{ 'pop-tab-on': popoverTab === 'new' }"
+              :aria-selected="popoverTab === 'new'"
+              @click="setPopoverTab('new')"
+            >
+              New since last fetch
+            </button>
+            <button
+              type="button"
+              class="pop-tab"
+              :class="{ 'pop-tab-on': popoverTab === 'before' }"
+              :aria-selected="popoverTab === 'before'"
+              @click="setPopoverTab('before')"
+            >
+              Before last fetch
+            </button>
+          </div>
+          <button type="button" class="pop-close" title="Close" @click="closeAddPopover">✕</button>
+        </div>
+
+        <!-- Tab 1 — new since last fetch -->
+        <div v-if="popoverTab === 'new'" class="pop-view">
+          <div v-if="newPreviewLoading" class="pop-status">checking server…</div>
+          <div v-else-if="newPreviewError" class="pop-status pop-error">{{ newPreviewError }}</div>
+          <template v-else-if="newPreview">
+            <div v-if="newPreview.total === 0" class="pop-status">
+              No new messages since the last fetch.
+            </div>
+            <template v-else>
+              <div class="pop-list">
+                <div v-for="(m, i) in newPreview.messages" :key="i" class="pop-msg">
+                  <span class="pop-from" :title="senderTitle(m)">{{ senderName(m) }}</span>
+                  <span class="pop-subj">{{ m.subject || '(no subject)' }}</span>
+                  <span class="pop-date mono">{{ fmtDate(m.date) }}</span>
+                </div>
+              </div>
+              <div v-if="newPreview.more > 0" class="pop-more">
+                + {{ fmtInt(newPreview.more) }} more not shown
+              </div>
+            </template>
+          </template>
+          <div class="pop-fetch-row">
+            <label class="pop-label">
+              Messages to fetch:
+              <input
+                type="text"
+                class="pop-input"
+                :value="newCountInput"
+                @input="(e) => (newCountInput = e.target.value)"
+                @change="normaliseNewCount"
+                @blur="normaliseNewCount"
+              />
+            </label>
+            <button type="button" class="io-btn" @click="startPopoverProcess('new')">
+              Run process ($)
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab 2 — before last fetch -->
+        <div v-else class="pop-view">
+          <div class="pop-fetch-row">
+            <label class="pop-label">
+              Messages to preview:
+              <input
+                type="number"
+                min="1"
+                max="1000"
+                class="pop-input pop-input-num"
+                :value="beforeCount"
+                @input="(e) => (beforeCount = e.target.value)"
+              />
+            </label>
+            <button
+              type="button"
+              class="io-btn"
+              :disabled="beforePreviewLoading"
+              @click="runBeforePreview"
+            >
+              Preview
+            </button>
+          </div>
+          <div v-if="beforePreviewLoading" class="pop-status">checking server…</div>
+          <div v-else-if="beforePreviewError" class="pop-status pop-error">
+            {{ beforePreviewError }}
+          </div>
+          <template v-else-if="beforePreview">
+            <div v-if="beforePreview.total === 0" class="pop-status">No messages found.</div>
+            <template v-else>
+              <div class="pop-list">
+                <div v-for="(m, i) in beforePreview.messages" :key="i" class="pop-msg">
+                  <span class="pop-from" :title="senderTitle(m)">{{ senderName(m) }}</span>
+                  <span class="pop-subj">{{ m.subject || '(no subject)' }}</span>
+                  <span class="pop-date mono">{{ fmtDate(m.date) }}</span>
+                </div>
+              </div>
+              <div v-if="beforePreview.more > 0" class="pop-more">
+                + {{ fmtInt(beforePreview.more) }} more not shown
+              </div>
+            </template>
+          </template>
+          <div class="pop-fetch-row">
+            <button
+              type="button"
+              class="io-btn"
+              :disabled="!beforePreviewed"
+              @click="startPopoverProcess('before')"
+            >
+              Run process ($)
+            </button>
+          </div>
+        </div>
+
+        <div class="pop-footer">
+          <div class="pop-note">Scoring sends extracted text to the paid Pangram API.</div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- staged run modal, teleported to <body> (inside the component) -->
+    <RunProcessModal
+      :open="processModalOpen"
+      :title="processModalTitle"
+      :stages="processStages"
+      :running="processRunning"
+      @close="closeProcessModal"
+    />
   </div>
 </template>
 

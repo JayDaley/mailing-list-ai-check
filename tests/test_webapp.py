@@ -1281,3 +1281,283 @@ def test_pull_range_imap_connect_failure_502(tmp_path, monkeypatch):
     resp = app.test_client().post("/api/pull/range", json={"list": "announce", "mode": "new"})
     assert resp.status_code == 502
     assert "error" in resp.get_json()
+
+
+# --- stage endpoints: /api/pull/fetch, /api/extract, /api/score ----------------
+#
+# These split /pull's three stages into separate sequential calls. The pipeline
+# is mocked at the api-module boundary exactly as the /pull tests above, so no
+# test touches the network or the paid Pangram API.
+
+
+def test_pull_fetch_happy_path(db_path, monkeypatch):
+    calls: dict = {}
+
+    def fake_resolve_folders(client, names, all_lists=False):
+        calls["names"] = list(names)
+        return [f"Shared Folders/{names[0]}"]
+
+    def fake_run_fetch(client, store, request):
+        calls["request"] = request
+        return FetchSummary(fetched=5, duplicates=1, parse_errors=0)
+
+    def _must_not_extract(*a, **k):
+        raise AssertionError("run_extract must not run for the fetch-only stage")
+
+    def _must_not_score(*a, **k):
+        raise AssertionError("run_score must not run for the fetch-only stage")
+
+    monkeypatch.setattr(webapp_api, "open_client", lambda *a, **k: _FakeImapClient())
+    monkeypatch.setattr(webapp_api, "resolve_folders", fake_resolve_folders)
+    monkeypatch.setattr(webapp_api, "run_fetch", fake_run_fetch)
+    monkeypatch.setattr(webapp_api, "run_extract", _must_not_extract)
+    monkeypatch.setattr(webapp_api, "run_score", _must_not_score)
+
+    resp = _pull_client(db_path).post("/api/pull/fetch", json={"list": "newlist", "count": 25})
+    assert resp.status_code == 200
+    assert resp.get_json() == {
+        "fetched": 5,
+        "duplicates": 1,
+        "parse_errors": 0,
+        "limit": 25,  # echoes count for the extract/score stages
+    }
+    assert calls["names"] == ["newlist"]
+    assert calls["request"].depth.count == 25
+    assert calls["request"].limit == 25
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"count": 10},  # missing list
+        {"list": "", "count": 10},  # empty list
+        {"list": "   ", "count": 10},  # whitespace-only list
+        {"list": "bad name", "count": 10},  # space is not allowed
+        {"list": "bad/name", "count": 10},  # slash not allowed
+        {"list": "ok"},  # missing count
+        {"list": "ok", "count": 0},  # below min
+        {"list": "ok", "count": 1001},  # above max
+        {"list": "ok", "count": "ten"},  # non-int
+        {"list": "ok", "count": 1.5},  # float is not an int
+        {"list": "ok", "count": True},  # bool is not a valid int here
+    ],
+)
+def test_pull_fetch_validation_400(client, payload):
+    resp = client.post("/api/pull/fetch", json=payload)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_pull_fetch_imap_connect_failure_502(db_path, monkeypatch):
+    def _boom(*a, **k):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(webapp_api, "open_client", _boom)
+    resp = _pull_client(db_path).post("/api/pull/fetch", json={"list": "newlist", "count": 5})
+    assert resp.status_code == 502
+    assert "error" in resp.get_json()
+
+
+def test_extract_happy_path(db_path, monkeypatch):
+    calls: dict = {}
+
+    def fake_run_extract(store, limit=None):
+        calls["limit"] = limit
+        return Counter({"ok": 4, "empty": 1}), Counter({"email-reply-parser": 5})
+
+    monkeypatch.setattr(webapp_api, "run_extract", fake_run_extract)
+
+    resp = _pull_client(db_path).post("/api/extract", json={"limit": 25})
+    assert resp.status_code == 200
+    assert resp.get_json() == {"extracted": 4, "empty": 1}
+    assert calls["limit"] == 25
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},  # missing limit
+        {"limit": 0},  # below min
+        {"limit": 1001},  # above max
+        {"limit": "ten"},  # non-int
+        {"limit": 1.5},  # float is not an int
+        {"limit": True},  # bool is not a valid int here
+    ],
+)
+def test_extract_validation_400(client, payload):
+    resp = client.post("/api/extract", json=payload)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_score_happy_path_with_key(db_path, monkeypatch):
+    calls: dict = {}
+
+    def fake_run_score(store, client, *, limit=None, **kwargs):
+        calls["limit"] = limit
+        return ScoreSummary(scored=3, cache_hits=1, too_short=1, api_calls=3)
+
+    class FakePangram:
+        def __init__(self, key):
+            calls["pangram_key"] = key
+
+    monkeypatch.setattr(webapp_api, "run_score", fake_run_score)
+    monkeypatch.setattr(webapp_api, "PangramClient", FakePangram)
+
+    resp = _pull_client(db_path).post("/api/score", json={"limit": 25})
+    assert resp.status_code == 200
+    assert resp.get_json() == {
+        "scored": 3,
+        "cache_hits": 1,
+        "api_calls": 3,
+        "too_short": 1,
+        "scoring_skipped": False,
+    }
+    assert calls["limit"] == 25
+    assert calls["pangram_key"] == "test-key"
+
+
+def test_score_skips_without_api_key(db_path, monkeypatch):
+    def _must_not_call(*a, **k):
+        raise AssertionError("run_score must not run without an API key")
+
+    monkeypatch.setattr(webapp_api, "run_score", _must_not_call)
+
+    resp = _pull_client(db_path, pangram_key="").post("/api/score", json={"limit": 5})
+    assert resp.status_code == 200
+    assert resp.get_json() == {
+        "scored": 0,
+        "cache_hits": 0,
+        "api_calls": 0,
+        "too_short": 0,
+        "scoring_skipped": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},  # missing limit
+        {"limit": 0},  # below min
+        {"limit": 1001},  # above max
+        {"limit": "ten"},  # non-int
+        {"limit": 1.5},  # float is not an int
+        {"limit": True},  # bool is not a valid int here
+    ],
+)
+def test_score_validation_400(client, payload):
+    resp = client.post("/api/score", json=payload)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+# --- /api/pull/range/fetch ----------------------------------------------------
+#
+# The fetch-only stage of /pull/range. Driven over the network-free FakeImapConn
+# (real EXAMINE / UID SEARCH / body FETCH), with run_extract / run_score faked so
+# they can be asserted never to run.
+
+
+def _guard_no_pipeline(monkeypatch):
+    """Assert the extract/score pipeline never runs for a fetch-only stage."""
+
+    def _must_not_extract(*a, **k):
+        raise AssertionError("run_extract must not run for the fetch-only stage")
+
+    def _must_not_score(*a, **k):
+        raise AssertionError("run_score must not run for the fetch-only stage")
+
+    monkeypatch.setattr(webapp_api, "run_extract", _must_not_extract)
+    monkeypatch.setattr(webapp_api, "run_score", _must_not_score)
+
+
+def test_pull_range_fetch_new_advances_pull_state(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5], cursor=(1000, 5))
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 9))})
+    _guard_no_pipeline(monkeypatch)
+    c = _client_over(db, conn, monkeypatch)
+
+    body = c.post(
+        "/api/pull/range/fetch", json={"list": "announce", "mode": "new", "count": 2}
+    ).get_json()
+    # Baseline is the cursor's last_uid 5, so new uids are 6,7,8; first 2 -> 6,7.
+    assert body["mode"] == "new"
+    assert body["matched"] == 3
+    assert body["capped"] is False
+    assert body["fetched"] == 2
+    assert body["limit"] == 2  # number of messages chosen, for later stages
+    assert "extracted" not in body  # fetch stage never runs extract/score
+    assert "scored" not in body
+    # Cursor advanced to the max fetched uid (7), same UIDVALIDITY.
+    with Store(db) as store:
+        lst = store.get_list_by_name("announce")
+        ps = store.get_pull_state(lst.id)
+        assert (ps.uidvalidity, ps.last_uid) == (1000, 7)
+
+
+def test_pull_range_fetch_before_never_touches_pull_state(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5, 6], cursor=(1000, 6))
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 7))})
+    _guard_no_pipeline(monkeypatch)
+    c = _client_over(db, conn, monkeypatch)
+
+    body = c.post(
+        "/api/pull/range/fetch", json={"list": "announce", "mode": "before", "count": 2}
+    ).get_json()
+    # Older-than-5 uids are 1..4; last 2 -> 3,4.
+    assert body["mode"] == "before"
+    assert body["matched"] == 4
+    assert body["fetched"] == 2
+    assert body["limit"] == 2
+    with Store(db) as store:
+        lst = store.get_list_by_name("announce")
+        ps = store.get_pull_state(lst.id)
+        assert (ps.uidvalidity, ps.last_uid) == (1000, 6)  # unchanged
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"list": "announce", "mode": "before"},  # before requires count
+        {"list": "announce", "mode": "before", "count": 0},  # below min
+        {"list": "announce", "mode": "before", "count": 1001},  # above max
+        {"list": "announce", "mode": "before", "count": "x"},  # non-int
+        {"list": "announce", "mode": "before", "count": True},  # bool not an int
+        {"list": "announce", "mode": "new", "count": 0},  # below min
+        {"list": "announce", "mode": "new", "count": 1001},  # above max
+        {"list": "announce", "mode": "sideways", "count": 5},  # bad mode
+        {"mode": "new"},  # missing list
+        {"list": "bad name", "mode": "new"},  # space not allowed
+    ],
+)
+def test_pull_range_fetch_validation_400(tmp_path, monkeypatch, payload):
+    db = _range_db(tmp_path, stored_uids=[5])
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 6))})
+    c = _client_over(db, conn, monkeypatch)
+    resp = c.post("/api/pull/range/fetch", json=payload)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_pull_range_fetch_unknown_list_404(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5])
+    conn = FakeImapConn(folders={"Shared Folders/announce": _server_folder(range(1, 6))})
+    c = _client_over(db, conn, monkeypatch)
+    resp = c.post("/api/pull/range/fetch", json={"list": "nope", "mode": "new"})
+    assert resp.status_code == 404
+    assert "error" in resp.get_json()
+
+
+def test_pull_range_fetch_imap_connect_failure_502(tmp_path, monkeypatch):
+    db = _range_db(tmp_path, stored_uids=[5])
+
+    def _boom(*a, **k):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(webapp_api, "open_client", _boom)
+    config = replace(_config(db), pangram_api_key="")
+    app = create_app(config, frontend_dist=None)
+    app.testing = True
+    resp = app.test_client().post("/api/pull/range/fetch", json={"list": "announce", "mode": "new"})
+    assert resp.status_code == 502
+    assert "error" in resp.get_json()
