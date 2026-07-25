@@ -56,6 +56,36 @@ cp .env.example .env
 `.env` is gitignored; never commit it. See `.env.example` for the full list of
 keys and defaults.
 
+## Database and schema migrations
+
+The database is a single SQLite file at `DATABASE_PATH`. There is no migration
+command: the schema is brought up to date automatically whenever the database is
+opened.
+
+Each schema change is one numbered SQL script in `store.py`, and the applied
+numbers are recorded in the database's own `schema_version` table. Opening the
+database compares the two and runs only the scripts that are missing, each
+committed in turn. Every entry point — the three pipeline commands, the export
+and import commands, and the web app (one connection per request) — opens the
+database the same way, so whichever runs first after an upgrade performs the
+migration before doing anything else. Re-running against an already-current
+database does nothing.
+
+Two consequences:
+
+- **Migrations are one-way.** There is no downgrade path, and a migration may
+  rewrite rows as well as add columns. Copy the database file before running a
+  new version against it for the first time; include the `-wal` and `-shm`
+  side-files if they are present.
+- **An older app version is not guarded against a newer database.** It reads the
+  columns it knows about and ignores the rest, so downgrading the code without
+  restoring the matching database copy can produce results that look valid but
+  are derived from a partial view of the schema.
+
+Upgrading the front end is a separate step: `mail-ai-web` serves whatever is in
+`frontend/dist`, so run `make build` after pulling a new version or the dashboard
+stays at the built version while the API moves on.
+
 ## Usage
 
 The pipeline is three commands, run in order. Each is idempotent — it only
@@ -146,6 +176,34 @@ The ⓘ button beside the app name in the header opens a documentation panel: a
 file list on the left, the rendered Markdown on the right. It shows `README.md`,
 `CHANGELOG.md` and the Markdown files at the top level of `docs/`, read from the
 checkout at request time. Files in sub-directories of `docs/` are not included.
+
+### Re-processing text derived by an older version
+
+Every extraction records the app version that produced its text. A change to
+extraction or post-extraction processing is a minor version bump, so an
+extraction whose recorded version belongs to an earlier `major.minor` generation
+may hold text the current routine would not produce.
+
+The dashboard compares those versions on load. When any extraction predates the
+running version it opens a prompt reporting how many, and offers to identify the
+affected messages:
+
+- **Show affected messages** re-runs the current extraction and post-processing
+  over every stored message and compares the result with what is stored. This is
+  local work only: no text is rewritten, no score is changed, and nothing is sent
+  to Pangram. Messages whose text would change are listed in a table with a
+  total, showing the character counts before and after and what moved (the
+  extracted text, the text that gets scored, or the extraction status).
+  Extractions that come out identical are stamped with the running version, which
+  is what stops the same prompt appearing again.
+- **Run process ($)** re-extracts the listed messages and re-scores them. A
+  message keeps its stored score unless the *scored* text changed, since only
+  then was the verdict reached on text that no longer exists; each message that
+  does need a new verdict is one paid Pangram call unless its new text is already
+  in the score cache. Both stages report their counts as they run.
+- **Not now** leaves everything untouched. An alert icon then sits beside the ⓘ
+  button for as long as any extraction predates the running version; it reopens
+  the same prompt.
 
 ### Exporting and importing lists
 

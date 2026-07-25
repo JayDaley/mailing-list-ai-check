@@ -79,7 +79,7 @@ them, and what depends on them.
 ## Versioning
 
 The app uses [semantic versioning](https://semver.org/); the current version is
-**1.2.3**. The single source of truth is `mailing_list_ai_check.__version__`
+**1.2.4**. The single source of truth is `mailing_list_ai_check.__version__`
 (in `__init__.py`); `pyproject.toml` reads it dynamically, so the two never
 drift.
 
@@ -92,7 +92,13 @@ Bump policy (for now):
 
 Each message records the pipeline version that last processed it
 (`messages.pipeline_version`), stamped on insert and re-stamped whenever its
-extraction or score is written.
+extraction or score is written. Each extraction separately records the version
+that produced its text (`extractions.pipeline_version`), stamped on insert and
+rewritten only on re-extraction — scoring never touches it. Because a minor bump
+is what an extraction change gets, comparing that stamp's `(major, minor)` pair
+with the running version is how the app detects text derived by an older routine
+(see `staleness.py`); keep the bump policy above exact, or that detection is
+wrong.
 
 ## Changelog — maintain it
 

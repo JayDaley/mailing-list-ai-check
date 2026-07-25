@@ -37,6 +37,25 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.2.4] - 2026-07-25
+
+Summary: Detect stored text derived by an older extraction routine and offer to re-process the affected messages.
+
+- Add schema migration 008: an `extractions.pipeline_version` column recording the app version that produced each extraction's text, backfilled from `messages.pipeline_version`.
+- Stamp `extractions.pipeline_version` on insert and rewrite it on re-extraction; scoring never touches it, so it identifies the routine behind the stored text.
+- Add `Store.extracted_message_ids`, `Store.extraction_version_counts`, `Store.set_extraction_version`, `Store.replace_extraction` and `Store.delete_score_for_extraction`.
+- Add `extraction_generation`, comparing versions by their `(major, minor)` pair — the granularity at which extraction changes are released.
+- Add the `staleness` module: `check` compares recorded versions, `diff` re-derives every stored extraction and reports the ones that differ, `reextract` rewrites chosen rows.
+- Stamp extractions that re-derive identically with the running version, so a check that finds no difference stops the prompt returning.
+- Delete the score of a re-extracted message only when its cleaned (scored) text changed, leaving verdicts that still apply in place.
+- Add `GET /api/staleness`, reporting whether any stored extraction predates the current routine, with per-version counts.
+- Add `POST /api/staleness/check`, re-deriving every stored extraction and returning the affected messages.
+- Add `POST /api/staleness/reextract` and `POST /api/staleness/rescore`, both taking up to 1000 message ids.
+- Add a `message_ids` filter to `run_score`, restricting a scoring run to given messages' extractions.
+- Open a prompt at dashboard start-up when stored text may be out of date, with the affected messages in a scrolling table (total, character counts before and after, what changed) and a "Run process ($)" button that re-extracts and re-scores only those messages.
+- Add an alert icon beside the header's info button while any extraction predates the running version, reopening the same prompt.
+- Document in the README how schema migrations are applied on database open, that they are one-way, and that the front end needs a separate rebuild.
+
 ## [1.2.3] - 2026-07-25
 
 Summary: Add an in-dashboard documentation viewer, opened by an info button in the header.

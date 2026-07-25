@@ -14,7 +14,7 @@ import argparse
 import logging
 import sys
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Container, Sequence
 from dataclasses import dataclass
 
 from .cleaning import clean_for_scoring
@@ -502,6 +502,7 @@ def run_score(
     limit: int = DEFAULT_SCORE_LIMIT,
     min_words: int = SCORE_MIN_WORDS,
     dry_run: bool = False,
+    message_ids: Container[int] | None = None,
 ) -> ScoreSummary:
     """Score unscored extractions, capping real API calls at ``limit``.
 
@@ -513,6 +514,10 @@ def run_score(
     cleaned text from the score cache (uncapped); scores the rest via ``client``
     up to ``limit`` calls. Idempotent — a re-run over a fully scored/gated store
     does nothing. ``client`` may be ``None`` only in ``dry_run`` mode.
+
+    ``message_ids``, when given, restricts the run to the extractions of those
+    messages; the rest of the scoring queue is left untouched. The default
+    ``None`` scores the whole queue.
     """
     summary = ScoreSummary()
 
@@ -520,6 +525,8 @@ def run_score(
     # short-text gate is applied here on the *cleaned* word count so it never
     # depends on the raw extraction length. Cache first, API second (capped).
     for extraction in store.iter_extractions_needing_score(min_words=0):
+        if message_ids is not None and extraction.message_id not in message_ids:
+            continue
         # Compute the HTML signature hint once per extraction and clean with it,
         # so the reliability floor, cache key and scored text all reflect it.
         hint = _html_signature_hint(store, extraction.message_id)

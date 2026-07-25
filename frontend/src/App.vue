@@ -1,8 +1,9 @@
 <script setup>
 // App shell: the 40px header bar + the single-screen dashboard below it. The
 // header holds the brand, an ⓘ button that opens the documentation drawer, an
-// unfiltered stat line (total messages · lists · db size) and the global
-// Anonymous toggle. The dashboard itself is the routed view.
+// alert button (only while stored text may be out of date), an unfiltered stat
+// line (total messages · lists · db size) and the global Anonymous toggle. The
+// dashboard itself is the routed view.
 import { ref, computed, onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 
@@ -11,6 +12,7 @@ import { fmtInt } from './lib/format'
 import { useUiStore } from './stores/ui'
 import { useFiltersStore } from './stores/filters'
 import DocsDrawer from './components/DocsDrawer.vue'
+import StaleDataModal from './components/StaleDataModal.vue'
 
 const ui = useUiStore()
 const filters = useFiltersStore()
@@ -33,6 +35,25 @@ const headerStat = computed(() => {
   return parts.join(' · ')
 })
 
+// Stored text may predate the current extraction routine (GET /api/staleness —
+// a version comparison, no text re-derived). The report is fetched once at
+// start-up and re-fetched after the modal acts, since both the check and a
+// re-processing run change it. While it says stale, the header shows the alert
+// button; the modal itself is opened once, unprompted, on the first such load.
+const staleness = ref(null)
+const staleOpen = ref(false)
+const isStale = computed(() => !!staleness.value?.stale)
+
+async function loadStaleness() {
+  try {
+    staleness.value = await get('/staleness')
+  } catch {
+    // Never block the dashboard on this check; without a report there is no
+    // prompt and no alert icon.
+    staleness.value = null
+  }
+}
+
 onMounted(async () => {
   try {
     const [summary, lists] = await Promise.all([get('/summary'), get('/lists')])
@@ -42,6 +63,8 @@ onMounted(async () => {
   } catch {
     // The stat line is decorative; leave it blank if the fetch fails.
   }
+  await loadStaleness()
+  if (isStale.value) staleOpen.value = true
 })
 
 // Turning anonymous mode on hides the sender-identifying UI, so any active
@@ -71,6 +94,16 @@ const docsOpen = ref(false)
     >
       i
     </button>
+    <button
+      v-if="isStale"
+      type="button"
+      class="alert-btn"
+      title="Stored text may be out of date"
+      aria-label="Stored text may be out of date"
+      @click="staleOpen = true"
+    >
+      !
+    </button>
     <span class="header-stat">{{ headerStat }}</span>
     <span class="header-spacer"></span>
     <label class="anon-toggle">
@@ -87,4 +120,11 @@ const docsOpen = ref(false)
   <RouterView />
 
   <DocsDrawer :open="docsOpen" @close="docsOpen = false" />
+
+  <StaleDataModal
+    :open="staleOpen"
+    :info="staleness"
+    @close="staleOpen = false"
+    @refresh="loadStaleness"
+  />
 </template>

@@ -120,6 +120,31 @@ button {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* circled "!" beside the ⓘ — present only while stored text may be out of date;
+   opens the same modal the start-up prompt shows */
+.app-header .alert-btn {
+  margin-left: -8px;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 1px solid var(--danger);
+  border-radius: 50%;
+  background: none;
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: Georgia, "Times New Roman", serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.app-header .alert-btn:hover {
+  background: var(--danger);
+  color: var(--surface);
+}
 .app-header .header-stat {
   font-size: 11px;
   color: var(--text-muted);

@@ -48,6 +48,12 @@ from ..fetcher import (
 )
 from ..imap_client import build_search_criteria
 from ..pangram import PangramClient
+from ..staleness import (
+    ExtractionDiff,
+    check as check_staleness,
+    diff as diff_extractions,
+    reextract,
+)
 from ..store import (
     DEFAULT_PER_PAGE,
     MAX_PER_PAGE,
@@ -589,13 +595,16 @@ def _fetch_for_list(config: Any, store: Store, list_name: str, count: int) -> An
             pass
 
 
-def _run_score_stage(config: Any, store: Store, limit: int) -> dict[str, Any]:
+def _run_score_stage(
+    config: Any, store: Store, limit: int, message_ids: Sequence[int] | None = None
+) -> dict[str, Any]:
     """Run the score stage for up to ``limit`` unscored extractions.
 
     Scoring runs only when a Pangram API key is configured; otherwise it is
     skipped, Pangram is never called, and ``scoring_skipped`` is true. Returns
     the score summary fields shared by :func:`pull`, :func:`pull_range`, and the
-    standalone :func:`score` endpoint.
+    standalone :func:`score` endpoint. ``message_ids`` restricts the run to those
+    messages' extractions (see :func:`mailing_list_ai_check.cli.run_score`).
     """
     if not config.pangram_api_key:
         return {
@@ -606,7 +615,12 @@ def _run_score_stage(config: Any, store: Store, limit: int) -> dict[str, Any]:
             "scoring_skipped": True,
         }
     pangram = PangramClient(config.pangram_api_key)
-    score_summary = run_score(store, pangram, limit=limit)
+    score_summary = run_score(
+        store,
+        pangram,
+        limit=limit,
+        message_ids=set(message_ids) if message_ids is not None else None,
+    )
     return {
         "scored": score_summary.scored,
         "cache_hits": score_summary.cache_hits,
@@ -742,6 +756,143 @@ def score() -> Any:
 
     config = current_app.config["APP_CONFIG"]
     return jsonify(_run_score_stage(config, get_store(), limit))
+
+
+# --- stale extractions --------------------------------------------------------
+#
+# Three endpoints back the dashboard's start-up staleness prompt, in the order
+# the user meets them: /staleness reports whether any stored extraction predates
+# the current extraction routine (a version comparison, cheap enough to run on
+# every dashboard load); /staleness/check re-derives every extraction and reports
+# the ones that actually differ (local work only, nothing paid, no text
+# rewritten); then /staleness/reextract and /staleness/rescore rewrite and
+# re-score only the messages the user chose. See
+# :mod:`mailing_list_ai_check.staleness`.
+
+
+def _message_id_list(data: dict[str, Any]) -> list[int]:
+    """Validate ``data["ids"]`` as a non-empty list of at most 1000 message ids.
+
+    The cap matches :data:`_MAX_PULL_COUNT`, so one request can never re-score
+    more messages than one pull can fetch; a client with a longer list sends it
+    in successive requests.
+    """
+    raw = data.get("ids")
+    if not isinstance(raw, list) or not raw:
+        raise ApiError("ids must be a non-empty list of message ids")
+    if len(raw) > _MAX_PULL_COUNT:
+        raise ApiError(f"ids must contain at most {_MAX_PULL_COUNT} message ids")
+    ids: list[int] = []
+    for item in raw:
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise ApiError("ids must contain integer message ids")
+        ids.append(item)
+    return ids
+
+
+def _serialize_diff(diff: ExtractionDiff) -> dict[str, Any]:
+    """Shape one :class:`ExtractionDiff` into the affected-message row JSON.
+
+    ``id`` is the message primary key (as in :func:`_serialize_message_row`), so
+    the client can pass it straight back to :func:`staleness_reextract`.
+    """
+    return {
+        "id": diff.message_id,
+        "list": diff.list_name,
+        "date": diff.date,
+        "subject": diff.subject,
+        "from": {"address": diff.from_address, "display_name": diff.from_display_name},
+        "pipeline_version": diff.pipeline_version,
+        "old_chars": diff.old_chars,
+        "new_chars": diff.new_chars,
+        "old_status": diff.old_status,
+        "new_status": diff.new_status,
+        "text_changed": diff.text_changed,
+        "scored_text_changed": diff.scored_text_changed,
+        "scored": diff.scored,
+    }
+
+
+@api_bp.get("/staleness")
+def staleness() -> Any:
+    """Report whether any stored extraction predates the current routine.
+
+    One grouped query over ``extractions`` — no text is re-derived and no row is
+    written. Returns the :class:`~mailing_list_ai_check.staleness.StalenessReport`
+    fields: ``app_version``, ``stale``, ``stale_count``, ``current_count``,
+    ``total``, and per-version counts in ``versions``.
+    """
+    return jsonify(asdict(check_staleness(get_store())))
+
+
+@api_bp.post("/staleness/check")
+def staleness_check() -> Any:
+    """Re-derive every stored extraction and report the ones that differ.
+
+    Local work only: extraction and cleaning are re-run over every message that
+    has an extraction, no extracted text is rewritten, no score is touched and
+    Pangram is never called. Extractions that come out identical are stamped with
+    the running version (``stamped``), which is what clears a false staleness
+    report for good. Returns ``app_version``, ``checked``, ``unchanged``,
+    ``stamped``, ``differing`` (the count) and ``messages`` (the affected rows,
+    by message id).
+    """
+    report = diff_extractions(get_store())
+    return jsonify(
+        {
+            "app_version": report.app_version,
+            "checked": report.checked,
+            "unchanged": report.unchanged,
+            "stamped": report.stamped,
+            "differing": len(report.differing),
+            "messages": [_serialize_diff(d) for d in report.differing],
+        }
+    )
+
+
+@api_bp.post("/staleness/reextract")
+def staleness_reextract() -> Any:
+    """Re-extract the given messages, rewriting those whose text has moved.
+
+    Body: ``{"ids": [<message id>, …]}`` — 1 to 1000 ids, as returned by
+    :func:`staleness_check`. Rewrites each changed extraction in place and drops
+    the score of any whose cleaned (scored) text changed, since that verdict was
+    reached on text that no longer exists. Local work only; the re-scoring it
+    makes necessary is the separate, paid :func:`staleness_rescore` call.
+    ``rescore_ids`` lists the messages worth passing to it.
+    """
+    data = _json_body()
+    ids = _message_id_list(data)
+
+    summary = reextract(get_store(), ids)
+    return jsonify(
+        {
+            "processed": summary.processed,
+            "rewritten": summary.rewritten,
+            "unchanged": summary.unchanged,
+            "not_ok": summary.not_ok,
+            "scores_invalidated": summary.scores_invalidated,
+            "rescore_ids": summary.rescore_message_ids,
+        }
+    )
+
+
+@api_bp.post("/staleness/rescore")
+def staleness_rescore() -> Any:
+    """Score the given messages' unscored extractions and nothing else.
+
+    Body: ``{"ids": [<message id>, …]}`` — 1 to 1000 ids, normally the
+    ``rescore_ids`` of a :func:`staleness_reextract` call. The rest of the
+    scoring queue is left alone. Each message can cost at most one Pangram call,
+    so the API-call cap is the number of ids. Scoring runs only when a Pangram API
+    key is configured; otherwise Pangram is never called and ``scoring_skipped``
+    is true.
+    """
+    data = _json_body()
+    ids = _message_id_list(data)
+
+    config = current_app.config["APP_CONFIG"]
+    return jsonify(_run_score_stage(config, get_store(), len(ids), message_ids=ids))
 
 
 # --- add messages: preview + ranged pull -------------------------------------

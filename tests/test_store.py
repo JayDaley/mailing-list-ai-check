@@ -61,8 +61,8 @@ def test_migrations_are_idempotent(tmp_path):
             "v"
         ]
         row_count_after = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert version_before == version_after == 7
-    assert row_count_before == row_count_after == 7
+    assert version_before == version_after == 8
+    assert row_count_before == row_count_after == 8
 
 
 def test_reopening_database_is_a_noop(tmp_path):
@@ -74,7 +74,7 @@ def test_reopening_database_is_a_noop(tmp_path):
         rows = s.conn.execute("SELECT COUNT(*) AS c FROM lists").fetchone()["c"]
         version = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
     assert rows == 1
-    assert version == 7
+    assert version == 8
 
 
 def test_migration_003_rebadges_assisted_dominated_mixed(store):
@@ -113,13 +113,14 @@ def test_migration_003_rebadges_assisted_dominated_mixed(store):
             raw_response={"prediction_short": "Mixed"},
         )
     # Rewind to pre-003 and re-apply so the backfill runs over the rows. Drop
-    # the columns/index added by 004/005/006/007 too so those migrations
+    # the columns/index added by 004/005/006/007/008 too so those migrations
     # re-apply cleanly alongside 003.
     store.conn.execute("DELETE FROM schema_version WHERE version >= 3")
     store.conn.execute("ALTER TABLE messages DROP COLUMN raw_html")
     store.conn.execute("ALTER TABLE lists DROP COLUMN last_message_at")
     store.conn.execute("DROP INDEX idx_messages_message_id")
     store.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
+    store.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
     apply_migrations(store.conn)
     labels = [
         row["label"]
@@ -135,8 +136,8 @@ def test_migration_004_adds_raw_html_column(store):
 
 def test_migration_004_present_on_migrated_db(tmp_path):
     # A database rewound to pre-004 gains the raw_html column on re-open/migrate.
-    # last_message_at (005), the message_id index (006) and pipeline_version
-    # (007) are dropped too so they re-apply cleanly.
+    # last_message_at (005), the message_id index (006) and the two
+    # pipeline_version columns (007/008) are dropped too so they re-apply cleanly.
     db = tmp_path / "migrated.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 4")
@@ -144,12 +145,13 @@ def test_migration_004_present_on_migrated_db(tmp_path):
         s.conn.execute("ALTER TABLE lists DROP COLUMN last_message_at")
         s.conn.execute("DROP INDEX idx_messages_message_id")
         s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
+        s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "raw_html" in cols
-    assert version == 7
+    assert version == 8
 
 
 def test_migration_005_adds_last_message_at_column(store):
@@ -159,30 +161,33 @@ def test_migration_005_adds_last_message_at_column(store):
 
 def test_migration_005_present_on_migrated_db(tmp_path):
     # A database rewound to pre-005 gains the last_message_at column on migrate.
-    # The message_id index (006) and pipeline_version (007) are dropped too so
-    # they re-apply cleanly.
+    # The message_id index (006) and the two pipeline_version columns (007/008)
+    # are dropped too so they re-apply cleanly.
     db = tmp_path / "migrated005.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 5")
         s.conn.execute("ALTER TABLE lists DROP COLUMN last_message_at")
         s.conn.execute("DROP INDEX idx_messages_message_id")
         s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
+        s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(lists)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "last_message_at" in cols
-    assert version == 7
+    assert version == 8
 
 
 def test_migration_006_present_on_migrated_db(tmp_path):
-    # A database rewound to pre-006 gains the message_id index on migrate.
-    # pipeline_version (007) is dropped too so it re-applies cleanly.
+    # A database rewound to pre-006 gains the message_id index on migrate. The
+    # two pipeline_version columns (007/008) are dropped too so they re-apply
+    # cleanly.
     db = tmp_path / "migrated006.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 6")
         s.conn.execute("DROP INDEX idx_messages_message_id")
         s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
+        s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
         s.conn.commit()
     with Store(db) as s:
         indexes = {
@@ -191,7 +196,7 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         }
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "idx_messages_message_id" in indexes
-    assert version == 7
+    assert version == 8
 
 
 def test_expected_indexes_exist(store):
@@ -736,17 +741,19 @@ def test_migration_007_adds_pipeline_version_column(store):
 
 
 def test_migration_007_present_on_migrated_db(tmp_path):
-    # A database rewound to pre-007 gains the pipeline_version column on migrate.
+    # A database rewound to pre-007 gains the messages.pipeline_version column on
+    # migrate; extractions.pipeline_version (008) is dropped too so it re-applies.
     db = tmp_path / "migrated007.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 7")
         s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
+        s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "pipeline_version" in cols
-    assert version == 7
+    assert version == 8
 
 
 def test_message_pipeline_version_roundtrips(store):

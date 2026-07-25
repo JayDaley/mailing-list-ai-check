@@ -183,6 +183,25 @@ _MIGRATION_007 = """
 ALTER TABLE messages ADD COLUMN pipeline_version TEXT;
 """
 
+# The app version that produced this extraction's text: stamped on insert and
+# rewritten whenever the row is re-extracted, and never touched by scoring. It
+# exists because ``messages.pipeline_version`` cannot answer "which version
+# derived this text" — scoring re-stamps that column too, so a message extracted
+# under one version and scored under a later one reads as the later version.
+#
+# The backfill uses the message stamp, which is an upper bound on the extraction
+# version: a message extracted before an extraction change and scored after it
+# backfills as if it were current. That is why the version stamp only decides
+# whether to *offer* the check (see :mod:`mailing_list_ai_check.staleness`) —
+# the check itself re-derives every extraction and compares the text.
+_MIGRATION_008 = """
+ALTER TABLE extractions ADD COLUMN pipeline_version TEXT;
+
+UPDATE extractions SET pipeline_version = (
+    SELECT m.pipeline_version FROM messages m WHERE m.id = extractions.message_id
+);
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
@@ -191,6 +210,7 @@ MIGRATIONS: list[tuple[int, str]] = [
     (5, _MIGRATION_005),
     (6, _MIGRATION_006),
     (7, _MIGRATION_007),
+    (8, _MIGRATION_008),
 ]
 
 
@@ -330,7 +350,13 @@ class Message:
 
 @dataclass(frozen=True)
 class Extraction:
-    """The author's newly written text extracted from a message."""
+    """The author's newly written text extracted from a message.
+
+    ``pipeline_version`` is the app version whose extraction routine produced
+    ``extracted_text`` (NULL only where the migration backfill had nothing to
+    copy). Unlike ``messages.pipeline_version`` it is never re-stamped by
+    scoring, so it identifies the routine behind the stored text.
+    """
 
     id: int
     message_id: int
@@ -339,6 +365,7 @@ class Extraction:
     char_count: int
     status: str
     created_at: str
+    pipeline_version: str | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Extraction":
@@ -350,6 +377,7 @@ class Extraction:
             char_count=row["char_count"],
             status=row["status"],
             created_at=row["created_at"],
+            pipeline_version=row["pipeline_version"],
         )
 
 
@@ -458,6 +486,18 @@ def version_key(v: str | None) -> tuple[int, int, int]:
     except ValueError:
         return (0, 0, 0)
     return (major, minor, patch)
+
+
+def extraction_generation(v: str | None) -> tuple[int, int]:
+    """Return the ``(major, minor)`` extraction generation of a version string.
+
+    A change to extraction or post-extraction processing is a minor bump (see the
+    versioning policy in ``CLAUDE.md``), so two versions sharing ``(major,
+    minor)`` derive the same text and only a difference here can change it.
+    ``None`` or an unparsable version yields ``(0, 0)``, older than every real
+    version.
+    """
+    return version_key(v)[:2]
 
 
 def _word_count(text: str) -> int:
@@ -949,17 +989,19 @@ class Store:
         ``char_count`` defaults to ``len(extracted_text)``. ``status`` must be
         one of :data:`EXTRACTION_STATUSES` (also enforced by a CHECK constraint).
 
-        Re-stamps the owning message's ``pipeline_version`` to the current
-        package version (:data:`__version__`); tests may pass an explicit value.
+        Stamps the new row's ``pipeline_version`` and re-stamps the owning
+        message's with the current package version (:data:`__version__`); tests
+        may pass an explicit value.
         """
         if status not in EXTRACTION_STATUSES:
             raise ValueError(
                 f"invalid extraction status {status!r}; expected one of {EXTRACTION_STATUSES}"
             )
+        version = pipeline_version if pipeline_version is not None else __version__
         cur = self.conn.execute(
             "INSERT INTO extractions("
-            "message_id, extracted_text, method, char_count, status, created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?)",
+            "message_id, extracted_text, method, char_count, status, created_at, pipeline_version"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 message_id,
                 extracted_text,
@@ -967,11 +1009,12 @@ class Store:
                 len(extracted_text) if char_count is None else char_count,
                 status,
                 created_at or _utcnow_iso(),
+                version,
             ),
         )
         self.conn.execute(
             "UPDATE messages SET pipeline_version = ? WHERE id = ?",
-            (pipeline_version if pipeline_version is not None else __version__, message_id),
+            (version, message_id),
         )
         self.conn.commit()
         row = self.conn.execute(
@@ -1030,6 +1073,89 @@ class Store:
         self.conn.execute(
             "UPDATE extractions SET status = ? WHERE id = ?",
             (status, extraction_id),
+        )
+        self.conn.commit()
+        return self.get_extraction(extraction_id)
+
+    def extracted_message_ids(self) -> list[int]:
+        """Return the ids of messages that have an extraction row, ascending.
+
+        The work list for a re-extraction pass. Only the ids are read, so a pass
+        over a large store can fetch each message and its extraction one at a
+        time instead of holding every extracted text in memory at once.
+        """
+        rows = self.conn.execute(
+            "SELECT message_id FROM extractions ORDER BY message_id"
+        ).fetchall()
+        return [row["message_id"] for row in rows]
+
+    def extraction_version_counts(self) -> list[tuple[str | None, int]]:
+        """Return ``(pipeline_version, count)`` over every extraction row.
+
+        Ordered oldest version first (by :func:`version_key`, so NULL sorts
+        first). This is the whole input to the start-up staleness check.
+        """
+        rows = self.conn.execute(
+            "SELECT pipeline_version AS v, COUNT(*) AS n FROM extractions GROUP BY pipeline_version"
+        ).fetchall()
+        return sorted(((row["v"], row["n"]) for row in rows), key=lambda p: version_key(p[0]))
+
+    def set_extraction_version(self, extraction_id: int, version: str | None = None) -> None:
+        """Stamp ``extractions.pipeline_version`` without touching the text.
+
+        Used when a re-derivation proves the stored text is what the current
+        routine produces: the row is up to date whatever its old stamp said.
+        Defaults to the current package version (:data:`__version__`).
+        """
+        self.conn.execute(
+            "UPDATE extractions SET pipeline_version = ? WHERE id = ?",
+            (version if version is not None else __version__, extraction_id),
+        )
+        self.conn.commit()
+
+    def replace_extraction(
+        self,
+        extraction_id: int,
+        *,
+        extracted_text: str,
+        method: str,
+        status: str,
+        char_count: int | None = None,
+        pipeline_version: str | None = None,
+    ) -> Extraction | None:
+        """Rewrite an existing extraction in place; return the updated row.
+
+        Updates the text, method, char count, status and ``pipeline_version`` of
+        an extraction the current routine has re-derived, and re-stamps the
+        owning message's ``pipeline_version``. The row keeps its id, so an
+        existing ``scores`` row survives — invalidating a score whose text has
+        moved is the caller's decision (see :meth:`delete_score_for_extraction`).
+        ``created_at`` is left alone: it records when the message was first
+        extracted. Returns ``None`` if no such extraction exists.
+        """
+        if status not in EXTRACTION_STATUSES:
+            raise ValueError(
+                f"invalid extraction status {status!r}; expected one of {EXTRACTION_STATUSES}"
+            )
+        if self.get_extraction(extraction_id) is None:
+            return None
+        version = pipeline_version if pipeline_version is not None else __version__
+        self.conn.execute(
+            "UPDATE extractions SET extracted_text = ?, method = ?, char_count = ?, "
+            "status = ?, pipeline_version = ? WHERE id = ?",
+            (
+                extracted_text,
+                method,
+                len(extracted_text) if char_count is None else char_count,
+                status,
+                version,
+                extraction_id,
+            ),
+        )
+        self.conn.execute(
+            "UPDATE messages SET pipeline_version = ? "
+            "WHERE id = (SELECT message_id FROM extractions WHERE id = ?)",
+            (version, extraction_id),
         )
         self.conn.commit()
         return self.get_extraction(extraction_id)
@@ -1100,6 +1226,19 @@ class Store:
         self.conn.commit()
         row = self.conn.execute("SELECT * FROM scores WHERE id = ?", (cur.lastrowid,)).fetchone()
         return Score.from_row(row)
+
+    def delete_score_for_extraction(self, extraction_id: int) -> bool:
+        """Delete the score for ``extraction_id``; return whether a row was deleted.
+
+        Used when re-extraction changes the text that was scored, which makes the
+        stored verdict a verdict on text that no longer exists: dropping the row
+        returns the extraction to the scoring queue. The verdict is discarded
+        with it — if no other extraction shares that ``text_sha256``, the score
+        cache loses the entry and a re-score is a paid Pangram call.
+        """
+        cur = self.conn.execute("DELETE FROM scores WHERE extraction_id = ?", (extraction_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
 
     # -- persons --------------------------------------------------------------
 
