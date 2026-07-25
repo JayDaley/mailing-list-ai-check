@@ -499,6 +499,7 @@ _MESSAGE_COLUMNS = """
     s.fraction_human AS fraction_human,
     s.label AS label,
     s.detector_version AS detector_version,
+    s.raw_response AS raw_response,
     s.scored_at AS scored_at
 """
 
@@ -527,8 +528,15 @@ def _build_message_where(f: MessageFilters) -> tuple[str, list[Any]]:
         clauses.append("m.date <= ?")
         params.append(f.date_to)
     if f.label:
-        clauses.append("s.label = ?")
-        params.append(f.label)
+        # The dashboard filters by prediction_short (Human / Mixed / AI). The
+        # stored four-band label rebadges assisted-dominant "Mixed" verdicts as
+        # "AI-Assisted", so a "Mixed" filter must match both to agree with the
+        # folded detection bars and pills.
+        if f.label == "Mixed":
+            clauses.append("s.label IN ('Mixed', 'AI-Assisted')")
+        else:
+            clauses.append("s.label = ?")
+            params.append(f.label)
     if f.min_likelihood is not None:
         clauses.append("s.fraction_ai >= ?")
         params.append(f.min_likelihood)

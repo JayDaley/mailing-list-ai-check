@@ -226,3 +226,42 @@ button {
 .muted {
   color: var(--text-muted);
 }
+
+/* --- hover popup (see lib/hoverPop.js) --- */
+/* Global rather than scoped: the popup is teleported to <body> and shared by
+   the mix bars and the per-window score cells. */
+.hover-pop {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: #1f2429;
+  color: #f4f6f8;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+}
+/* One field per line, for the per-window popups. */
+.hover-pop-stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  line-height: 1.3;
+}
+.hover-pop-head {
+  font-weight: 600;
+}
+.hover-pop::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: var(--arrow-left, 12px);
+  margin-left: -4px;
+  border: 4px solid transparent;
+  border-top-color: #1f2429;
+}

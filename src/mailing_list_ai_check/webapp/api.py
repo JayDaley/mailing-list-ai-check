@@ -23,6 +23,7 @@ import math
 import os
 import re
 import tempfile
+from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import datetime
@@ -195,6 +196,129 @@ def parse_filters(args: Any) -> MessageFilters:
 # --- serialization ------------------------------------------------------------
 
 
+def _window_scores(raw: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """The per-window score and confidence from a stored Pangram response.
+
+    One entry per window, in document order — the message list shows these in
+    place of a single scalar, since Pangram emits no document-level score. The
+    window text and offsets are deliberately left out: the list only needs the
+    numbers, and the full response is available from the detail endpoint.
+    """
+    windows = (raw or {}).get("windows")
+    if not isinstance(windows, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for window in windows:
+        if not isinstance(window, dict):
+            continue
+        out.append(
+            {
+                "ai_assistance_score": window.get("ai_assistance_score"),
+                "confidence": window.get("confidence"),
+            }
+        )
+    return out
+
+
+def _analysed_to_extracted_lines(analysed: list[str], extracted: list[str]) -> list[int | None]:
+    """Line-for-line map from the analysed text back to ``extracted_text``.
+
+    Scoring sends ``clean_for_scoring(extracted_text)`` — the extracted text
+    minus its furniture lines, each survivor rstripped — so window offsets index
+    a text whose lines are a subsequence of the extracted ones. Walk both in
+    order, matching on the rstripped line, and return the extracted-line index
+    for each analysed line (``None`` where no match is found, e.g. because the
+    message was re-extracted after it was scored).
+
+    Blank analysed lines are left unmapped rather than matched to the next blank
+    extracted line, which would let a run of blanks pull the walk out of step.
+    """
+    out: list[int | None] = []
+    next_ext = 0
+    for line in analysed:
+        key = line.rstrip()
+        if not key:
+            out.append(None)
+            continue
+        found = None
+        for idx in range(next_ext, len(extracted)):
+            if extracted[idx].rstrip() == key:
+                found = idx
+                break
+        out.append(found)
+        if found is not None:
+            next_ext = found + 1
+    return out
+
+
+def _window_details(raw: dict[str, Any] | None, extracted_text: str | None) -> list[dict[str, Any]]:
+    """Per-window scores plus their position in ``extracted_text``.
+
+    Positions are ``{line, col}`` pairs, line 0-based into
+    ``extracted_text.split("\\n")`` and col a character offset within that line,
+    so the dashboard can mark where each window starts and ends in the text it
+    displays. They are ``None`` when the window cannot be located — the window
+    is still reported, with its scores.
+
+    Leading and trailing whitespace is trimmed off each window first: Pangram's
+    windows routinely start with a blank line, and a marker belongs on the first
+    real character, not at the end of the line before.
+    """
+    windows = (raw or {}).get("windows")
+    if not isinstance(windows, list):
+        return []
+
+    analysed = (raw or {}).get("text")
+    ext_lines = (extracted_text or "").split("\n")
+    line_map: list[int | None] = []
+    starts: list[int] = []
+    if isinstance(analysed, str):
+        analysed_lines = analysed.split("\n")
+        line_map = _analysed_to_extracted_lines(analysed_lines, ext_lines)
+        offset = 0
+        for line in analysed_lines:
+            starts.append(offset)
+            offset += len(line) + 1
+
+    def position(offset: int) -> dict[str, int] | None:
+        """An analysed-text character offset as a line/col in extracted_text."""
+        if not starts or not isinstance(analysed, str):
+            return None
+        # The last line whose start is at or before the offset.
+        idx = bisect_right(starts, offset) - 1
+        if idx < 0 or idx >= len(line_map):
+            return None
+        ext_line = line_map[idx]
+        if ext_line is None:
+            return None
+        col = offset - starts[idx]
+        return {"line": ext_line, "col": max(0, min(col, len(ext_lines[ext_line])))}
+
+    out: list[dict[str, Any]] = []
+    for i, window in enumerate(windows):
+        if not isinstance(window, dict):
+            continue
+        start = window.get("start_index")
+        end = window.get("end_index")
+        text = window.get("text")
+        if isinstance(start, int) and isinstance(end, int) and isinstance(text, str):
+            start += len(text) - len(text.lstrip())
+            end -= len(text) - len(text.rstrip())
+        out.append(
+            {
+                "index": i + 1,
+                "ai_assistance_score": window.get("ai_assistance_score"),
+                "confidence": window.get("confidence"),
+                "label": window.get("label"),
+                "word_count": window.get("word_count"),
+                "chars": (end - start) if isinstance(start, int) and isinstance(end, int) else None,
+                "start": position(start) if isinstance(start, int) else None,
+                "end": position(end) if isinstance(end, int) else None,
+            }
+        )
+    return out
+
+
 def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
     """Shape a :meth:`Store.query_messages` row into the list-item JSON."""
     extraction = None
@@ -206,11 +330,27 @@ def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
         }
     score = None
     if row["scored_at"] is not None:
+        # Pull prediction_short and the free-text headline out of the stored
+        # Pangram response. prediction_short falls back to the four-band label
+        # rebadged to its origin ("AI-Assisted" → "Mixed") when raw is absent.
+        raw = None
+        if row.get("raw_response"):
+            try:
+                raw = json.loads(row["raw_response"])
+            except (ValueError, TypeError):
+                raw = None
+        label = row["label"]
+        prediction_short = (raw or {}).get("prediction_short")
+        if prediction_short is None:
+            prediction_short = "Mixed" if label == "AI-Assisted" else label
         score = {
             "fraction_ai": row["fraction_ai"],
             "fraction_ai_assisted": row["fraction_ai_assisted"],
             "fraction_human": row["fraction_human"],
-            "label": row["label"],
+            "label": label,
+            "prediction_short": prediction_short,
+            "headline": (raw or {}).get("headline"),
+            "windows": _window_scores(raw),
             "detector_version": row["detector_version"],
             "scored_at": row["scored_at"],
         }
@@ -374,6 +514,12 @@ def message_detail(message_id: int) -> Any:
             "fraction_ai_assisted": score.fraction_ai_assisted,
             "fraction_human": score.fraction_human,
             "label": score.label,
+            "prediction_short": (raw_response or {}).get("prediction_short")
+            or ("Mixed" if score.label == "AI-Assisted" else score.label),
+            "headline": (raw_response or {}).get("headline"),
+            "windows": _window_details(
+                raw_response, extraction.extracted_text if extraction is not None else None
+            ),
             "detector_version": score.detector_version,
             "scored_at": score.scored_at,
             "raw_response": raw_response,

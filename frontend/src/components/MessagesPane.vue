@@ -7,12 +7,18 @@ import { ref, computed, watch, onMounted } from 'vue'
 
 import { get, apiUrl, postForm } from '../api'
 import { fmtDate, fmtInt } from '../lib/format'
-import { LABEL_ORDER, LABEL_SHORT } from '../lib/labels'
+import {
+  LABEL_SHORT,
+  LABEL_COLORS,
+  PRED_ORDER,
+  foldToPrediction,
+  predictionShort,
+} from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import { useUiStore } from '../stores/ui'
 import { useMessagesStore } from '../stores/messages'
 import MixBar from './MixBar.vue'
-import ScoreCell from './ScoreCell.vue'
+import WindowScores from './WindowScores.vue'
 
 const emit = defineEmits(['open'])
 
@@ -101,11 +107,12 @@ const mixCounts = ref({})
 // Caption with each label's share of the scored total, e.g. "Human (62%) · …".
 // Percentages match the MixBar segment tooltips (share of scored, rounded).
 const mixCaption = computed(() => {
-  const total = LABEL_ORDER.reduce((sum, l) => sum + (Number(mixCounts.value[l]) || 0), 0)
-  return LABEL_ORDER.map((l) => {
+  const folded = foldToPrediction(mixCounts.value)
+  const total = PRED_ORDER.reduce((sum, l) => sum + (Number(folded[l]) || 0), 0)
+  return PRED_ORDER.map((l) => {
     const word = LABEL_SHORT[l]
     if (!total) return word
-    const pct = Math.round(((Number(mixCounts.value[l]) || 0) / total) * 100)
+    const pct = Math.round(((Number(folded[l]) || 0) / total) * 100)
     return `${word} (${pct}%)`
   }).join(' · ')
 })
@@ -161,10 +168,13 @@ const IDLE = '#dfe3e8'
 const b = (v) => (v !== '' && v != null ? ACTIVE : IDLE)
 
 // --- grid columns (From collapses to 0 in anonymous mode) ---
+// Date · List · From · Subject · Analysis (prediction pill + headline) ·
+// AI Score (per-window scores) · Chars. The filter row stacks its controls two
+// deep, so Date needs room for only one date input and List gains the rest.
 const gridCols = computed(() =>
   ui.anonymous
-    ? '176px 100px 0px minmax(240px, 1fr) 140px 172px 64px'
-    : '176px 100px 170px minmax(240px, 1fr) 140px 172px 64px',
+    ? '120px 156px 0px minmax(200px, 1fr) 230px 220px 64px'
+    : '120px 156px 170px minmax(200px, 1fr) 230px 220px 64px',
 )
 const cellPad = computed(() => (ui.density === 'comfortable' ? '6px 10px' : '2px 10px'))
 const fromCellPad = computed(() => (ui.anonymous ? '0' : cellPad.value))
@@ -409,8 +419,11 @@ const rows = computed(() =>
         ? (emails && emails.length ? emails.join(', ') : m.from?.address || '')
         : m.from?.address || ''
     const ext = m.extraction
-    let extStr = ''
-    if (ext) extStr = ext.status === 'ok' ? `${ext.status}·${ext.method}` : ext.status
+    const sc = m.score
+    const scored = sc != null && sc.fraction_ai != null
+    // Analysis pill: the prediction_short bucket (falls back to the four-band
+    // label rebadged to its origin), coloured like the score badges.
+    const predShort = scored ? sc.prediction_short || predictionShort(sc.label) : ''
     return {
       id: m.id,
       dateStr: fmtDate(m.date),
@@ -418,8 +431,13 @@ const rows = computed(() =>
       fromName,
       fromTitle,
       subject: m.subject,
-      extStr,
-      score: m.score,
+      scored,
+      predShort,
+      pillColor: scored ? LABEL_COLORS[predShort] || LABEL_COLORS.unscored : '',
+      headline: scored ? sc.headline || '' : '',
+      // Pangram's per-window scores, in document order. Pangram emits no
+      // document-level score, so the column lists one entry per window.
+      windows: scored ? sc.windows || [] : [],
       chars: ext && ext.char_count ? fmtInt(ext.char_count) : '—',
       person,
       address: m.from?.address || '',
@@ -446,15 +464,7 @@ function onScroll(e) {
   }
 }
 
-// --- footer / empty ---
-const loadedNote = computed(() => {
-  const loaded = messages.items.length
-  const total = messages.total
-  return (
-    `${fmtInt(loaded)} of ${fmtInt(total)} loaded` +
-    (loaded < total ? ' · scroll for more' : '')
-  )
-})
+// --- empty ---
 const isEmpty = computed(() => !messages.loading && messages.total === 0)
 </script>
 
@@ -522,7 +532,7 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
 
     <!-- scroll region -->
     <div class="messages-scroll" @scroll="onScroll">
-      <div style="min-width: 1080px;">
+      <div style="min-width: 1220px;">
         <div class="messages-sticky">
           <!-- header row -->
           <div class="messages-grid messages-head" :style="{ gridTemplateColumns: gridCols }">
@@ -532,9 +542,9 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
               <template v-if="!ui.anonymous">From</template>
             </div>
             <div class="col-head">Subject</div>
-            <div class="col-head">Extraction</div>
-            <div class="col-head sortable" style="text-align: right;" @click="sortBy('fraction_ai')">
-              Score{{ scoreInd }}
+            <div class="col-head">Analysis</div>
+            <div class="col-head sortable" @click="sortBy('fraction_ai')">
+              AI Score (Confidence){{ scoreInd }}
             </div>
             <div class="col-head" style="text-align: right;">Chars</div>
           </div>
@@ -543,27 +553,25 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
             class="messages-grid messages-filter-row"
             :style="{ gridTemplateColumns: gridCols }"
           >
-            <div style="padding: 3px 10px 5px;">
-              <span style="display: flex; gap: 3px;">
-                <input
-                  type="date"
-                  :value="filters.date_from"
-                  title="From date"
-                  :style="{ border: `1px solid ${b(filters.date_from)}` }"
-                  class="fctl fctl-date"
-                  @change="(e) => filters.setFilter('date_from', e.target.value)"
-                />
-                <input
-                  type="date"
-                  :value="filters.date_to"
-                  title="To date"
-                  :style="{ border: `1px solid ${b(filters.date_to)}` }"
-                  class="fctl fctl-date"
-                  @change="(e) => filters.setFilter('date_to', e.target.value)"
-                />
-              </span>
+            <div class="fcell">
+              <input
+                type="date"
+                :value="filters.date_from"
+                title="From date"
+                :style="{ border: `1px solid ${b(filters.date_from)}` }"
+                class="fctl fctl-date"
+                @change="(e) => filters.setFilter('date_from', e.target.value)"
+              />
+              <input
+                type="date"
+                :value="filters.date_to"
+                title="To date"
+                :style="{ border: `1px solid ${b(filters.date_to)}` }"
+                class="fctl fctl-date"
+                @change="(e) => filters.setFilter('date_to', e.target.value)"
+              />
             </div>
-            <div style="padding: 3px 10px 5px; position: relative;">
+            <div class="fcell" style="position: relative;">
               <input
                 type="text"
                 placeholder="any list…"
@@ -588,13 +596,13 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
                 <div v-if="listNoMatch" class="list-dropdown-empty">no matching lists</div>
               </div>
             </div>
-            <div :style="{ padding: fromFilterPad, overflow: 'hidden' }">
-              <span v-if="!ui.anonymous" style="display: flex; gap: 3px;">
+            <div class="fcell" :style="{ padding: fromFilterPad, overflow: 'hidden' }">
+              <template v-if="!ui.anonymous">
                 <select
                   :value="fromValue"
                   title="Sender"
                   class="fctl"
-                  style="width: 92px; flex: none;"
+                  style="width: 100%;"
                   :style="{ border: `1px solid ${b(filters.person || filters.address)}` }"
                   @change="setFrom"
                 >
@@ -608,13 +616,13 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
                   placeholder="exact email"
                   :value="filters.address"
                   class="fctl fctl-mono"
-                  style="flex: 1; min-width: 0;"
+                  style="width: 100%;"
                   :style="{ border: `1px solid ${b(filters.address)}` }"
                   @change="setAddress"
                 />
-              </span>
+              </template>
             </div>
-            <div style="padding: 3px 10px 5px;">
+            <div class="fcell">
               <input
                 type="search"
                 placeholder="subject / text…"
@@ -625,7 +633,23 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
                 @input="setQ"
               />
             </div>
-            <div style="padding: 3px 10px 5px;">
+            <div class="fcell">
+              <select
+                :value="filters.label"
+                title="Analysis"
+                class="fctl"
+                style="width: 100%;"
+                :style="{ border: `1px solid ${b(filters.label)}` }"
+                @change="(e) => filters.setFilter('label', e.target.value)"
+              >
+                <option value="">any</option>
+                <option value="Human">Human</option>
+                <option value="Mixed">Mixed</option>
+                <option value="AI">AI</option>
+              </select>
+            </div>
+            <!-- Scored / unscored: it lived under Extraction, which is gone. -->
+            <div class="fcell">
               <select
                 :value="filters.has_score"
                 title="Scoring status"
@@ -639,49 +663,7 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
                 <option value="false">unscored</option>
               </select>
             </div>
-            <div style="padding: 3px 10px 5px;">
-              <span style="display: flex; gap: 3px; justify-content: flex-end;">
-                <select
-                  :value="filters.label"
-                  title="Label"
-                  class="fctl"
-                  style="flex: 1; min-width: 0;"
-                  :style="{ border: `1px solid ${b(filters.label)}` }"
-                  @change="(e) => filters.setFilter('label', e.target.value)"
-                >
-                  <option value="">any</option>
-                  <option value="AI">AI</option>
-                  <option value="AI-Assisted">AI-Asst</option>
-                  <option value="Mixed">Mixed</option>
-                  <option value="Human">Human</option>
-                </select>
-                <input
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  placeholder="min"
-                  :value="filters.min_likelihood"
-                  title="Min fraction AI"
-                  class="fctl fctl-num"
-                  :style="{ border: `1px solid ${b(filters.min_likelihood)}` }"
-                  @change="(e) => filters.setFilter('min_likelihood', e.target.value)"
-                />
-                <input
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  placeholder="max"
-                  :value="filters.max_likelihood"
-                  title="Max fraction AI"
-                  class="fctl fctl-num"
-                  :style="{ border: `1px solid ${b(filters.max_likelihood)}` }"
-                  @change="(e) => filters.setFilter('max_likelihood', e.target.value)"
-                />
-              </span>
-            </div>
-            <div style="padding: 3px 10px 5px;"></div>
+            <div class="fcell"></div>
           </div>
         </div>
 
@@ -711,11 +693,19 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
               >
             </div>
             <div class="cell cell-ellipsis" :style="{ padding: cellPad }">{{ m.subject }}</div>
-            <div class="cell cell-mono" :style="{ padding: cellPad, whiteSpace: 'nowrap', color: '#8a929b' }">
-              {{ m.extStr }}
+            <!-- Pill and headline sit in fixed sub-columns, so every headline
+                 starts at the same x however wide its pill is. -->
+            <div class="cell analysis-cell" :style="{ padding: cellPad }">
+              <span class="analysis-pill-slot">
+                <span v-if="m.scored" class="pred-pill" :style="{ background: m.pillColor }">{{
+                  m.predShort
+                }}</span>
+                <span v-else class="cell-dash">—</span>
+              </span>
+              <span v-if="m.scored" class="headline-text" :title="m.headline">{{ m.headline }}</span>
             </div>
-            <div class="cell" :style="{ padding: cellPad, textAlign: 'right', whiteSpace: 'nowrap' }">
-              <ScoreCell :score="m.score" />
+            <div class="cell" :style="{ padding: cellPad, minWidth: 0 }">
+              <WindowScores :windows="m.windows" />
             </div>
             <div
               class="cell cell-mono cell-muted"
@@ -729,7 +719,6 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
     </div>
 
     <div v-if="isEmpty" class="messages-empty">No messages match the current filters.</div>
-    <div class="messages-footer">{{ loadedNote }}</div>
   </div>
 </template>
 
@@ -837,9 +826,19 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
 .col-head.sortable:hover {
   color: #1c2024;
 }
+/* Two rows deep: each cell stacks its controls, so the Date and From columns
+   hold two full-width controls instead of two half-width ones side by side. */
 .messages-filter-row {
   border-bottom: 1px solid #e2e5e9;
   background: #fafbfc;
+  align-items: stretch;
+}
+.fcell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 3px 10px 5px;
+  min-width: 0;
 }
 .fctl {
   font-size: 11px;
@@ -853,7 +852,7 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
 .fctl-date {
   font-size: 10px;
   padding: 0 3px;
-  width: 50%;
+  width: 100%;
   min-width: 0;
   color: #626a72;
 }
@@ -931,18 +930,44 @@ select.fctl {
 .cell-link-mono {
   font-family: var(--mono);
 }
+/* Analysis column: the prediction pill in a fixed slot, then the headline, so
+   the headlines line up down the column. */
+.analysis-cell {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.analysis-pill-slot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+/* The prediction_short bucket as a pill (Human / Mixed / AI), followed by
+   Pangram's free-text headline as plain, uncoloured text. */
+.pred-pill {
+  flex: none;
+  padding: 0 7px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  color: #ffffff;
+}
+.headline-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #1c2024;
+}
+.cell-dash {
+  color: #b3b9c0;
+}
 .messages-empty {
   padding: 28px;
   text-align: center;
   color: #8a929b;
-}
-.messages-footer {
-  flex: none;
-  padding: 3px 12px;
-  border-top: 1px solid #e2e5e9;
-  background: #fafbfc;
-  font-size: 10.5px;
-  color: #8a929b;
-  font-family: var(--mono);
 }
 </style>

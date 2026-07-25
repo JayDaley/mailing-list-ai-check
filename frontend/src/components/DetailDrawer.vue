@@ -3,15 +3,15 @@
 //
 // Fetches GET /api/messages/:id on mount and whenever messageId changes, and
 // renders: a top bar that steps ↑/↓ through the messages store's current
-// filtered+sorted result set, the message metadata grid, the Pangram score
-// card (three fraction bars), a line-numbered extracted-text block (greeting/
-// sign-off/signature lines greyed via `ignored_lines`), and a line-numbered
-// raw-body block with the lines that survived extraction highlighted.
+// filtered+sorted result set, the message metadata grid, the analysis card
+// (prediction pill, headline, engine version and a per-window table), and one
+// text card holding the extracted text — furniture lines hidden by default —
+// plus the raw body.
 //
-// Raw↔extraction highlighting replicates the prototype's rule exactly: a raw
-// line is highlighted when it is non-empty after trim, its trimmed+lowercased
-// form is in the set of extracted lines, and it does NOT start with '>'
-// (quoted lines never highlight).
+// Each Pangram window is marked in the text twice: a numbered box at its first
+// character, and a bracket down the right-hand wire gutter spanning its lines.
+// Both hover to the window's table row. Window positions come from the API as
+// {line, col} pairs in extracted-text coordinates (see _window_details).
 //
 // Contract: props { messageId: Number }, emits ['close'].
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
@@ -21,8 +21,9 @@ import { get } from '../api'
 import { useMessagesStore } from '../stores/messages'
 import { useFiltersStore } from '../stores/filters'
 import { useUiStore } from '../stores/ui'
-import { LABEL_COLORS } from '../lib/labels'
-import { fmtDate } from '../lib/format'
+import { LABEL_COLORS, OBSERVABLE_10, windowBucket } from '../lib/labels'
+import { fmtDate, fmtInt } from '../lib/format'
+import WindowMarker from './WindowMarker.vue'
 
 const props = defineProps({
   messageId: { type: Number, required: true },
@@ -117,119 +118,206 @@ const dateFull = computed(() => {
   return Number.isNaN(dt.getTime()) ? String(iso) : dt.toUTCString()
 })
 
-// --- Pangram score card ---
+// --- analysis card ---
 const scored = computed(() => {
   const sc = detail.value?.score
   return sc != null && sc.fraction_ai != null
 })
-const label = computed(() => detail.value?.score?.label || '')
-const labelBg = computed(() => LABEL_COLORS[label.value] || LABEL_COLORS.unscored)
+// The prediction bucket (Human / Mixed / AI) and its pill colour.
+const predShort = computed(() => detail.value?.score?.prediction_short || '')
+const predBg = computed(() => LABEL_COLORS[predShort.value] || LABEL_COLORS.unscored)
+const headline = computed(() => detail.value?.score?.headline || '')
 
-function pctOf(v) {
-  return v == null ? '—' : Math.round(v * 100) + '%'
+// The engine that produced the verdict. Named because a second one is coming.
+const engine = computed(() => {
+  const sc = detail.value?.score
+  if (!sc) return ''
+  return `Pangram detector ${sc.detector_version || '?'}`
+})
+const scoredAt = computed(() => {
+  const sc = detail.value?.score
+  return sc?.scored_at ? `scored ${fmtDate(sc.scored_at)}` : ''
+})
+
+// One row per Pangram window, for the analysis table and the text markers.
+const windows = computed(() =>
+  (detail.value?.score?.windows || []).map((w) => {
+    const s = Number(w.ai_assistance_score)
+    const bucket = windowBucket(w.label)
+    return {
+      ...w,
+      score: Number.isFinite(s) ? s.toFixed(2) : '—',
+      charsStr: w.chars == null ? '—' : fmtInt(w.chars),
+      // The verdict colour is used only for the table's label swatch; the
+      // numbers and brackets are grey (see WindowMarker).
+      labelColor: bucket ? LABEL_COLORS[bucket] : LABEL_COLORS.unscored,
+      located: w.start != null && w.end != null,
+    }
+  }),
+)
+
+// The window under the pointer, highlighted everywhere it appears: its number
+// boxes in the table, in the text and beside its bracket, and the bracket.
+const activeWindow = ref(null)
+const WIRE_IDLE = OBSERVABLE_10.grey
+const WIRE_ACTIVE = OBSERVABLE_10.lightBlue
+
+// Scroll a window's inline marker into view and flash it. The scroll is
+// deliberately instant: smooth scrolling is a no-op wherever the browser or the
+// user's motion preference disables it, which loses the jump entirely.
+const flashed = ref(null)
+function goToWindow(win) {
+  const el = document.getElementById(`win-marker-${win.index}`)
+  if (!el) return
+  el.scrollIntoView({ block: 'center' })
+  flashed.value = win.index
+  setTimeout(() => {
+    if (flashed.value === win.index) flashed.value = null
+  }, 1200)
 }
-
-const scoreMeta = computed(() => {
-  if (!scored.value) return ''
-  const sc = detail.value.score
-  return `detector v${sc.detector_version} · scored ${fmtDate(sc.scored_at)}`
-})
-
-const fracRows = computed(() => {
-  if (!scored.value) return []
-  const sc = detail.value.score
-  return [
-    { key: 'AI', v: sc.fraction_ai },
-    { key: 'AI-Assisted', v: sc.fraction_ai_assisted },
-    { key: 'Human', v: sc.fraction_human },
-  ].map((r) => ({
-    key: r.key,
-    pct: pctOf(r.v),
-    w: Math.round((r.v || 0) * 100) + '%',
-    color: LABEL_COLORS[r.key],
-  }))
-})
 
 // Wording for "Not scored (…)" and for a missing extraction elsewhere.
 const extStatus = computed(() =>
   detail.value?.extraction ? detail.value.extraction.status : 'no extraction',
 )
 
-// --- extracted-text card ---
+// --- text card meta ---
+// The ignored-line count lives on the toggle, not here.
 const extMeta = computed(() => {
   const ex = detail.value?.extraction
   if (!ex) return 'no extraction'
   if (ex.status === 'ok') {
-    const k = (ex.ignored_lines || []).length
     return (
-      ex.status +
-      ' · ' +
-      ex.method +
-      ' · ' +
-      (ex.char_count || 0).toLocaleString() +
-      ' chars · ' +
-      k +
-      ' lines excluded from AI analysis'
+      ex.status + ' · ' + ex.method + ' · ' + (ex.char_count || 0).toLocaleString() + ' chars'
     )
   }
   return ex.status
 })
 
-const extLines = computed(() => {
-  const ex = detail.value?.extraction
-  if (!ex || ex.status !== 'ok' || !ex.extracted_text) {
-    return [
-      {
-        num: 1,
-        text: '(no extracted text)',
-        bg: 'transparent',
-        col: '#8a929b',
-        op: '1',
-        title: '',
-      },
-    ]
-  }
-  const ignored = new Set(ex.ignored_lines || [])
-  return ex.extracted_text.split('\n').map((t, i) => ({
-    num: i + 1,
-    text: t || ' ',
-    bg: ignored.has(i) ? '#eef0f3' : 'transparent',
-    col: ignored.has(i) ? '#8a929b' : 'inherit',
-    op: ignored.has(i) ? '0.75' : '1',
-    title: ignored.has(i)
-      ? 'Excluded from AI analysis (greeting/sign-off/signature)'
-      : '',
-  }))
-})
+// --- text card ---
+// One box, two views. Off (the default) it shows only what the detector saw. On,
+// it shows the whole message with everything the detector did not see dimmed —
+// quoted replies, signatures, the greeting lines the scoring stage drops. No
+// distinction is drawn between what extraction removed and what post-processing
+// removed: either way the detector never saw it.
+const showIgnored = ref(false)
 
-// --- raw-body card ---
-// Set of every extracted line, trimmed + lowercased, empties dropped — the
-// membership test the prototype uses to decide which raw lines are highlighted.
-const extSet = computed(() => {
-  const s = new Set()
+const extractedLines = computed(() => {
   const text = detail.value?.extraction?.extracted_text
-  if (text) {
-    for (const t of text.split('\n')) {
-      const k = t.trim().toLowerCase()
-      if (k) s.add(k)
+  return text ? text.split('\n') : []
+})
+const ignoredSet = computed(() => new Set(detail.value?.extraction?.ignored_lines || []))
+const rawBodyLines = computed(() => (detail.value?.raw_body || '').split('\n'))
+
+// Where each extracted line sits in the raw body. The extracted text is the
+// message's own new text, so its lines appear in the raw body in order — walk
+// both and match on the trimmed line. Quoted copies never match, since they
+// carry their '>' prefix.
+const extractedToRaw = computed(() => {
+  const map = new Map()
+  const raw = rawBodyLines.value
+  let next = 0
+  extractedLines.value.forEach((line, i) => {
+    const key = line.trim()
+    if (!key) return
+    for (let j = next; j < raw.length; j++) {
+      if (raw[j].trim() === key) {
+        map.set(i, j)
+        next = j + 1
+        return
+      }
     }
-  }
-  return s
+  })
+  return map
 })
 
-const rawLines = computed(() => {
-  const raw = detail.value?.raw_body || ''
-  const set = extSet.value
-  return raw.split('\n').map((t, i) => ({
-    num: i + 1,
-    text: t || ' ',
-    // Prototype rule: non-empty trimmed line, present in the extracted set, and
-    // not a quoted '>' line (startsWith tested on the ORIGINAL, untrimmed line).
-    bg:
-      t.trim() && set.has(t.trim().toLowerCase()) && !t.startsWith('>')
-        ? '#fff3bf'
-        : 'transparent',
+// Whether the raw body can stand in for the whole message. It cannot when the
+// extracted text came from the HTML part: those lines are nowhere in the
+// plain-text body, so the full-message view falls back to the extracted text.
+const rawAligns = computed(() => {
+  const wanted = extractedLines.value.filter((l) => l.trim()).length
+  if (!wanted) return false
+  return extractedToRaw.value.size >= wanted / 2
+})
+
+const ignoredCount = computed(() => {
+  if (!rawAligns.value) return ignoredSet.value.size
+  const shown = new Set(
+    [...extractedToRaw.value.entries()].filter(([e]) => !ignoredSet.value.has(e)).map(([, r]) => r),
+  )
+  return rawBodyLines.value.filter((l, j) => l.trim() && !shown.has(j)).length
+})
+
+// Give a display row its window markers and wire segments.
+//
+// Wire geometry: a window's bracket runs from its first line to its last. Where
+// several windows touch one line — one ending as the next begins — the line's
+// height is shared between them in order, so one bracket closes and the next
+// opens on that line.
+// `colShift` corrects the marker offset when the rendered line is the raw one:
+// window columns are offsets into the extracted line, which may be indented
+// differently (the two are matched on their trimmed form).
+function decorate(text, extLine, colShift = 0) {
+  const located = extLine == null ? [] : windows.value.filter((w) => w.located)
+  const covering = located.filter((w) => w.start.line <= extLine && w.end.line >= extLine)
+  const share = covering.length || 1
+  const wires = covering.map((w, k) => ({
+    win: w,
+    top: `${(k / share) * 100}%`,
+    height: `${(1 / share) * 100}%`,
+    isStart: w.start.line === extLine,
+    isEnd: w.end.line === extLine,
   }))
+
+  // Split the line at each window start so a marker can sit inline there.
+  const starts = located
+    .filter((w) => w.start.line === extLine)
+    .map((w) => ({ col: Math.max(0, Math.min(w.start.col + colShift, text.length)), win: w }))
+    .sort((a, b) => a.col - b.col)
+  const parts = []
+  let cursor = 0
+  for (const s of starts) {
+    if (s.col > cursor) parts.push({ text: text.slice(cursor, s.col) })
+    parts.push({ marker: s.win })
+    cursor = s.col
+  }
+  parts.push({ text: text.slice(cursor) || (parts.length ? '' : ' ') })
+
+  return { parts, wires }
+}
+
+// The rendered lines: the whole message when "Show ignored" is on (raw body
+// where it aligns, otherwise the extracted text), and only the analysed lines
+// when it is off.
+const textRows = computed(() => {
+  if (!extractedLines.value.length) return []
+
+  if (showIgnored.value && rawAligns.value) {
+    const rawToExt = new Map([...extractedToRaw.value.entries()].map(([e, r]) => [r, e]))
+    const indent = (s) => s.length - s.trimStart().length
+    return rawBodyLines.value.map((text, j) => {
+      const extLine = rawToExt.has(j) ? rawToExt.get(j) : null
+      const seen = extLine != null && !ignoredSet.value.has(extLine)
+      const shift = seen ? indent(text) - indent(extractedLines.value[extLine]) : 0
+      return {
+        key: `r${j}`,
+        num: j + 1,
+        // Blank lines carry no text to dim: banding them just stripes the view.
+        dimmed: !seen && !!text.trim(),
+        ...decorate(text, seen ? extLine : null, shift),
+      }
+    })
+  }
+
+  return extractedLines.value
+    .map((text, i) => ({
+      key: `e${i}`,
+      num: i + 1,
+      extLine: i,
+      dimmed: ignoredSet.value.has(i),
+      ...decorate(text, ignoredSet.value.has(i) ? null : i),
+    }))
+    .filter((row) => showIgnored.value || !row.dimmed)
 })
 
 // --- interactions ---
@@ -310,115 +398,130 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             >
           </div>
 
-          <!-- Pangram score card -->
+          <!-- Analysis card -->
           <div class="drawer-card">
-            <div
-              style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;"
-            >
-              <span style="font-size: 11.5px; font-weight: 700;">Pangram score</span>
-              <span
-                v-if="scored"
-                :style="{
-                  display: 'inline-block',
-                  padding: '0 7px',
-                  borderRadius: '3px',
-                  fontSize: '10.5px',
-                  fontWeight: 700,
-                  color: '#ffffff',
-                  background: labelBg,
-                }"
-                >{{ label }}</span
-              >
-              <span
-                style="font-size: 10.5px; color: #8a929b; font-family: ui-monospace, Menlo, Consolas, monospace;"
-                >{{ scoreMeta }}</span
-              >
+            <div class="analysis-head">
+              <span style="font-size: 11.5px; font-weight: 700;">Analysis</span>
+              <span v-if="scored" class="pred-pill" :style="{ background: predBg }">{{
+                predShort
+              }}</span>
+              <span v-if="scored" style="font-size: 11.5px;">{{ headline }}</span>
+              <span v-if="scored" class="analysis-meta">{{ engine }}</span>
+              <span v-if="scored" class="analysis-meta">· {{ scoredAt }}</span>
             </div>
 
-            <div
-              v-for="fr in fracRows"
-              :key="fr.key"
-              style="display: flex; align-items: center; gap: 10px; padding: 1px 0;"
-            >
-              <span style="width: 76px; font-size: 11px; color: #626a72; flex: none;">{{
-                fr.key
-              }}</span>
-              <span
-                style="flex: 1; height: 8px; background: #eef0f3; border-radius: 3px; overflow: hidden;"
-                ><span
-                  :style="{
-                    display: 'block',
-                    height: '100%',
-                    width: fr.w,
-                    background: fr.color,
-                  }"
-                ></span
-              ></span>
-              <span
-                style="width: 36px; text-align: right; font-size: 11px; font-weight: 600; flex: none; font-family: ui-monospace, Menlo, Consolas, monospace;"
-                >{{ fr.pct }}</span
-              >
-            </div>
+            <table v-if="windows.length" class="win-table">
+              <thead>
+                <tr>
+                  <th style="width: 34px;">#</th>
+                  <th style="width: 62px; text-align: right;">Chars</th>
+                  <th style="width: 54px; text-align: right;">Score</th>
+                  <th style="width: 74px;">Confidence</th>
+                  <th>Label</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="w in windows" :key="w.index">
+                  <td>
+                    <WindowMarker
+                      :win="w"
+                      variant="table"
+                      :active="activeWindow === w.index"
+                      :clickable="w.located"
+                      @activate="activeWindow = w.index"
+                      @deactivate="activeWindow = null"
+                      @jump="goToWindow"
+                    />
+                  </td>
+                  <td style="text-align: right;">{{ w.charsStr }}</td>
+                  <td style="text-align: right;">{{ w.score }}</td>
+                  <td>{{ w.confidence || '—' }}</td>
+                  <td>
+                    <span class="win-swatch" :style="{ background: w.labelColor }"></span
+                    >{{ w.label || '—' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
 
             <div v-if="!scored" style="font-size: 11.5px; color: #8a929b;">
               Not scored ({{ extStatus }}).
             </div>
           </div>
 
-          <!-- Extracted text card -->
-          <div class="drawer-card">
-            <div style="font-size: 11.5px; font-weight: 700; margin-bottom: 6px;">
-              Extracted text
-              <span
-                style="color: #8a929b; font-weight: 400; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10.5px;"
-                >· {{ extMeta }}</span
-              >
-            </div>
-            <div class="code-block" style="background: #fbfdff;">
-              <div v-for="ln in extLines" :key="ln.num" style="display: flex;">
-                <span class="code-gutter">{{ ln.num }}</span>
-                <span
-                  :title="ln.title"
-                  :style="{
-                    flex: 1,
-                    minWidth: 0,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    background: ln.bg,
-                    color: ln.col,
-                    opacity: ln.op,
-                    borderRadius: '2px',
-                  }"
-                  >{{ ln.text }}</span
-                >
-              </div>
-            </div>
-          </div>
-
-          <!-- Raw body card -->
+          <!-- Text card: one box. "Show ignored" widens it from the analysed
+               text to the whole message, dimming what the detector never saw. -->
           <div class="drawer-card" style="margin-bottom: 0;">
-            <div style="font-size: 11.5px; font-weight: 700; margin-bottom: 6px;">
-              Raw body
-              <span style="color: #8a929b; font-weight: 400; font-size: 10.5px;"
-                >· extracted lines highlighted</span
-              >
+            <div class="text-head">
+              <span style="font-size: 11.5px; font-weight: 700;">Text</span>
+              <span class="analysis-meta">· {{ extMeta }}</span>
+              <span style="flex: 1;"></span>
+              <label class="show-toggle">
+                <input type="checkbox" v-model="showIgnored" />
+                Show ignored<span v-if="ignoredCount"> ({{ ignoredCount }})</span>
+              </label>
             </div>
-            <div class="code-block" style="background: #f7f8fa;">
-              <div v-for="ln in rawLines" :key="ln.num" style="display: flex;">
+
+            <div v-if="showIgnored && !rawAligns" class="text-note">
+              The extracted text is not in the plain-text body (HTML message): showing the
+              extracted text with its ignored lines dimmed.
+            </div>
+
+            <div v-if="textRows.length" class="code-block" style="background: #fbfdff;">
+              <div v-for="ln in textRows" :key="ln.key" class="code-line">
                 <span class="code-gutter">{{ ln.num }}</span>
                 <span
-                  :style="{
-                    flex: 1,
-                    minWidth: 0,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    background: ln.bg,
-                    borderRadius: '2px',
-                  }"
-                  >{{ ln.text }}</span
+                  class="code-text"
+                  :class="{ 'code-text-ignored': ln.dimmed }"
+                  :title="ln.dimmed ? 'Not sent to the checking service' : ''"
                 >
+                  <template v-for="(p, i) in ln.parts" :key="i">
+                    <WindowMarker
+                      v-if="p.marker"
+                      :win="p.marker"
+                      variant="box"
+                      :marker-id="`win-marker-${p.marker.index}`"
+                      :active="activeWindow === p.marker.index || flashed === p.marker.index"
+                      @activate="activeWindow = p.marker.index"
+                      @deactivate="activeWindow = null"
+                    />
+                    <template v-else>{{ p.text }}</template>
+                  </template>
+                </span>
+                <span class="code-wire">
+                  <span
+                    v-for="w in ln.wires"
+                    :key="w.win.index"
+                    class="wire-seg"
+                    :style="{
+                      top: w.top,
+                      height: w.height,
+                      borderColor: activeWindow === w.win.index ? WIRE_ACTIVE : WIRE_IDLE,
+                    }"
+                  >
+                    <span
+                      v-if="w.isStart"
+                      class="wire-arm wire-arm-top"
+                      :style="{ background: activeWindow === w.win.index ? WIRE_ACTIVE : WIRE_IDLE }"
+                    ></span>
+                    <span
+                      v-if="w.isEnd"
+                      class="wire-arm wire-arm-bottom"
+                      :style="{ background: activeWindow === w.win.index ? WIRE_ACTIVE : WIRE_IDLE }"
+                    ></span>
+                    <WindowMarker
+                      v-if="w.isStart"
+                      :win="w.win"
+                      variant="wire"
+                      :active="activeWindow === w.win.index"
+                      @activate="activeWindow = w.win.index"
+                      @deactivate="activeWindow = null"
+                    />
+                  </span>
+                </span>
               </div>
             </div>
+            <div v-else style="font-size: 11.5px; color: #8a929b;">(no extracted text)</div>
           </div>
         </template>
       </div>
@@ -475,5 +578,118 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   border-right: 1px solid #e2e5e9;
   color: #b3b9c0;
   user-select: none;
+}
+
+/* --- analysis card --- */
+.analysis-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pred-pill {
+  padding: 0 7px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  color: #ffffff;
+}
+.analysis-meta {
+  font-size: 10.5px;
+  color: #8a929b;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.win-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.win-table th {
+  text-align: left;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8a929b;
+  padding: 0 6px 3px 0;
+  border-bottom: 1px solid #eef0f3;
+}
+.win-table td {
+  padding: 2px 6px 2px 0;
+  border-bottom: 1px solid #f5f6f8;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.win-swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+
+/* --- text card --- */
+.text-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.show-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: #626a72;
+  cursor: pointer;
+  user-select: none;
+}
+.text-note {
+  font-size: 10.5px;
+  color: #8a929b;
+  margin-bottom: 6px;
+}
+.code-line {
+  display: flex;
+  align-items: stretch;
+}
+.code-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.code-text-ignored {
+  background: #eef0f3;
+  color: #8a929b;
+  opacity: 0.75;
+  border-radius: 2px;
+}
+
+/* The wire gutter: one bracket per window, down the right-hand side. */
+.code-wire {
+  position: relative;
+  flex: none;
+  width: 26px;
+  margin-left: 8px;
+}
+.wire-seg {
+  position: absolute;
+  left: 4px;
+  border-left: 2px solid;
+}
+.wire-arm {
+  position: absolute;
+  left: -2px;
+  width: 6px;
+  height: 2px;
+}
+.wire-arm-top {
+  top: 0;
+}
+.wire-arm-bottom {
+  bottom: 0;
 }
 </style>

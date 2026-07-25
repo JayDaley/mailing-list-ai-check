@@ -138,7 +138,24 @@ def seed(store: Store) -> Seed:
             fraction_human=(1.0 - frac if frac is not None else None),
             label=label,
             detector_version="v3",
-            raw_response={"prediction_short": label, "fraction_ai": frac, "windows": []},
+            # One window covering the whole extracted text, as Pangram returns
+            # for a text short enough not to be split.
+            raw_response={
+                "prediction_short": label,
+                "fraction_ai": frac,
+                "text": text,
+                "windows": [
+                    {
+                        "text": text,
+                        "start_index": 0,
+                        "end_index": len(text),
+                        "label": "AI-Generated" if label == "AI" else "Human Written",
+                        "ai_assistance_score": frac,
+                        "confidence": "High",
+                        "word_count": len(text.split()),
+                    }
+                ],
+            },
         )
 
     return s

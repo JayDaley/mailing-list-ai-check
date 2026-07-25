@@ -20,7 +20,6 @@ import { ref, computed, watch, onMounted } from 'vue'
 
 import { get, postJson, putJson, del } from '../api'
 import { fmtInt } from '../lib/format'
-import { MIX_CAPTION } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
@@ -420,7 +419,7 @@ async function assignToExisting(row) {
         <span class="sortable" @click="sortName">Sender{{ nameInd }}</span>
         <span>Address</span>
         <span class="sortable" style="text-align: right;" @click="sortCount">Emails{{ countInd }}</span>
-        <span>{{ MIX_CAPTION }}</span>
+        <span>Aggregate analysis</span>
         <span style="text-align: right;">Link</span>
       </div>
 

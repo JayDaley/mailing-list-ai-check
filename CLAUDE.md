@@ -22,6 +22,7 @@ Guidance for Claude Code when working in this repository.
 - `pyproject.toml` — project metadata, dependencies, tooling config
 - `Makefile` — dev/build/test/lint targets
 - `.env.example` — template for required secrets (copy to `.env`)
+- `CHANGELOG.md` — one section per release (see Changelog below)
 
 ## Secrets — important
 
@@ -53,6 +54,22 @@ editorialising: no opinionated flourishes, colloquialisms, first-person
 voice, or subjective commentary — state facts, measurements, and rationale
 plainly.
 
+## Searching the source — use CodeGraph, not grep
+
+This repository is indexed by CodeGraph (`.codegraph/` at the repo root). To
+find or understand code, call the `codegraph_explore` MCP tool **before**
+reaching for `grep`, `rg`, `find`, or bulk `Read` calls — one call returns the
+verbatim line-numbered source of the relevant symbols, the call paths between
+them, and what depends on them.
+
+- Name symbols or files in the query (e.g. `codegraph_explore` with
+  `"extract_new_text clean_text pipeline_version"`), or ask a plain question
+  about the code.
+- If the tool is listed but deferred, load it by name via tool search first.
+  The shell fallback is `codegraph explore "<symbols or question>"`.
+- `grep` remains appropriate for non-source text: literal strings in fixtures,
+  data files, docs, and lockfiles.
+
 ## Conventions
 
 - Python >= 3.11, `src/` layout.
@@ -62,7 +79,7 @@ plainly.
 ## Versioning
 
 The app uses [semantic versioning](https://semver.org/); the current version is
-**1.2.1**. The single source of truth is `mailing_list_ai_check.__version__`
+**1.2.2**. The single source of truth is `mailing_list_ai_check.__version__`
 (in `__init__.py`); `pyproject.toml` reads it dynamically, so the two never
 drift.
 
@@ -76,3 +93,23 @@ Bump policy (for now):
 Each message records the pipeline version that last processed it
 (`messages.pipeline_version`), stamped on insert and re-stamped whenever its
 extraction or score is written.
+
+## Changelog — maintain it
+
+`CHANGELOG.md` records every release, newest first, and is parsed by scripts.
+Its own "Format" section is the specification; keep to it exactly.
+
+- Every version bump gets a section. Bumping `__version__` without adding or
+  updating a `CHANGELOG.md` section is incomplete work.
+- Section shape, in this order: `## [<version>] - <date>`, then one
+  `Summary: <one line>` line, then one `- ` bullet per individual change.
+- `<date>` is `YYYY-MM-DD` for a committed release, or the literal
+  `unreleased` while the version is bumped in the source but not yet
+  committed. Replace `unreleased` with the commit date when releasing.
+- One line per bullet — no wrapped continuation lines, no nested bullets, no
+  extra headings or prose inside a release section.
+- Write bullets at the granularity of an individual change (a new endpoint, a
+  renamed control, a new extraction rule), not per file touched.
+- The documentation style rule above applies: factual and impersonal.
+- Do not rewrite the history of released sections; add to the newest one, or
+  start a new one.

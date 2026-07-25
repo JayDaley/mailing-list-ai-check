@@ -23,7 +23,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { get, postJson } from '../api'
 import { fmtDate, fmtInt } from '../lib/format'
-import { MIX_CAPTION, labelColor } from '../lib/labels'
+import { labelColor } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
@@ -697,7 +697,7 @@ function closeList() {
         <div class="index-caption">
           <span>List</span>
           <span style="text-align: right;">Msgs</span>
-          <span>{{ MIX_CAPTION }}</span>
+          <span>Aggregate analysis</span>
           <span style="text-align: right;">Synced</span>
           <span></span>
         </div>

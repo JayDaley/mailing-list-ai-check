@@ -6,24 +6,28 @@
 import { computed } from 'vue'
 
 import { fmtInt } from '../lib/format'
-import { LABEL_COLORS, LABEL_ORDER, LABEL_SHORT } from '../lib/labels'
+import { LABEL_COLORS, PRED_ORDER, LABEL_SHORT, foldToPrediction } from '../lib/labels'
 import MixBar from './MixBar.vue'
 
 const props = defineProps({
-  // Object of label -> count. Unknown / zero labels render as 0.
+  // Object of label -> count. Unknown / zero labels render as 0. AI-Assisted
+  // folds into Mixed (the prediction_short view — see foldToPrediction).
   counts: { type: Object, default: () => ({}) },
   clickable: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['select'])
 
+// The three prediction_short buckets (AI-Assisted merged into Mixed).
+const folded = computed(() => foldToPrediction(props.counts))
+
 const total = computed(() =>
-  LABEL_ORDER.reduce((sum, l) => sum + (Number(props.counts?.[l]) || 0), 0),
+  PRED_ORDER.reduce((sum, l) => sum + (Number(folded.value?.[l]) || 0), 0),
 )
 
 const items = computed(() =>
-  LABEL_ORDER.map((l) => {
-    const n = Number(props.counts?.[l]) || 0
+  PRED_ORDER.map((l) => {
+    const n = Number(folded.value?.[l]) || 0
     return {
       label: l,
       word: LABEL_SHORT[l],

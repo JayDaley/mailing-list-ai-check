@@ -4,21 +4,8 @@
     {
       "name": "dashboard",
       "runtimeExecutable": ".venv/bin/mail-ai-web",
-      "runtimeArgs": ["--db", "data/mail.db"],
+      "runtimeArgs": ["--host", "127.0.0.1", "--port", "8050", "--db", "data/mail.db"],
       "port": 8050
-    },
-    {
-      "name": "dashboard-alt",
-      "runtimeExecutable": ".venv/bin/mail-ai-web",
-      "runtimeArgs": ["--db", "data/mail.db", "--port", "8051"],
-      "port": 8051
-    },
-    {
-      "name": "frontend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
-      "port": 5173,
-      "autoPort": true
     }
   ]
 }

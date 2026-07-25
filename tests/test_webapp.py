@@ -299,6 +299,101 @@ def test_message_detail_404(client):
     assert "error" in resp.get_json()
 
 
+# --- per-window details -------------------------------------------------------
+
+
+def test_window_details_positions_windows_in_the_extracted_text():
+    # Scoring sends the extracted text minus its furniture lines, so window
+    # offsets index a text whose lines are a subsequence of the extracted ones.
+    # The reported positions must point back at the extracted-text lines.
+    extracted = "Hi all,\nFirst body line.\nSecond body line.\nBest,\nAlice\n"
+    analysed = "First body line.\nSecond body line."
+    raw = {
+        "text": analysed,
+        "windows": [
+            {
+                "text": "First body line.",
+                "start_index": 0,
+                "end_index": 16,
+                "label": "Human Written",
+                "ai_assistance_score": 0.02,
+                "confidence": "High",
+                "word_count": 3,
+            },
+            {
+                # Leading whitespace is trimmed off, so the marker lands on the
+                # first real character rather than the end of the line before.
+                "text": "\nSecond body line.",
+                "start_index": 16,
+                "end_index": 34,
+                "label": "AI-Generated",
+                "ai_assistance_score": 0.91,
+                "confidence": "Medium",
+                "word_count": 3,
+            },
+        ],
+    }
+    first, second = webapp_api._window_details(raw, extracted)
+
+    assert first["index"] == 1
+    assert first["start"] == {"line": 1, "col": 0}
+    assert first["end"] == {"line": 1, "col": 16}
+    assert first["chars"] == 16
+    assert first["ai_assistance_score"] == 0.02
+    assert first["confidence"] == "High"
+    assert first["label"] == "Human Written"
+
+    assert second["index"] == 2
+    assert second["start"] == {"line": 2, "col": 0}
+    assert second["end"] == {"line": 2, "col": 17}
+    assert second["chars"] == 17
+
+
+def test_window_details_reports_scores_when_a_window_cannot_be_located():
+    # A message re-extracted after it was scored no longer contains the analysed
+    # lines. The window is still reported, without a position.
+    raw = {
+        "text": "A line that is gone now.",
+        "windows": [
+            {
+                "text": "A line that is gone now.",
+                "start_index": 0,
+                "end_index": 24,
+                "label": "AI-Generated",
+                "ai_assistance_score": 0.88,
+                "confidence": "High",
+            }
+        ],
+    }
+    (window,) = webapp_api._window_details(raw, "Completely different text.\n")
+    assert window["start"] is None
+    assert window["end"] is None
+    assert window["ai_assistance_score"] == 0.88
+
+
+def test_window_details_without_windows():
+    assert webapp_api._window_details(None, "text") == []
+    assert webapp_api._window_details({}, "text") == []
+
+
+def test_message_row_carries_per_window_scores(client, db_path):
+    with Store(db_path) as store:
+        m2_id = store.find_message_by_message_id("<m2@test>").id
+    body = client.get(f"/api/messages/{m2_id}").get_json()
+    (window,) = body["score"]["windows"]
+    assert window["confidence"] == "High"
+    assert window["ai_assistance_score"] == pytest.approx(0.02)
+    # The seeded window covers the whole single-line extracted text.
+    assert window["start"] == {"line": 0, "col": 0}
+    assert window["end"] == {"line": 0, "col": len("Body of Re: Intro to draft")}
+
+    row = next(r for r in client.get("/api/messages").get_json()["messages"] if r["id"] == m2_id)
+    # The list endpoint carries the numbers only, not the positions.
+    assert row["score"]["windows"] == [
+        {"ai_assistance_score": pytest.approx(0.02), "confidence": "High"}
+    ]
+
+
 # --- /api/summary -------------------------------------------------------------
 
 
