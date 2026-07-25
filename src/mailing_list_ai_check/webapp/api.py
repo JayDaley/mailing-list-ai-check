@@ -27,6 +27,7 @@ from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from flask import Blueprint, Response, current_app, g, jsonify, request
@@ -1349,3 +1350,85 @@ def import_() -> Any:
             pass
 
     return jsonify({**asdict(summary), "ok": True})
+
+
+# --- documentation ------------------------------------------------------------
+
+
+def _docs_root() -> Path:
+    """The directory the documentation set is read from (the repo root).
+
+    ``DOCS_ROOT`` is set by :func:`mailing_list_ai_check.webapp.create_app`; the
+    fallback keeps the blueprint usable when it is registered on a bare app.
+    """
+    configured = current_app.config.get("DOCS_ROOT")
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parents[3]
+
+
+def _doc_title(path: Path, fallback: str) -> str:
+    """The document's first level-1 ATX heading, or ``fallback`` if it has none."""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("# "):
+                    return line[2:].strip() or fallback
+    except OSError:  # pragma: no cover - unreadable file
+        return fallback
+    return fallback
+
+
+def _doc_index() -> list[dict[str, str]]:
+    """The servable documents: ``README.md``, ``CHANGELOG.md``, then ``docs/*.md``.
+
+    Only these are exposed, and only files that exist. ``docs`` is read one level
+    deep — Markdown in its sub-directories (``docs/design``, ``docs/findings``) is
+    deliberately excluded. The returned ``path`` values are the complete allowlist
+    :func:`get_doc` matches a request against, so no request path ever reaches the
+    filesystem.
+    """
+    root = _docs_root()
+    entries: list[dict[str, str]] = []
+
+    def add(rel: str) -> None:
+        full = root / rel
+        if full.is_file():
+            entries.append({"path": rel, "title": _doc_title(full, rel)})
+
+    add("README.md")
+    add("CHANGELOG.md")
+    docs_dir = root / "docs"
+    if docs_dir.is_dir():
+        for child in sorted(docs_dir.iterdir(), key=lambda p: p.name.lower()):
+            if child.is_file() and child.suffix.lower() == ".md":
+                add(f"docs/{child.name}")
+    return entries
+
+
+@api_bp.get("/docs")
+def list_docs() -> Any:
+    """List the documentation files the dashboard can display.
+
+    Returns ``{"docs": [{"path": "README.md", "title": "…"}, …]}`` in display
+    order. See :func:`_doc_index` for which files are included.
+    """
+    return jsonify({"docs": _doc_index()})
+
+
+@api_bp.get("/docs/<path:doc_path>")
+def get_doc(doc_path: str) -> Any:
+    """Return one documentation file's raw Markdown.
+
+    ``doc_path`` must equal one of the ``path`` values from :func:`list_docs`
+    (anything else is a 404), so the client cannot read arbitrary files. Returns
+    ``{"path": …, "title": …, "markdown": …}``; the caller renders the Markdown.
+    """
+    entry = next((e for e in _doc_index() if e["path"] == doc_path), None)
+    if entry is None:
+        raise ApiError("document not found", 404)
+    try:
+        text = (_docs_root() / entry["path"]).read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:  # pragma: no cover - readable at index time, then not
+        raise ApiError("could not read document", 500) from exc
+    return jsonify({**entry, "markdown": text})

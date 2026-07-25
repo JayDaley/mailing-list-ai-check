@@ -46,21 +46,29 @@ DEV_CORS_ORIGIN = "http://localhost:5173"
 _AUTODETECT = object()
 
 
+def _repo_root() -> Path:
+    """The repo root, relative to this file (…/src/pkg/webapp)."""
+    return Path(__file__).resolve().parents[3]
+
+
 def _default_frontend_dist() -> Path:
     """Locate ``frontend/dist`` relative to the repo root (…/src/pkg/webapp)."""
-    return Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    return _repo_root() / "frontend" / "dist"
 
 
 def create_app(
     config: Config | None = None,
     *,
     frontend_dist: Any = _AUTODETECT,
+    docs_root: Any = _AUTODETECT,
 ) -> Flask:
     """Build the Flask application.
 
     ``config`` defaults to :meth:`Config.load`. ``frontend_dist`` defaults to
     auto-detecting ``frontend/dist``; pass an explicit path (or ``None``) to force
-    production or dev behaviour — used by tests.
+    production or dev behaviour — used by tests. ``docs_root`` is the directory the
+    ``/api/docs`` endpoints read the documentation set from (default: the repo
+    root).
     """
     if config is None:
         config = Config.load()
@@ -82,6 +90,7 @@ def create_app(
     app.config["APP_CONFIG"] = config
     app.config["FRONTEND_DIST"] = str(dist) if dist is not None else None
     app.config["DEV_MODE"] = dev_mode
+    app.config["DOCS_ROOT"] = str(_repo_root() if docs_root is _AUTODETECT else docs_root)
 
     _register_teardown(app)
     if dev_mode:

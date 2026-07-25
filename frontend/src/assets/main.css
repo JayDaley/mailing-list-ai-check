@@ -96,6 +96,30 @@ button {
   font-size: 13px;
   letter-spacing: -0.01em;
 }
+/* circled "i" next to the brand — opens the documentation drawer */
+.app-header .info-btn {
+  margin-left: -8px; /* sit close to the brand, not a full header gap away */
+  flex: none;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 1px solid var(--text-muted);
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: Georgia, "Times New Roman", serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.app-header .info-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .app-header .header-stat {
   font-size: 11px;
   color: var(--text-muted);

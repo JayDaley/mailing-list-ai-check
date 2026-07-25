@@ -37,6 +37,19 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.2.3] - 2026-07-25
+
+Summary: Add an in-dashboard documentation viewer, opened by an info button in the header.
+
+- Add `GET /api/docs`, listing the servable documentation files (`README.md`, `CHANGELOG.md`, and the Markdown files at the top level of `docs/`) with each file's first level-1 heading as its title.
+- Add `GET /api/docs/<path>`, returning one file's raw Markdown; a path that is not in the index is a 404, so no request path reaches the filesystem.
+- Add a `DOCS_ROOT` app config key and a `docs_root` argument to `create_app`, defaulting to the repository root.
+- Add an ⓘ button beside the app name in the header that opens the documentation panel.
+- Add `DocsDrawer.vue`: a panel sliding in from the left of the screen with the file index in the left column and the rendered document in the right.
+- Render the Markdown with `marked` (new front-end dependency), including GFM tables, fenced code blocks and inline code.
+- Rewrite links in a rendered document: repository paths the API does not serve are shown as plain text, links to another listed document switch the viewer, and external links open in a new tab.
+- Close the documentation panel on the Close button, Escape, or a click on the backdrop.
+
 ## [1.2.2] - 2026-07-25
 
 Summary: Align the dashboard with Pangram's three-category vocabulary and repaint it in the Observable 10 palette.

@@ -142,6 +142,11 @@ filter state lives in the URL query string — so every view is a shareable link
   so one contributor's mail is analyzed together.
 - **Lists** — per-list summary strips.
 
+The ⓘ button beside the app name in the header opens a documentation panel: a
+file list on the left, the rendered Markdown on the right. It shows `README.md`,
+`CHANGELOG.md` and the Markdown files at the top level of `docs/`, read from the
+checkout at request time. Files in sub-directories of `docs/` are not included.
+
 ### Exporting and importing lists
 
 Move a list's messages and their full pipeline state (extractions and Pangram

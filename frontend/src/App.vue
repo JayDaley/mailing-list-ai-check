@@ -1,7 +1,8 @@
 <script setup>
 // App shell: the 40px header bar + the single-screen dashboard below it. The
-// header holds the brand, an unfiltered stat line (total messages · lists · db
-// size) and the global Anonymous toggle. The dashboard itself is the routed view.
+// header holds the brand, an ⓘ button that opens the documentation drawer, an
+// unfiltered stat line (total messages · lists · db size) and the global
+// Anonymous toggle. The dashboard itself is the routed view.
 import { ref, computed, onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 
@@ -9,6 +10,7 @@ import { get } from './api'
 import { fmtInt } from './lib/format'
 import { useUiStore } from './stores/ui'
 import { useFiltersStore } from './stores/filters'
+import DocsDrawer from './components/DocsDrawer.vue'
 
 const ui = useUiStore()
 const filters = useFiltersStore()
@@ -52,11 +54,23 @@ function onToggleAnonymous(event) {
     filters.setFilter('address', '')
   }
 }
+
+// The documentation drawer (README / CHANGELOG / docs), local to the shell.
+const docsOpen = ref(false)
 </script>
 
 <template>
   <header class="app-header">
     <span class="brand">Mail AI Check</span>
+    <button
+      type="button"
+      class="info-btn"
+      title="Documentation"
+      aria-label="Documentation"
+      @click="docsOpen = true"
+    >
+      i
+    </button>
     <span class="header-stat">{{ headerStat }}</span>
     <span class="header-spacer"></span>
     <label class="anon-toggle">
@@ -71,4 +85,6 @@ function onToggleAnonymous(event) {
   </header>
 
   <RouterView />
+
+  <DocsDrawer :open="docsOpen" @close="docsOpen = false" />
 </template>

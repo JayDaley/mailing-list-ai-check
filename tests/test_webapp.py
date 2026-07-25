@@ -1656,3 +1656,84 @@ def test_pull_range_fetch_imap_connect_failure_502(tmp_path, monkeypatch):
     resp = app.test_client().post("/api/pull/range/fetch", json={"list": "announce", "mode": "new"})
     assert resp.status_code == 502
     assert "error" in resp.get_json()
+
+
+# --- documentation ------------------------------------------------------------
+
+
+@pytest.fixture
+def docs_client(db_path, tmp_path):
+    """A test client whose documentation root is a small synthetic repo tree."""
+    root = tmp_path / "repo"
+    (root / "docs" / "findings").mkdir(parents=True)
+    (root / "README.md").write_text("# Mail AI Check\n\nintro\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+    (root / "docs" / "zeta.md").write_text("# Zeta\n", encoding="utf-8")
+    (root / "docs" / "alpha.md").write_text("no heading here\n", encoding="utf-8")
+    (root / "docs" / "notes.txt").write_text("not markdown\n", encoding="utf-8")
+    (root / "docs" / "findings" / "imap.md").write_text("# Findings\n", encoding="utf-8")
+    (root / "secret.md").write_text("not in the set\n", encoding="utf-8")
+
+    app = create_app(_config(db_path), frontend_dist=None, docs_root=root)
+    app.testing = True
+    return app.test_client()
+
+
+def test_docs_index_order_and_titles(docs_client):
+    body = docs_client.get("/api/docs").get_json()
+    paths = [d["path"] for d in body["docs"]]
+    # README and CHANGELOG lead; docs/ follows, sorted by file name.
+    assert paths == ["README.md", "CHANGELOG.md", "docs/alpha.md", "docs/zeta.md"]
+    titles = {d["path"]: d["title"] for d in body["docs"]}
+    assert titles["README.md"] == "Mail AI Check"
+    assert titles["docs/zeta.md"] == "Zeta"
+    # No level-1 heading → the path is the title.
+    assert titles["docs/alpha.md"] == "docs/alpha.md"
+
+
+def test_docs_index_excludes_subdirectories_and_non_markdown(docs_client):
+    paths = [d["path"] for d in docs_client.get("/api/docs").get_json()["docs"]]
+    assert "docs/findings/imap.md" not in paths
+    assert "docs/notes.txt" not in paths
+    assert "secret.md" not in paths
+
+
+def test_docs_get_returns_markdown(docs_client):
+    body = docs_client.get("/api/docs/README.md").get_json()
+    assert body["path"] == "README.md"
+    assert body["title"] == "Mail AI Check"
+    assert body["markdown"] == "# Mail AI Check\n\nintro\n"
+    nested = docs_client.get("/api/docs/docs/zeta.md").get_json()
+    assert nested["markdown"] == "# Zeta\n"
+
+
+def test_docs_get_rejects_anything_outside_the_index(docs_client):
+    for path in (
+        "secret.md",
+        "docs/notes.txt",
+        "docs/findings/imap.md",
+        "../README.md",
+        "docs/../secret.md",
+        "nope.md",
+    ):
+        resp = docs_client.get(f"/api/docs/{path}")
+        assert resp.status_code == 404, path
+        assert "error" in resp.get_json()
+
+
+def test_docs_index_tolerates_missing_files(db_path, tmp_path):
+    empty = tmp_path / "bare"
+    empty.mkdir()
+    app = create_app(_config(db_path), frontend_dist=None, docs_root=empty)
+    app.testing = True
+    assert app.test_client().get("/api/docs").get_json() == {"docs": []}
+
+
+def test_docs_index_covers_the_real_repository(db_path):
+    """The default docs root is the repo, and it exposes the shipped files."""
+    app = create_app(_config(db_path), frontend_dist=None)
+    app.testing = True
+    paths = [d["path"] for d in app.test_client().get("/api/docs").get_json()["docs"]]
+    assert paths[:2] == ["README.md", "CHANGELOG.md"]
+    assert "docs/export-import.md" in paths
+    assert not any(p.startswith("docs/findings/") for p in paths)
