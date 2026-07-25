@@ -6,7 +6,7 @@
 //      "+ Add list" and "Regenerate index" live in the pane header, in every
 //      mode (POST /api/lists/regenerate).
 //   2. List stats (a `list` filter) — per-list aggregates from GET /api/summary
-//      (stat tiles, detection-mix summary, last-50-messages rug, Add footer).
+//      (stat tiles, detection-mix summary, last-100-messages rug, Add footer).
 //
 // "Run process ($)" buttons (the Add-list form and the Add popover) do not
 // pull-and-score in one call. They close their own UI and open the
@@ -76,7 +76,7 @@ async function loadSummary() {
   }
 }
 
-// --- rug plot (last 50 messages of the selected list) -----------------------
+// --- rug plot (last 100 messages of the selected list) ----------------------
 const rugMsgs = ref([]) // oldest → newest
 let rugToken = 0
 async function loadRug() {
@@ -85,7 +85,7 @@ async function loadRug() {
   try {
     const data = await get('/messages', {
       list: filters.list,
-      per_page: 50,
+      per_page: 100,
       sort: 'date',
       order: 'desc',
     })

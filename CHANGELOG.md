@@ -37,6 +37,12 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.2.6] - 2026-07-25
+
+Summary: Widen the per-list rug plot to the last 100 messages.
+
+- Fetch 100 messages for the list card's rug plot instead of 50; the heading already reports the count returned.
+
 ## [1.2.5] - 2026-07-25
 
 Summary: Label messages gated under the word-count floor, and explain the per-window table in the message drawer.
