@@ -410,6 +410,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
               <span v-if="scored" class="analysis-meta">· {{ scoredAt }}</span>
             </div>
 
+            <template v-if="windows.length">
+              <div class="win-head">Windows</div>
+              <p class="win-note">
+                Pangram splits the analysed text into non-overlapping windows of at most 500
+                tokens, and returns a score and a confidence for each window.
+              </p>
+            </template>
+
             <table v-if="windows.length" class="win-table">
               <thead>
                 <tr>
@@ -600,6 +608,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   font-size: 10.5px;
   color: #8a929b;
   font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+/* Section heading and its one-line note above the per-window table. */
+.win-head {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #626a72;
+  margin-bottom: 3px;
+}
+.win-note {
+  margin: 0 0 6px;
+  font-size: 10.5px;
+  color: #8a929b;
 }
 .win-table {
   width: 100%;

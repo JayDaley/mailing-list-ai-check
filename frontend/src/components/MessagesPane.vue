@@ -435,6 +435,9 @@ const rows = computed(() =>
       predShort,
       pillColor: scored ? LABEL_COLORS[predShort] || LABEL_COLORS.unscored : '',
       headline: scored ? sc.headline || '' : '',
+      // Under the 50-word reliability floor: gated before Pangram, so the
+      // Analysis column says so rather than leaving the row blank.
+      tooShort: ext != null && ext.status === 'too_short',
       // Pangram's per-window scores, in document order. Pangram emits no
       // document-level score, so the column lists one entry per window.
       windows: scored ? sc.windows || [] : [],
@@ -703,6 +706,12 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
                 <span v-else class="cell-dash">—</span>
               </span>
               <span v-if="m.scored" class="headline-text" :title="m.headline">{{ m.headline }}</span>
+              <span
+                v-else-if="m.tooShort"
+                class="too-short-text"
+                title="Under the 50-word reliability floor — not sent to Pangram"
+                >Too short</span
+              >
             </div>
             <div class="cell" :style="{ padding: cellPad, minWidth: 0 }">
               <WindowScores :windows="m.windows" />
@@ -961,6 +970,16 @@ select.fctl {
   white-space: nowrap;
   font-size: 11px;
   color: #1c2024;
+}
+/* Gated as too short to score: set in the monospace face, unlike the
+   proportional headline, so it reads as a status rather than a verdict. */
+.too-short-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: #8a929b;
 }
 .cell-dash {
   color: #b3b9c0;

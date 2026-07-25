@@ -49,6 +49,9 @@ htmlcov/
 # ---- Claude Code local settings ----
 .claude/settings.local.json
 
+# ---- CodeGraph index (local, rebuilt from the source) ----
+.codegraph/
+
 # ---- Local runtime ----
 *.log
 *.sqlite3

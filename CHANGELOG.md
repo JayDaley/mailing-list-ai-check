@@ -37,6 +37,13 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.2.5] - 2026-07-25
+
+Summary: Label messages gated under the word-count floor, and explain the per-window table in the message drawer.
+
+- Show "Too short" in the Analysis column for a message whose extraction is `too_short`, in the monospace face to distinguish it from a Pangram headline.
+- Add a "Windows" heading and a note on Pangram's 500-token windowing above the per-window table in the message drawer.
+
 ## [1.2.4] - 2026-07-25
 
 Summary: Detect stored text derived by an older extraction routine and offer to re-process the affected messages.
