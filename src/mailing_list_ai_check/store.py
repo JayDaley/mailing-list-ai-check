@@ -25,6 +25,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -68,6 +69,16 @@ SORT_COLUMNS = {"date": "m.date", "fraction_ai": "s.fraction_ai"}
 #: Default and maximum page sizes for :meth:`Store.query_messages`.
 DEFAULT_PER_PAGE = 50
 MAX_PER_PAGE = 200
+
+#: How many messages each reply rug carries, per direction and per list (see
+#: :meth:`Store.sender_reply_rugs`).
+REPLY_RUG_LIMIT = 50
+#: How many of a sender's lists reply rugs are computed for, most-posted first.
+#: Matches the ``by_list`` cap in :meth:`Store.summary`, whose rows they decorate.
+REPLY_RUG_MAX_LISTS = 20
+#: Batch size for ``IN (...)`` lookups over an unbounded id/Message-ID set.
+#: SQLite's bound-parameter limit is 999 on older builds; stay well under it.
+_IN_CHUNK = 400
 
 
 # --- Schema migrations --------------------------------------------------------
@@ -233,6 +244,20 @@ ALTER TABLE messages ADD COLUMN timing TEXT;
 CREATE INDEX idx_messages_timing ON messages(timing);
 """
 
+# The chars/minute rate behind the ``timing`` band: the value
+# :func:`chars_per_minute` returns for the same two inputs, stored rather than
+# recomputed so the dashboard can filter on a numeric range in SQL — a filter
+# applied after the fact, to one page of rows, would not agree with the match
+# count or the pagination. NULL exactly where ``timing`` is; the two columns
+# are always written together by :meth:`Store.recompute_timing`. Backfilled by
+# the same Python recompute that backfilled ``timing`` in migration 009, run by
+# :meth:`Store.__init__` right after this migration applies.
+_MIGRATION_010 = """
+ALTER TABLE messages ADD COLUMN timing_cpm REAL;
+
+CREATE INDEX idx_messages_timing_cpm ON messages(timing_cpm);
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
@@ -243,10 +268,32 @@ MIGRATIONS: list[tuple[int, str]] = [
     (7, _MIGRATION_007),
     (8, _MIGRATION_008),
     (9, _MIGRATION_009),
+    (10, _MIGRATION_010),
 ]
 
-#: The migration whose backfill runs in Python (see :meth:`Store.__init__`).
-_TIMING_MIGRATION = 9
+#: The migrations whose backfill runs in Python (see :meth:`Store.__init__`).
+#: Both add a reply-timing column, and one recompute fills either of them.
+_TIMING_MIGRATIONS = frozenset({9, 10})
+
+
+def _statements(script: str) -> list[str]:
+    """Split a migration script into its individual SQL statements.
+
+    Lines are accumulated until :func:`sqlite3.complete_statement` reports a
+    complete statement, so a semicolon inside a string literal never splits.
+    This requires every migration statement to end its own line with ``;``
+    (how each one is formatted) and no comment to follow the final semicolon.
+    """
+    statements: list[str] = []
+    pending = ""
+    for line in script.splitlines(keepends=True):
+        pending += line
+        if sqlite3.complete_statement(pending):
+            statements.append(pending)
+            pending = ""
+    if pending.strip():
+        statements.append(pending)
+    return statements
 
 
 def apply_migrations(conn: sqlite3.Connection) -> list[int]:
@@ -257,17 +304,46 @@ def apply_migrations(conn: sqlite3.Connection) -> list[int]:
     an already-current database is a no-op. Returns the versions applied by
     this call (empty when the database was already current), so the caller can
     run any Python-side backfill a migration needs.
+
+    Concurrency-safe: several connections routinely open the same database at
+    once (the webapp opens one :class:`Store` per request), so the version
+    check and the whole catch-up batch run inside one ``BEGIN IMMEDIATE``
+    transaction. The first connection to take the write lock applies every
+    pending migration and commits; the rest block on the lock (see the busy
+    timeout set in :meth:`Store.__init__`), then re-read a current version and
+    apply nothing. Statements run one at a time via :func:`_statements`
+    because ``executescript`` issues an implicit COMMIT, which would break the
+    transaction and reopen the race.
     """
     conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
-    row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-    current = row["v"] if row and row["v"] is not None else 0
+
+    def current_version() -> int:
+        value = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+        return value if value is not None else 0
+
+    # Fast path: the everyday case stays read-only and never takes the lock.
+    if current_version() >= MIGRATIONS[-1][0]:
+        return []
+
     applied: list[int] = []
-    for version, script in MIGRATIONS:
-        if version > current:
-            conn.executescript(script)
-            conn.execute("INSERT INTO schema_version(version) VALUES (?)", (version,))
-            conn.commit()
-            applied.append(version)
+    # A caller may arrive with an implicit transaction open (legacy sqlite3
+    # isolation auto-begins on DML). The old executescript path committed it
+    # as a side effect; do the same explicitly so BEGIN IMMEDIATE can start.
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        current = current_version()  # re-read now that the write lock is held
+        for version, script in MIGRATIONS:
+            if version > current:
+                for statement in _statements(script):
+                    conn.execute(statement)
+                conn.execute("INSERT INTO schema_version(version) VALUES (?)", (version,))
+                applied.append(version)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
     return applied
 
 
@@ -495,7 +571,8 @@ class MessageFilters:
     max_likelihood: float | None = None
     q: str | None = None
     has_score: bool | None = None
-    timing: str | None = None
+    cpm_min: float | None = None
+    cpm_max: float | None = None
     page: int = 1
     per_page: int = DEFAULT_PER_PAGE
     sort: str = "date"
@@ -578,21 +655,36 @@ def _parse_message_date(value: str | None) -> datetime | None:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
-def classify_timing(char_count: int, gap_seconds: float) -> str:
-    """Classify the implied composition rate of a reply's new text.
+def chars_per_minute(char_count: int, gap_seconds: float) -> float:
+    """The composition rate a reply's new text implies, in characters per minute.
 
     ``gap_seconds`` (> 0) is the interval from the parent message to the reply
     — an upper bound on the time the author had to read the parent and compose
-    ``char_count`` characters of new text. The rate in chars/minute maps to
+    ``char_count`` characters of new text, so the rate is a lower bound on the
+    implied writing speed. This is the single definition of the rate: it is
+    stored in ``messages.timing_cpm``, and the band it falls in (see
+    :func:`classify_timing`) in ``messages.timing``.
+    """
+    return char_count / (gap_seconds / 60.0)
+
+
+def _band_for_rate(rate: float) -> str:
+    """The timing band a chars/minute ``rate`` falls in."""
+    if rate >= TIMING_IMPLAUSIBLE_CPM:
+        return "implausible"
+    if rate >= TIMING_SUSPICIOUS_CPM:
+        return "suspicious"
+    return "normal"
+
+
+def classify_timing(char_count: int, gap_seconds: float) -> str:
+    """Classify the implied composition rate of a reply's new text.
+
+    The rate from :func:`chars_per_minute` maps to
     :data:`TIMING_IMPLAUSIBLE_CPM` and :data:`TIMING_SUSPICIOUS_CPM`. The bound
     is one-sided: a low rate proves nothing, only high rates are informative.
     """
-    chars_per_minute = char_count / (gap_seconds / 60.0)
-    if chars_per_minute >= TIMING_IMPLAUSIBLE_CPM:
-        return "implausible"
-    if chars_per_minute >= TIMING_SUSPICIOUS_CPM:
-        return "suspicious"
-    return "normal"
+    return _band_for_rate(chars_per_minute(char_count, gap_seconds))
 
 
 # --- Dashboard query building -------------------------------------------------
@@ -619,6 +711,8 @@ _MESSAGE_COLUMNS = """
     m.subject AS subject,
     m.in_reply_to AS in_reply_to,
     m.timing AS timing,
+    m.timing_cpm AS timing_cpm,
+    m.list_id AS list_id,
     a.email AS from_address,
     a.display_name AS from_display_name,
     a.person_id AS person_id,
@@ -634,6 +728,50 @@ _MESSAGE_COLUMNS = """
     s.raw_response AS raw_response,
     s.scored_at AS scored_at
 """
+
+#: The slim per-message columns a rug plot needs: the id to open the message,
+#: the date/subject for the bar's tooltip, the prediction bucket that colours it,
+#: and the extraction status, which tells a message gated under the reliability
+#: floor (``too_short``) from a merely unscored one — the two take different bar
+#: colours. ``prediction_short`` is derived from the stored four-band label
+#: instead of parsed out of ``scores.raw_response``: the label *is* that
+#: response's ``prediction_short`` with assisted-dominant "Mixed" rebadged as
+#: "AI-Assisted" (see ``PangramResult.label`` and migration 003), so undoing the
+#: rebadge recovers it exactly — without loading the full Pangram JSON per bar.
+_RUG_COLUMNS = """
+    m.id AS id,
+    m.message_id AS message_id,
+    l.name AS list,
+    m.date AS date,
+    m.subject AS subject,
+    e.status AS extraction_status,
+    s.label AS label,
+    CASE WHEN s.label = 'AI-Assisted' THEN 'Mixed' ELSE s.label END AS prediction_short
+"""
+
+
+def _in_chunks(items: Sequence[Any], size: int = _IN_CHUNK) -> Iterator[Sequence[Any]]:
+    """Yield ``items`` in batches small enough to bind into one ``IN (...)``."""
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
+def _sender_scope(person_id: int | None, address: str | None) -> tuple[str, str, list[Any]]:
+    """SQL predicates selecting (and excluding) one sender's messages.
+
+    Returns ``(is_sender, is_not_sender, params)``, both fragments taking the
+    same single bound parameter and assuming ``addresses a`` is joined as
+    ``_MESSAGE_FROM`` does. A person covers every address linked to them; an
+    address covers only itself, lower-cased exactly as
+    :func:`_build_message_where` does. ``is_not_sender`` spells out the NULL case
+    because a message whose ``address_id`` is NULL is not this sender's, yet
+    ``a.person_id != ?`` would evaluate to NULL and drop the row.
+    """
+    if person_id is not None:
+        return ("a.person_id = ?", "(a.person_id IS NULL OR a.person_id != ?)", [person_id])
+    if address:
+        return ("a.email = ?", "(a.email IS NULL OR a.email != ?)", [address.strip().lower()])
+    raise ValueError("a sender scope needs either person_id or address")
 
 
 def _build_message_where(f: MessageFilters) -> tuple[str, list[Any]]:
@@ -683,9 +821,15 @@ def _build_message_where(f: MessageFilters) -> tuple[str, list[Any]]:
         clauses.append("s.id IS NOT NULL")
     elif f.has_score is False:
         clauses.append("s.id IS NULL")
-    if f.timing:
-        clauses.append("m.timing = ?")
-        params.append(f.timing)
+    # Inclusive bounds on the stored reply-timing rate. A message with no rate
+    # (``timing_cpm`` NULL) never satisfies either comparison, so setting one
+    # bound excludes every unclassifiable message.
+    if f.cpm_min is not None:
+        clauses.append("m.timing_cpm >= ?")
+        params.append(f.cpm_min)
+    if f.cpm_max is not None:
+        clauses.append("m.timing_cpm <= ?")
+        params.append(f.cpm_max)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     return where, params
 
@@ -709,12 +853,30 @@ class Store:
             parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode = WAL")
+        # Concurrent opens are routine (the webapp opens one Store per request),
+        # and the first open after an upgrade holds the write lock for a full
+        # migration catch-up plus backfill — give waiters time to sit it out.
+        self.conn.execute("PRAGMA busy_timeout = 30000")
+        # WAL is requested on every open, a no-op read once the database is
+        # converted. The one-time conversion of a fresh rollback-journal
+        # database needs exclusive access and returns SQLITE_BUSY *without*
+        # consulting the busy handler while other connections hold locks —
+        # which is exactly what several requests opening a brand-new database
+        # at once do — so retry briefly rather than failing the open.
+        for attempt in range(5):
+            try:
+                self.conn.execute("PRAGMA journal_mode = WAL")
+                break
+            except sqlite3.OperationalError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
         self.conn.execute("PRAGMA foreign_keys = ON")
         applied = apply_migrations(self.conn)
-        # The timing column's backfill needs Python (In-Reply-To normalization
-        # and date parsing), so it runs here, once, when its migration applies.
-        if _TIMING_MIGRATION in applied:
+        # The timing columns' backfill needs Python (In-Reply-To normalization
+        # and date parsing), so it runs here, once, when either of their
+        # migrations applies.
+        if _TIMING_MIGRATIONS.intersection(applied):
             self.recompute_timing()
 
     # -- lifecycle ------------------------------------------------------------
@@ -1072,16 +1234,20 @@ class Store:
     # -- reply timing ----------------------------------------------------------
 
     def recompute_timing(self) -> int:
-        """Recompute ``messages.timing`` for every message; return rows changed.
+        """Recompute the reply-timing columns for every message; return rows changed.
 
-        A reply's timing classifies the implied composition rate of its new
-        text — the extraction's ``char_count`` over the gap between the parent
-        message's ``date`` and the reply's own (see :func:`classify_timing`).
-        ``timing`` is NULL wherever that rate cannot be computed: the message
-        is not a reply, its parent is not stored, its ``In-Reply-To`` resolves
-        to itself, either date is missing or unparsable, the gap is not
-        positive (sender clocks are untrusted), or it has no extraction with
-        authored text (status in :data:`_TIMING_STATUSES`).
+        A reply's timing is the implied composition rate of its new text — the
+        extraction's ``char_count`` over the gap between the parent message's
+        ``date`` and the reply's own. Both columns are written in the same pass
+        and always agree: ``timing_cpm`` holds the rate itself (see
+        :func:`chars_per_minute`) and ``timing`` the band it falls in (see
+        :func:`classify_timing`).
+
+        Both are NULL wherever the rate cannot be computed: the message is not
+        a reply, its parent is not stored, its ``In-Reply-To`` resolves to
+        itself, either date is missing or unparsable, the gap is not positive
+        (sender clocks are untrusted), or it has no extraction with authored
+        text (status in :data:`_TIMING_STATUSES`).
 
         When the same parent Message-ID is stored on several lists, the copy
         on the reply's own list is preferred, then the lowest ``id`` (the
@@ -1095,6 +1261,7 @@ class Store:
         """
         rows = self.conn.execute(
             "SELECT m.id, m.message_id, m.list_id, m.date, m.in_reply_to, m.timing, "
+            "m.timing_cpm AS timing_cpm, "
             "e.char_count AS char_count, e.status AS status "
             "FROM messages m LEFT JOIN extractions e ON e.message_id = m.id "
             "ORDER BY m.id"
@@ -1107,7 +1274,7 @@ class Store:
                 (row["id"], row["list_id"], row["date"])
             )
 
-        def timing_for(row: sqlite3.Row) -> str | None:
+        def rate_for(row: sqlite3.Row) -> float | None:
             if not row["in_reply_to"] or row["status"] not in _TIMING_STATUSES:
                 return None
             parent_mid = _parent_message_id(row["in_reply_to"])
@@ -1126,13 +1293,18 @@ class Store:
             gap_seconds = (reply_dt - parent_dt).total_seconds()
             if gap_seconds <= 0:
                 return None
-            return classify_timing(row["char_count"], gap_seconds)
+            return chars_per_minute(row["char_count"], gap_seconds)
 
-        updates = [
-            (value, row["id"]) for row in rows if (value := timing_for(row)) != row["timing"]
-        ]
+        updates: list[tuple[str | None, float | None, int]] = []
+        for row in rows:
+            rate = rate_for(row)
+            band = None if rate is None else _band_for_rate(rate)
+            if (band, rate) != (row["timing"], row["timing_cpm"]):
+                updates.append((band, rate, row["id"]))
         if updates:
-            self.conn.executemany("UPDATE messages SET timing = ? WHERE id = ?", updates)
+            self.conn.executemany(
+                "UPDATE messages SET timing = ?, timing_cpm = ? WHERE id = ?", updates
+            )
             self.conn.commit()
         return len(updates)
 
@@ -1516,17 +1688,29 @@ class Store:
     def list_rows(self) -> list[dict[str, Any]]:
         """Every list with its message count, scored count and label mix (for /api/lists).
 
-        Each row carries the base list columns plus ``message_count`` and two
-        scoring aggregates powering the lists-index mix bars: ``scored_count``
-        (messages on the list that have a Pangram score) and ``label_counts``
-        (a ``{label: count}`` dict of scored messages per label, null labels
-        omitted, empty when nothing on the list is scored). The label mix comes
-        from one extra aggregate query merged in Python — mirroring the
-        ``scores → extractions → messages`` join chain of ``_MESSAGE_FROM``.
+        Each row carries the base list columns plus ``message_count``,
+        ``earliest_message_at`` and three scoring aggregates powering the
+        lists-index mix bars: ``scored_count`` (messages on the list that have a
+        Pangram score), ``label_counts`` (a ``{label: count}`` dict of scored
+        messages per label, null labels omitted, empty when nothing on the list is
+        scored) and ``too_short_count`` (messages whose extraction was gated under
+        the reliability floor, so never scored — the mix bar's trailing grey
+        segment). Both come from extra aggregate queries merged in Python —
+        mirroring the ``scores → extractions → messages`` join chain of
+        ``_MESSAGE_FROM``.
+
+        ``earliest_message_at`` is the oldest ``messages.date`` stored for the list
+        — the message's own ``Date`` header normalised to a UTC ISO-8601 string on
+        insert, not the local ``fetched_at`` stamp — so the uniform format makes
+        the lexicographic ``MIN`` chronological. It is ``None`` for a list with no
+        stored messages, and for one whose messages all lack a usable date (blank
+        dates are excluded rather than sorting ahead of real ones). Distinct from
+        ``last_message_at``, which is the newest message on the *server*.
         """
         rows = self.conn.execute(
             "SELECT l.id, l.name, l.folder, l.last_synced_at, l.removed_from_server_at, "
-            "l.last_message_at, COUNT(m.id) AS message_count "
+            "l.last_message_at, COUNT(m.id) AS message_count, "
+            "MIN(NULLIF(m.date, '')) AS earliest_message_at "
             "FROM lists l LEFT JOIN messages m ON m.list_id = l.id "
             "GROUP BY l.id ORDER BY l.name"
         ).fetchall()
@@ -1546,9 +1730,19 @@ class Store:
             if row["label"] is not None:
                 labels_by_list.setdefault(row["list_id"], {})[row["label"]] = row["count"]
 
+        gated = self.conn.execute(
+            "SELECT m.list_id AS list_id, COUNT(*) AS count "
+            "FROM messages m "
+            "JOIN extractions e ON e.message_id = m.id "
+            "WHERE e.status = 'too_short' "
+            "GROUP BY m.list_id"
+        ).fetchall()
+        too_short_by_list = {row["list_id"]: row["count"] for row in gated}
+
         for item in result:
             item["scored_count"] = scored_by_list.get(item["id"], 0)
             item["label_counts"] = labels_by_list.get(item["id"], {})
+            item["too_short_count"] = too_short_by_list.get(item["id"], 0)
         return result
 
     def address_rows(self, q: str | None = None) -> list[dict[str, Any]]:
@@ -1620,8 +1814,11 @@ class Store:
         Each ``COUNT(m.id)`` counts messages (the extraction/score joins never
         multiply rows, both being UNIQUE), so summing the per-label counts gives
         the entity's ``message_count`` and the non-null label groups give its
-        ``label_counts``. Senders with zero messages are included. The
-        merge/filter/sort/paginate then happens in Python over the small result:
+        ``label_counts``. Each query also counts the sender's ``too_short``
+        extractions — messages gated under the reliability floor, so never scored
+        — summed into ``too_short_count`` for the mix bar's trailing grey segment.
+        Senders with zero messages are included. The merge/filter/sort/paginate
+        then happens in Python over the small result:
 
         - ``q`` — case-insensitive substring over the name or ANY email;
         - ``sort`` — ``"count"`` (by ``message_count``, secondary name asc for a
@@ -1634,7 +1831,8 @@ class Store:
 
         When ``list_name`` is given, message joins are restricted (via an extra
         ``AND m.list_id = ?`` inside the ``messages`` ON clause) so that
-        ``message_count`` and ``label_counts`` reflect only that list, and senders
+        ``message_count``, ``label_counts`` and ``too_short_count`` reflect only
+        that list, and senders
         who never posted to it (``message_count == 0``) are dropped from the
         result. An unknown ``list_name`` yields ``([], 0)``. When ``None`` (the
         default), all senders are included, zero-message ones among them.
@@ -1652,7 +1850,8 @@ class Store:
 
         person_mix = self.conn.execute(
             "SELECT p.id AS person_id, p.canonical_name AS name, "
-            "s.label AS label, COUNT(m.id) AS msg_count "
+            "s.label AS label, COUNT(m.id) AS msg_count, "
+            "COUNT(CASE WHEN e.status = 'too_short' THEN 1 END) AS too_short_count "
             "FROM persons p "
             "LEFT JOIN addresses a ON a.person_id = p.id "
             "LEFT JOIN messages m ON m.address_id = a.id" + list_filter + " "
@@ -1666,7 +1865,8 @@ class Store:
         ).fetchall()
         unlinked_mix = self.conn.execute(
             "SELECT a.id AS address_id, a.email AS email, a.display_name AS display_name, "
-            "s.label AS label, COUNT(m.id) AS msg_count "
+            "s.label AS label, COUNT(m.id) AS msg_count, "
+            "COUNT(CASE WHEN e.status = 'too_short' THEN 1 END) AS too_short_count "
             "FROM addresses a "
             "LEFT JOIN messages m ON m.address_id = a.id" + list_filter + " "
             "LEFT JOIN extractions e ON e.message_id = m.id "
@@ -1688,9 +1888,11 @@ class Store:
                     "address_ids": [],
                     "message_count": 0,
                     "label_counts": {},
+                    "too_short_count": 0,
                 },
             )
             entry["message_count"] += row["msg_count"]
+            entry["too_short_count"] += row["too_short_count"]
             if row["label"] is not None:
                 entry["label_counts"][row["label"]] = row["msg_count"]
         for row in person_addrs:
@@ -1710,9 +1912,11 @@ class Store:
                     "emails": [row["email"]],
                     "message_count": 0,
                     "label_counts": {},
+                    "too_short_count": 0,
                 },
             )
             entry["message_count"] += row["msg_count"]
+            entry["too_short_count"] += row["too_short_count"]
             if row["label"] is not None:
                 entry["label_counts"][row["label"]] = row["msg_count"]
 
@@ -1771,6 +1975,10 @@ class Store:
         to ``>= 1``. Unknown ``sort`` falls back to ``date``; ``order`` is ``asc``
         only when explicitly ``"asc"``, else ``desc``. A stable secondary sort on
         ``m.id`` makes pagination deterministic.
+
+        Each row also carries ``timing_cpm``: the stored chars/minute rate the
+        ``timing`` band was derived from, and ``None`` wherever ``timing`` is
+        NULL (see :meth:`recompute_timing`).
         """
         where, params = _build_message_where(filters)
         total = self.conn.execute(
@@ -1790,8 +1998,8 @@ class Store:
             + where
             + f" ORDER BY {sort_col} {order}, m.id {order} LIMIT ? OFFSET ?"
         )
-        rows = self.conn.execute(sql, [*params, per_page, offset]).fetchall()
-        return [dict(row) for row in rows], total
+        page_rows = [dict(row) for row in self.conn.execute(sql, [*params, per_page, offset])]
+        return page_rows, total
 
     def summary(self, filters: MessageFilters) -> dict[str, Any]:
         """Aggregate the filtered message set for the overview page.
@@ -1799,7 +2007,10 @@ class Store:
         Honours the same ``filters`` as :meth:`query_messages` (pagination/sort
         are ignored). ``extracted`` counts ``status='ok'`` extractions; ``scored``
         counts messages with a Pangram score; ``too_short`` counts gated ones.
-        ``flagged`` means a label in :data:`FLAGGED_LABELS`.
+        ``flagged`` means a label in :data:`FLAGGED_LABELS`. Each ``by_list`` row
+        repeats its own gated count as ``too_short_count`` beside its
+        ``label_counts``, so a per-list mix bar can draw the same trailing grey
+        segment the whole-selection bar draws from ``too_short``.
         """
         where, params = _build_message_where(filters)
         base = _MESSAGE_FROM + where
@@ -1843,7 +2054,8 @@ class Store:
         by_list = [
             dict(row)
             for row in self.conn.execute(
-                "SELECT l.name AS list, COUNT(*) AS count, AVG(s.fraction_ai) AS avg_fraction_ai"
+                "SELECT l.name AS list, COUNT(*) AS count, AVG(s.fraction_ai) AS avg_fraction_ai, "
+                "COUNT(CASE WHEN e.status = 'too_short' THEN 1 END) AS too_short_count"
                 + base
                 + " GROUP BY l.id ORDER BY count DESC, l.name LIMIT 20",
                 params,
@@ -1893,3 +2105,169 @@ class Store:
             "by_month": by_month,
             "db_size_bytes": self.db_size_bytes(),
         }
+
+    # -- dashboard: sender reply rugs ------------------------------------------
+
+    def _rug_rows(self, message_pks: Sequence[int], limit: int) -> list[dict[str, Any]]:
+        """The newest ``limit`` of ``message_pks`` as rug rows, newest first.
+
+        Ordered by ``(date, id)`` descending, blank/NULL dates sorting oldest.
+        The ordering is applied in Python because ``message_pks`` can exceed one
+        ``IN (...)`` batch (see :func:`_in_chunks`).
+        """
+        rows: list[dict[str, Any]] = []
+        for chunk in _in_chunks(message_pks):
+            placeholders = ", ".join("?" * len(chunk))
+            rows.extend(
+                dict(row)
+                for row in self.conn.execute(
+                    "SELECT" + _RUG_COLUMNS + _MESSAGE_FROM + f" WHERE m.id IN ({placeholders})",
+                    list(chunk),
+                ).fetchall()
+            )
+        rows.sort(key=lambda row: (row["date"] or "", row["id"]), reverse=True)
+        return rows[:limit]
+
+    def _parent_pks(self, list_id: int, parent_message_ids: Sequence[str]) -> list[int]:
+        """Resolve parent Message-IDs to the stored messages they name.
+
+        Uses the same linkage as the reply-timing analysis (see
+        :meth:`recompute_timings`): when the same Message-ID is stored on several
+        lists the copy on ``list_id`` — the replying message's own list — wins,
+        otherwise the lowest ``id``. Message-IDs with no stored copy are dropped.
+        Served by ``idx_messages_message_id``.
+        """
+        chosen: dict[str, tuple[int, bool]] = {}
+        for chunk in _in_chunks(parent_message_ids):
+            placeholders = ", ".join("?" * len(chunk))
+            rows = self.conn.execute(
+                "SELECT id, message_id, list_id FROM messages "
+                f"WHERE message_id IN ({placeholders}) ORDER BY id",
+                list(chunk),
+            ).fetchall()
+            for row in rows:
+                on_list = row["list_id"] == list_id
+                current = chosen.get(row["message_id"])
+                # Rows arrive in id order, so the first one seen is the lowest-id
+                # fallback; a copy on the reply's own list displaces it.
+                if current is None or (on_list and not current[1]):
+                    chosen[row["message_id"]] = (row["id"], on_list)
+        return [pk for pk, _ in chosen.values()]
+
+    def _replied_to_pks(self, list_id: int, is_sender: str, params: Sequence[Any]) -> list[int]:
+        """Parent messages of the sender's replies on ``list_id`` (unordered pks)."""
+        rows = self.conn.execute(
+            "SELECT m.message_id AS message_id, m.in_reply_to AS in_reply_to FROM messages m "
+            "LEFT JOIN addresses a ON a.id = m.address_id "
+            f"WHERE m.list_id = ? AND {is_sender} "
+            "AND m.in_reply_to IS NOT NULL AND m.in_reply_to != ''",
+            [list_id, *params],
+        ).fetchall()
+        parent_mids: set[str] = set()
+        for row in rows:
+            parent_mid = _parent_message_id(row["in_reply_to"])
+            # A message naming itself as its own parent is not a reply (the same
+            # guard the timing analysis applies).
+            if parent_mid and parent_mid != row["message_id"]:
+                parent_mids.add(parent_mid)
+        return self._parent_pks(list_id, sorted(parent_mids))
+
+    def _reply_from_pks(
+        self,
+        list_id: int,
+        is_sender: str,
+        is_not_sender: str,
+        params: Sequence[Any],
+        limit: int,
+    ) -> list[int]:
+        """Other people's replies on ``list_id`` to the sender's messages there.
+
+        Newest first, stopping at ``limit``. The sender's own Message-IDs on the
+        list are gathered first (an indexed lookup), then the list's replies are
+        streamed newest-first and matched on the normalised ``In-Reply-To``. That
+        candidate scan is the one unindexed step here: ``in_reply_to`` carries no
+        index, so a list with very many messages is walked until ``limit``
+        matches are found. Normalising in Python rather than SQL is deliberate —
+        it keeps the linkage byte-identical to the timing analysis's.
+        """
+        own_mids = {
+            row["message_id"]
+            for row in self.conn.execute(
+                "SELECT m.message_id AS message_id FROM messages m "
+                "LEFT JOIN addresses a ON a.id = m.address_id "
+                f"WHERE m.list_id = ? AND {is_sender}",
+                [list_id, *params],
+            ).fetchall()
+        }
+        if not own_mids:
+            return []
+        cursor = self.conn.execute(
+            "SELECT m.id AS id, m.in_reply_to AS in_reply_to FROM messages m "
+            "LEFT JOIN addresses a ON a.id = m.address_id "
+            "WHERE m.list_id = ? AND m.in_reply_to IS NOT NULL AND m.in_reply_to != '' "
+            f"AND {is_not_sender} ORDER BY m.date DESC, m.id DESC",
+            [list_id, *params],
+        )
+        pks: list[int] = []
+        for row in cursor:
+            if _parent_message_id(row["in_reply_to"]) in own_mids:
+                pks.append(row["id"])
+                if len(pks) >= limit:
+                    break
+        return pks
+
+    def sender_reply_rugs(
+        self,
+        *,
+        person_id: int | None = None,
+        address: str | None = None,
+        limit: int = REPLY_RUG_LIMIT,
+        max_lists: int = REPLY_RUG_MAX_LISTS,
+    ) -> list[dict[str, Any]]:
+        """Reply rug data for one sender, per list (for /api/senders/reply-rugs).
+
+        Pass exactly one of ``person_id`` (covering every address linked to that
+        person) or ``address`` (that address alone) — the same two sender scopes
+        the ``person``/``address`` message filters define. Returns one entry per
+        list the sender posted to, ordered by their message count on it
+        descending then list name, capped at ``max_lists`` so the entries line up
+        with :meth:`summary`'s ``by_list`` rows:
+
+        ``{"list": <name>, "replied_to": [...], "reply_from": [...]}``
+
+        - ``replied_to`` — the messages the sender's replies on that list point
+          at, i.e. the parents named by their ``In-Reply-To``. Parents are
+          resolved exactly as the reply-timing analysis resolves them (see
+          :meth:`_parent_pks`); unstored parents and self-references drop out.
+        - ``reply_from`` — replies **by other senders** on that list whose parent
+          is one of the sender's own messages there.
+
+        Both lists hold at most ``limit`` rug rows (see :data:`_RUG_COLUMNS`),
+        newest first by ``(date, id)``, and are empty when nothing matches.
+        """
+        is_sender, is_not_sender, params = _sender_scope(person_id, address)
+        list_rows = self.conn.execute(
+            "SELECT m.list_id AS list_id, l.name AS list, COUNT(*) AS count FROM messages m "
+            "JOIN lists l ON l.id = m.list_id "
+            "LEFT JOIN addresses a ON a.id = m.address_id "
+            f"WHERE {is_sender} "
+            "GROUP BY m.list_id ORDER BY count DESC, l.name LIMIT ?",
+            [*params, max_lists],
+        ).fetchall()
+
+        result: list[dict[str, Any]] = []
+        for row in list_rows:
+            list_id = row["list_id"]
+            result.append(
+                {
+                    "list": row["list"],
+                    "replied_to": self._rug_rows(
+                        self._replied_to_pks(list_id, is_sender, params), limit
+                    ),
+                    "reply_from": self._rug_rows(
+                        self._reply_from_pks(list_id, is_sender, is_not_sender, params, limit),
+                        limit,
+                    ),
+                }
+            )
+        return result

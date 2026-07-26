@@ -627,7 +627,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   color: #8a929b;
   font-family: ui-monospace, Menlo, Consolas, monospace;
 }
-/* Reply-timing classification, matching the message table's pills. */
+/* Reply-timing classification band as a pill; the message table shows the
+   chars/minute rate the band was derived from instead. */
 .timing-pill {
   padding: 0 7px;
   border-radius: 3px;

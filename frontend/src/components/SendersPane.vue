@@ -7,7 +7,7 @@
 //      senders who posted to that list (counts and mix bars scoped to it).
 //   2. Sender detail (a `person`/`address` filter): the sender's aggregates
 //      across all lists from GET /api/summary — posts, detection-mix summary,
-//      and per-list activity with a detection bar per list.
+//      and per-list activity with a detection bar and two reply rugs per list.
 //
 // Hidden entirely in anonymous mode (Dashboard v-if's it away).
 //
@@ -15,16 +15,21 @@
 //         GET /api/persons                    (the "add to existing sender" list)
 //         GET /api/persons/suggestions        (same-name unlinked-address groups)
 //         GET /api/summary?person|address     (the sender detail card)
+//         GET /api/senders/reply-rugs?person|address  (the two reply rugs)
 // Mutations: POST/PUT/DELETE /api/persons     (link / rename / detach / unlink)
 import { ref, computed, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { get, postJson, putJson, del } from '../api'
-import { fmtInt } from '../lib/format'
+import { fmtDate, fmtInt } from '../lib/format'
+import { predictionShort, rugBarColor } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
 
 const filters = useFiltersStore()
+const route = useRoute()
+const router = useRouter()
 
 // --- fetch state ------------------------------------------------------------
 const senders = ref([])
@@ -101,6 +106,7 @@ onMounted(() => {
   loadPersons()
   loadSuggestions()
   loadDetail()
+  loadReplyRugs()
 })
 
 // --- sender detail mode -------------------------------------------------------
@@ -141,10 +147,61 @@ async function loadDetail() {
   }
 }
 
+// --- reply rugs (per list, last 50 messages each way) ------------------------
+// GET /api/senders/reply-rugs returns one entry per list the sender posted to:
+// `replied_to` (the messages this sender's replies on that list point at) and
+// `reply_from` (other senders' replies to this sender's messages there). Both
+// arrive newest-first, like GET /messages; the rugs read oldest → newest, so
+// each is reversed here — the same handling as the per-list rug in ListsPane.
+const replyRugs = ref({}) // list name -> {repliedTo: [bar], replyFrom: [bar]}
+let rugToken = 0
+
+// One bar per message, coloured by its prediction bucket — or grey when the
+// extraction was gated under the reliability floor (extraction_status
+// `too_short`), which the tooltip names where the bucket would otherwise sit.
+function rugBar(m) {
+  const pred = m.prediction_short || predictionShort(m.label) || null
+  const tooShort = m.extraction_status === 'too_short'
+  return {
+    id: m.id,
+    color: rugBarColor(pred, tooShort),
+    title:
+      `${fmtDate(m.date)} · ${tooShort ? 'Too short' : pred || 'unscored'} — ` +
+      `${m.subject || '(no subject)'}`,
+  }
+}
+
+async function loadReplyRugs() {
+  const params = detailParams.value
+  if (!params) return
+  const token = ++rugToken
+  try {
+    const data = await get('/senders/reply-rugs', params)
+    if (token !== rugToken) return
+    const byList = {}
+    for (const entry of data?.by_list || []) {
+      byList[entry.list] = {
+        repliedTo: (entry.replied_to || []).slice().reverse().map(rugBar),
+        replyFrom: (entry.reply_from || []).slice().reverse().map(rugBar),
+      }
+    }
+    replyRugs.value = byList
+  } catch {
+    if (token === rugToken) replyRugs.value = {}
+  }
+}
+
+function openRugMessage(id) {
+  router.push({ path: `/messages/${id}`, query: route.query })
+}
+
 // Refetch whenever the driving filter (or the address→person resolution, once
 // /api/persons arrives) changes.
 const detailKey = computed(() => JSON.stringify(detailParams.value))
-watch(detailKey, () => loadDetail())
+watch(detailKey, () => {
+  loadDetail()
+  loadReplyRugs()
+})
 
 const detailCard = computed(() => {
   const s = detailSummary.value
@@ -179,10 +236,16 @@ const detailCard = computed(() => {
     emails,
     total: fmtInt(s.total),
     mix: s.label_distribution || {},
+    tooShort: s.too_short || 0,
     byList: (s.by_list || []).map((r) => ({
       list: r.list,
       count: fmtInt(r.count),
       counts: r.label_counts || {},
+      // Gated under the reliability floor: the mix bar's trailing grey segment.
+      tooShort: r.too_short_count || 0,
+      // The rugs load separately, so a row may render before (or without) them.
+      repliedTo: replyRugs.value[r.list]?.repliedTo || [],
+      replyFrom: replyRugs.value[r.list]?.replyFrom || [],
       click: () => filters.setFilter('list', r.list),
     })),
   }
@@ -280,6 +343,7 @@ const rows = computed(() => {
       emails: e.emails.join(', '),
       count: fmtInt(e.message_count),
       counts: e.label_counts || {},
+      tooShort: e.too_short_count || 0,
       linkColor: isPerson ? '#2f6feb' : '#8a929b',
       linkTitle: isPerson ? 'Linked sender — manage addresses' : 'Link this address to a sender',
       popTop: up ? 'auto' : '22px',
@@ -393,12 +457,20 @@ async function assignToExisting(row) {
           </div>
           <MixSummary
             :counts="detailCard.mix"
+            :too-short="detailCard.tooShort"
             :clickable="true"
             class="detail-mix"
             @select="(l) => filters.setFilter('label', l)"
           />
         </div>
         <div class="section-head">Activity by list</div>
+        <div class="minirow-head">
+          <span>List</span>
+          <span style="text-align: right;">Msgs</span>
+          <span>Analysis</span>
+          <span>Replied to</span>
+          <span>Reply from</span>
+        </div>
         <div
           v-for="r in detailCard.byList"
           :key="r.list"
@@ -408,7 +480,29 @@ async function assignToExisting(row) {
         >
           <span class="minirow-name mono">{{ r.list }}</span>
           <span class="minirow-count mono">{{ r.count }}</span>
-          <MixBar :counts="r.counts" :height="9" />
+          <MixBar :counts="r.counts" :too-short="r.tooShort" :height="9" />
+          <span v-if="!r.repliedTo.length" class="minirow-none">—</span>
+          <span v-else class="mini-rug" :title="`last ${r.repliedTo.length} · oldest → newest`">
+            <span
+              v-for="b in r.repliedTo"
+              :key="b.id"
+              class="mini-rug-bar"
+              :style="{ background: b.color }"
+              :title="b.title"
+              @click.stop="openRugMessage(b.id)"
+            ></span>
+          </span>
+          <span v-if="!r.replyFrom.length" class="minirow-none">—</span>
+          <span v-else class="mini-rug" :title="`last ${r.replyFrom.length} · oldest → newest`">
+            <span
+              v-for="b in r.replyFrom"
+              :key="b.id"
+              class="mini-rug-bar"
+              :style="{ background: b.color }"
+              :title="b.title"
+              @click.stop="openRugMessage(b.id)"
+            ></span>
+          </span>
         </div>
       </template>
     </div>
@@ -433,7 +527,7 @@ async function assignToExisting(row) {
           >
           <span class="sender-addr mono" :title="row.emails">{{ row.emails }}</span>
           <span class="sender-count mono">{{ row.count }}</span>
-          <MixBar :counts="row.counts" :height="9" />
+          <MixBar :counts="row.counts" :too-short="row.tooShort" :height="9" />
           <span style="text-align: right;">
             <button
               class="link-btn"
@@ -589,11 +683,25 @@ async function assignToExisting(row) {
   color: var(--text-muted);
   margin: 12px 0 3px;
 }
+/* Activity-by-list table. Five columns: list, message count, the detection mix
+   bar, and the two reply rugs (each capped at 50 bars — see .mini-rug). */
+.minirow-head,
 .minirow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px 150px;
+  grid-template-columns: minmax(0, 1fr) 36px 96px 104px 104px;
   gap: 6px;
   align-items: center;
+}
+.minirow-head {
+  border-bottom: 1px solid var(--border);
+  padding: 0 0 2px;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.minirow {
   border-bottom: 1px solid var(--border-row);
   cursor: pointer;
   padding: 3px 0;
@@ -615,6 +723,29 @@ async function assignToExisting(row) {
 .minirow-count {
   text-align: right;
   color: var(--text-secondary);
+}
+.minirow-none {
+  color: var(--text-muted);
+  font-family: var(--mono);
+}
+
+/* --- reply rugs (table-cell scale of the per-list rug in ListsPane) --- */
+.mini-rug {
+  display: flex;
+  gap: 1px;
+  height: 14px;
+  align-items: stretch;
+  overflow: hidden;
+}
+.mini-rug-bar {
+  flex: 1;
+  min-width: 1px;
+  max-width: 6px;
+  border-radius: 1px;
+  cursor: pointer;
+}
+.mini-rug-bar:hover {
+  opacity: 0.75;
 }
 .senders-search {
   font-size: 11px;

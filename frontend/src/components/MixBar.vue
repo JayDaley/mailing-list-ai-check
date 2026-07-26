@@ -1,8 +1,10 @@
 <script setup>
 // Stacked label-mix bar. Segments are drawn in `order` — by default the three
 // prediction_short buckets (Human / Mixed / AI) — each sized by its share of
-// the total and colored from LABEL_COLORS, on a #eef0f3 track. Used at 10px
-// (toolbar, 200px wide) and 9px (list / sender rows).
+// the total and colored from LABEL_COLORS, on a #eef0f3 track. Messages gated
+// under the reliability floor (`tooShort`) close the bar as one grey segment and
+// count towards the total behind every share. Used at 10px (toolbar, 200px wide)
+// and 9px (list / sender rows).
 //
 // Hovering anywhere on the bar shows a popup with each bucket's share, e.g.
 // "Human (60%) · Mixed (20%) · AI (20%)" — positioned by useHoverPop.
@@ -10,7 +12,11 @@ import { computed } from 'vue'
 
 import { fmtInt } from '../lib/format'
 import { useHoverPop } from '../lib/hoverPop'
-import { PRED_ORDER, LABEL_COLORS, LABEL_SHORT } from '../lib/labels'
+import { PRED_ORDER, LABEL_COLORS, LABEL_SHORT, TOO_SHORT_COLOR } from '../lib/labels'
+
+// Popup name of the too-short segment (never a filterable label, so it carries
+// no click).
+const TOO_SHORT_LABEL = 'Too short'
 
 const props = defineProps({
   // Object of label -> message count. Labels outside `order` are ignored (but
@@ -31,6 +37,10 @@ const props = defineProps({
   showCounts: { type: Boolean, default: true },
   // Fill color per label (segments + popup dots).
   colors: { type: Object, default: () => LABEL_COLORS },
+  // Messages gated under the 50-word reliability floor (extraction status
+  // `too_short`): a trailing grey segment, and part of the total every share is
+  // computed over.
+  tooShort: { type: Number, default: 0 },
 })
 
 // The values actually drawn: optionally folding AI-Assisted into Mixed so a
@@ -53,34 +63,62 @@ const totalScored = computed(() =>
   props.order.reduce((sum, l) => sum + (Number(effCounts.value?.[l]) || 0), 0),
 )
 
+const tooShortCount = computed(() => Math.max(0, Number(props.tooShort) || 0))
+
+// The denominator behind every width and percentage: the scored messages plus
+// the gated ones the trailing segment stands for.
+const total = computed(() => totalScored.value + tooShortCount.value)
+
 const colorFor = (label) => props.colors[label] || LABEL_COLORS[label]
 
 const segments = computed(() => {
-  const total = totalScored.value
-  if (!total) return []
-  return props.order.filter((l) => (Number(effCounts.value?.[l]) || 0) > 0).map((l) => {
-    const n = Number(effCounts.value[l]) || 0
-    const pct = (n / total) * 100
-    return {
-      label: l,
-      color: colorFor(l),
-      w: pct.toFixed(1) + '%',
-    }
-  })
+  const denom = total.value
+  if (!denom) return []
+  const parts = props.order
+    .filter((l) => (Number(effCounts.value?.[l]) || 0) > 0)
+    .map((l) => {
+      const n = Number(effCounts.value[l]) || 0
+      return {
+        label: l,
+        color: colorFor(l),
+        w: ((n / denom) * 100).toFixed(1) + '%',
+        clickable: props.clickable,
+      }
+    })
+  if (tooShortCount.value > 0) {
+    parts.push({
+      label: TOO_SHORT_LABEL,
+      color: TOO_SHORT_COLOR,
+      w: ((tooShortCount.value / denom) * 100).toFixed(1) + '%',
+      clickable: false,
+    })
+  }
+  return parts
 })
 
-// One entry per label (including zeros) for the hover popup.
+// One entry per label (including zeros) for the hover popup, plus the too-short
+// entry when there is one.
 const summaryParts = computed(() => {
-  const total = totalScored.value
-  return props.order.map((l) => {
+  const denom = total.value
+  const share = (n) => (denom ? Math.round((n / denom) * 100) : 0)
+  const parts = props.order.map((l) => {
     const n = Number(effCounts.value?.[l]) || 0
     return {
       label: props.phrases[l] || LABEL_SHORT[l] || l,
       color: colorFor(l),
-      pct: total ? Math.round((n / total) * 100) : 0,
+      pct: share(n),
       count: n,
     }
   })
+  if (tooShortCount.value > 0) {
+    parts.push({
+      label: TOO_SHORT_LABEL,
+      color: TOO_SHORT_COLOR,
+      pct: share(tooShortCount.value),
+      count: tooShortCount.value,
+    })
+  }
+  return parts
 })
 
 const trackStyle = computed(() => ({
@@ -114,9 +152,9 @@ const wrapStyle = computed(() => ({
           display: 'block',
           width: seg.w,
           background: seg.color,
-          cursor: clickable ? 'pointer' : 'default',
+          cursor: seg.clickable ? 'pointer' : 'default',
         }"
-        @click="clickable && emit('select', seg.label)"
+        @click="seg.clickable && emit('select', seg.label)"
       ></span>
     </span>
 

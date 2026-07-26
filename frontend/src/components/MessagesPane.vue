@@ -6,6 +6,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 
 import { get, apiUrl, postForm } from '../api'
+import { rateTint, rateTextColor } from '../lib/colors'
 import { fmtDate, fmtInt } from '../lib/format'
 import {
   LABEL_SHORT,
@@ -104,26 +105,35 @@ const fromValue = computed(() => {
 
 // --- detection-mix (filtered summary) ---
 const mixCounts = ref({})
-// Caption with each label's share of the scored total, e.g. "Human (62%) · …".
-// Percentages match the MixBar segment tooltips (share of scored, rounded).
+// Messages gated under the reliability floor: the bar's trailing grey segment,
+// and part of the total every share is computed over.
+const mixTooShort = ref(0)
+// Caption with each label's share of the total, e.g. "Human (62%) · …", plus a
+// "Too short" entry when any message was gated. Percentages match the MixBar
+// segment tooltips (share of the same total, rounded).
 const mixCaption = computed(() => {
   const folded = foldToPrediction(mixCounts.value)
-  const total = PRED_ORDER.reduce((sum, l) => sum + (Number(folded[l]) || 0), 0)
-  return PRED_ORDER.map((l) => {
-    const word = LABEL_SHORT[l]
-    if (!total) return word
-    const pct = Math.round(((Number(folded[l]) || 0) / total) * 100)
-    return `${word} (${pct}%)`
-  }).join(' · ')
+  const scored = PRED_ORDER.reduce((sum, l) => sum + (Number(folded[l]) || 0), 0)
+  const total = scored + mixTooShort.value
+  const part = (word, n) => (total ? `${word} (${Math.round((n / total) * 100)}%)` : word)
+  const parts = PRED_ORDER.map((l) => part(LABEL_SHORT[l], Number(folded[l]) || 0))
+  if (mixTooShort.value > 0) parts.push(part('Too short', mixTooShort.value))
+  return parts.join(' · ')
 })
 let mixToken = 0
 async function loadMix() {
   const token = ++mixToken
   try {
     const data = await get('/summary', filters.asParams)
-    if (token === mixToken) mixCounts.value = data?.label_distribution || {}
+    if (token === mixToken) {
+      mixCounts.value = data?.label_distribution || {}
+      mixTooShort.value = data?.too_short || 0
+    }
   } catch {
-    if (token === mixToken) mixCounts.value = {}
+    if (token === mixToken) {
+      mixCounts.value = {}
+      mixTooShort.value = 0
+    }
   }
 }
 
@@ -140,7 +150,8 @@ const filterKey = computed(() =>
     filters.max_likelihood,
     filters.q,
     filters.has_score,
-    filters.timing,
+    filters.cpm_min,
+    filters.cpm_max,
     filters.sort,
     filters.order,
   ]),
@@ -170,13 +181,13 @@ const b = (v) => (v !== '' && v != null ? ACTIVE : IDLE)
 
 // --- grid columns (From collapses to 0 in anonymous mode) ---
 // Date · List · From · Subject · Analysis (prediction pill + headline) ·
-// AI Score (per-window scores) · Timing · Chars. The filter row stacks its
-// controls two deep, so Date needs room for only one date input and List gains
-// the rest.
+// AI Score (per-window scores) · Chars · Chars/min (the reply-timing rate).
+// The filter row stacks its controls two deep, so Date needs room for only one
+// date input and List gains the rest.
 const gridCols = computed(() =>
   ui.anonymous
-    ? '120px 156px 0px minmax(200px, 1fr) 230px 220px 92px 64px'
-    : '120px 156px 170px minmax(200px, 1fr) 230px 220px 92px 64px',
+    ? '120px 156px 0px minmax(200px, 1fr) 230px 220px 64px 92px'
+    : '120px 156px 170px minmax(200px, 1fr) 230px 220px 64px 92px',
 )
 const cellPad = computed(() => (ui.density === 'comfortable' ? '6px 10px' : '2px 10px'))
 const fromCellPad = computed(() => (ui.anonymous ? '0' : cellPad.value))
@@ -266,7 +277,8 @@ const chips = computed(() => {
     ['date_from', 'from'],
     ['date_to', 'to'],
     ['has_score', 'scored'],
-    ['timing', 'timing'],
+    ['cpm_min', 'cpm min'],
+    ['cpm_max', 'cpm max'],
   ]
   const out = []
   for (const [key, name] of defs) {
@@ -294,7 +306,8 @@ function clearAll() {
     max_likelihood: '',
     q: '',
     has_score: '',
-    timing: '',
+    cpm_min: '',
+    cpm_max: '',
   })
 }
 
@@ -408,12 +421,14 @@ async function onImportFile(e) {
 }
 
 // --- rows ---
-// Reply-timing tooltips: the thresholds live in store.py (TIMING_*_CPM).
+// Reply-timing tooltips: the Chars/min cell shows the rate itself, so the
+// tooltip names the band it falls in. The thresholds live in store.py
+// (TIMING_*_CPM).
 const TIMING_TITLES = {
   implausible:
-    'New text implies ≥ 250 chars/minute since the parent message — too fast to have been composed in the window',
-  suspicious: 'New text implies ≥ 100 chars/minute since the parent message',
-  normal: 'New text implies < 100 chars/minute since the parent message',
+    'Implausible: new text implies ≥ 250 chars/minute since the parent message — too fast to have been composed in the window',
+  suspicious: 'Suspicious: new text implies ≥ 100 chars/minute since the parent message',
+  normal: 'Normal: new text implies < 100 chars/minute since the parent message',
 }
 const rows = computed(() =>
   messages.items.map((m) => {
@@ -435,6 +450,10 @@ const rows = computed(() =>
     // Analysis pill: the prediction_short bucket (falls back to the four-band
     // label rebadged to its origin), coloured like the score badges.
     const predShort = scored ? sc.prediction_short || predictionShort(sc.label) : ''
+    // Chars/min: the rate behind the timing band, as whole chars/minute. It is
+    // absent exactly where the band is (non-replies, missing parent or dates,
+    // no extraction), and from 100 up the cell is tinted by the rate.
+    const cpm = m.timing_cpm == null ? null : Math.round(m.timing_cpm)
     return {
       id: m.id,
       dateStr: fmtDate(m.date),
@@ -452,8 +471,10 @@ const rows = computed(() =>
       // Pangram's per-window scores, in document order. Pangram emits no
       // document-level score, so the column lists one entry per window.
       windows: scored ? sc.windows || [] : [],
-      timing: m.timing || '',
       timingTitle: TIMING_TITLES[m.timing] || '',
+      cpmText: cpm == null ? '—' : fmtInt(cpm),
+      cpmBg: rateTint(cpm),
+      cpmColor: rateTextColor(cpm),
       chars: ext && ext.char_count ? fmtInt(ext.char_count) : '—',
       person,
       address: m.from?.address || '',
@@ -492,6 +513,7 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
       <span class="messages-count">{{ fmtInt(messages.total) }} shown</span>
       <MixBar
         :counts="mixCounts"
+        :too-short="mixTooShort"
         :height="10"
         width="200px"
         :clickable="true"
@@ -562,8 +584,8 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
             <div class="col-head sortable" @click="sortBy('fraction_ai')">
               AI Score (Confidence){{ scoreInd }}
             </div>
-            <div class="col-head">Timing</div>
             <div class="col-head" style="text-align: right;">Chars</div>
+            <div class="col-head" style="text-align: right;">Chars/min</div>
           </div>
           <!-- column filter row -->
           <div
@@ -680,22 +702,33 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
                 <option value="false">unscored</option>
               </select>
             </div>
-            <div class="fcell">
-              <select
-                :value="filters.timing"
-                title="Reply timing"
-                class="fctl"
-                style="width: 100%;"
-                :style="{ border: `1px solid ${b(filters.timing)}` }"
-                @change="(e) => filters.setFilter('timing', e.target.value)"
-              >
-                <option value="">any</option>
-                <option value="implausible">implausible</option>
-                <option value="suspicious">suspicious</option>
-                <option value="normal">normal</option>
-              </select>
-            </div>
             <div class="fcell"></div>
+            <!-- Chars/min: an inclusive range on the reply-timing rate. Either
+                 bound alone drops every message with no rate. -->
+            <div class="fcell">
+              <input
+                type="number"
+                min="0"
+                step="1"
+                placeholder="min"
+                :value="filters.cpm_min"
+                title="Minimum chars/min"
+                class="fctl fctl-num"
+                :style="{ border: `1px solid ${b(filters.cpm_min)}` }"
+                @change="(e) => filters.setFilter('cpm_min', e.target.value)"
+              />
+              <input
+                type="number"
+                min="0"
+                step="1"
+                placeholder="max"
+                :value="filters.cpm_max"
+                title="Maximum chars/min"
+                class="fctl fctl-num"
+                :style="{ border: `1px solid ${b(filters.cpm_max)}` }"
+                @change="(e) => filters.setFilter('cpm_max', e.target.value)"
+              />
+            </div>
           </div>
         </div>
 
@@ -739,27 +772,26 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
                 v-else-if="m.tooShort"
                 class="too-short-text"
                 title="Under the 50-word reliability floor — not sent to Pangram"
-                >Too short</span
+                >Too short to test</span
               >
             </div>
             <div class="cell" :style="{ padding: cellPad, minWidth: 0 }">
               <WindowScores :windows="m.windows" />
-            </div>
-            <div class="cell" :style="{ padding: cellPad }">
-              <span
-                v-if="m.timing"
-                class="timing-pill"
-                :class="'timing-' + m.timing"
-                :title="m.timingTitle"
-                >{{ m.timing }}</span
-              >
-              <span v-else class="cell-dash">—</span>
             </div>
             <div
               class="cell cell-mono cell-muted"
               :style="{ padding: cellPad, textAlign: 'right' }"
             >
               {{ m.chars }}
+            </div>
+            <!-- Chars/min: the reply-timing rate, in the Chars column's face,
+                 with a purple tint per hundred from 100 chars/min up. -->
+            <div
+              class="cell cell-mono cell-muted cell-rate"
+              :style="{ padding: cellPad, background: m.cpmBg, color: m.cpmColor }"
+              :title="m.timingTitle"
+            >
+              {{ m.cpmText }}
             </div>
           </div>
         </div>
@@ -910,7 +942,18 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
 .fctl-num {
   font-size: 10.5px;
   padding: 0 3px;
-  width: 42px;
+  width: 100%;
+  min-width: 0;
+  text-align: right;
+  /* The stepper arrows would eat most of a 92px column; the inputs stay
+     type="number" for the numeric keypad and the browser's own validation. */
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.fctl-num::-webkit-outer-spin-button,
+.fctl-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 select.fctl {
   padding: 0 2px;
@@ -1023,31 +1066,13 @@ select.fctl {
 .cell-dash {
   color: #b3b9c0;
 }
-/* Reply-timing classification. "normal" stays plain muted text; the two
-   flagged bands get coloured pills so they stand out in a scan. */
-.timing-pill {
-  padding: 0 7px;
-  border-radius: 3px;
-  font-size: 10.5px;
-  font-weight: 700;
-  line-height: 16px;
-  text-transform: capitalize;
-}
-.timing-implausible {
-  background: #c93a3a;
-  color: #ffffff;
-}
-.timing-suspicious {
-  background: #f2c744;
-  color: #4a3600;
-}
-.timing-normal {
-  padding: 0;
-  font-weight: 400;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: #8a929b;
-  text-transform: none;
+/* Chars/min: right-aligned like Chars, but stretched to the row height so its
+   tint reads as a band across the whole row rather than only behind the text. */
+.cell-rate {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 .messages-empty {
   padding: 28px;

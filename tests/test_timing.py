@@ -1,14 +1,17 @@
-"""Tests for the reply-timing analysis (``messages.timing``).
+"""Tests for the reply-timing analysis (``messages.timing``/``timing_cpm``).
 
 Covers the rate classification bands, every not-computable case,
 In-Reply-To normalization, same-list parent preference, recompute
-idempotence, the migration 009 Python backfill, the query/summary
-plumbing, and the pipeline stages that trigger a recompute.
+idempotence, the stored rate staying in step with the band, the Python
+backfill behind migrations 009 and 010 (including concurrent first opens),
+the query/summary plumbing and the chars/minute range filter, and the
+pipeline stages that trigger a recompute.
 """
 
 from __future__ import annotations
 
 import sqlite3
+import threading
 from datetime import datetime
 
 import pytest
@@ -22,6 +25,7 @@ from mailing_list_ai_check.store import (
     MIGRATIONS,
     MessageFilters,
     Store,
+    chars_per_minute,
     classify_timing,
 )
 
@@ -74,7 +78,18 @@ def _timing(store: Store, pk: int) -> str | None:
     return message.timing
 
 
+def _rate(store: Store, pk: int) -> float | None:
+    """The stored ``messages.timing_cpm`` of one message."""
+    return store.conn.execute("SELECT timing_cpm FROM messages WHERE id = ?", (pk,)).fetchone()[0]
+
+
 # --- classification bands -------------------------------------------------------
+
+
+def test_chars_per_minute_is_the_rate_the_bands_classify():
+    assert chars_per_minute(3000, 600) == pytest.approx(300.0)  # 3000 chars in 10 min
+    assert chars_per_minute(40, 5) == pytest.approx(480.0)
+    assert classify_timing(3000, 600) == "implausible"
 
 
 def test_classify_timing_boundaries():
@@ -97,6 +112,35 @@ def test_recompute_classifies_each_band(store):
     assert _timing(store, fast) == "implausible"  # 300 chars/min
     assert _timing(store, brisk) == "suspicious"  # 150 chars/min
     assert _timing(store, slow) == "normal"  # 50 chars/min
+
+
+def test_recompute_stores_the_rate_beside_the_band(store):
+    """``timing_cpm`` is exactly the rate the band was classified from."""
+    lid = _list(store)
+    _message(store, lid, "<p@x>", T0)
+    fast = _message(store, lid, "<r1@x>", T0_PLUS_10M, in_reply_to="<p@x>", chars=3000)
+    slow = _message(store, lid, "<r2@x>", T0_PLUS_10M, in_reply_to="<p@x>", chars=500)
+
+    store.recompute_timing()
+
+    assert _rate(store, fast) == pytest.approx(chars_per_minute(3000, 600))
+    assert _rate(store, slow) == pytest.approx(chars_per_minute(500, 600))
+    assert _rate(store, 1) is None  # the parent is not a reply: no band, no rate
+
+
+def test_band_and_rate_are_written_and_cleared_together(store):
+    lid = _list(store)
+    parent = _message(store, lid, "<p@x>", T0)
+    reply = _message(store, lid, "<r@x>", T0_PLUS_10M, in_reply_to="<p@x>", chars=3000)
+    store.recompute_timing()
+    assert _timing(store, reply) == "implausible"
+    assert _rate(store, reply) == pytest.approx(300.0)
+
+    # The band stops being computable, so both columns go back to NULL.
+    store.conn.execute("DELETE FROM messages WHERE id = ?", (parent,))
+    assert store.recompute_timing() == 1
+    assert _timing(store, reply) is None
+    assert _rate(store, reply) is None
 
 
 def test_too_short_extraction_is_classified(store):
@@ -239,12 +283,19 @@ def test_late_arriving_parent_fills_in_timing(store):
 # --- migration backfill ------------------------------------------------------------
 
 
-def test_migration_009_backfills_existing_rows(tmp_path):
-    path = tmp_path / "old.db"
+def _build_old_db(path, replies: int = 1, *, up_to: int = 8) -> None:
+    """A schema-``up_to`` database: one parent plus ``replies`` fast replies.
+
+    Written with raw SQL, so the Python backfill a real upgrade would have run
+    (see :meth:`Store.__init__`) has not run over these rows.
+    """
     conn = sqlite3.connect(path)
+    # The app has opened its database in WAL mode since the first release, so
+    # any real pre-upgrade database is WAL; build the fixture the same way.
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
     for version, script in MIGRATIONS:
-        if version > 8:
+        if version > up_to:
             break
         conn.executescript(script)
         conn.execute("INSERT INTO schema_version(version) VALUES (?)", (version,))
@@ -254,42 +305,232 @@ def test_migration_009_backfills_existing_rows(tmp_path):
         "VALUES (1, '<p@x>', 1, ?, NULL, ?)",
         (T0, T0),
     )
-    conn.execute(
+    conn.executemany(
         "INSERT INTO messages(id, message_id, list_id, date, in_reply_to, fetched_at) "
-        "VALUES (2, '<r@x>', 1, ?, '<p@x>', ?)",
-        (T0_PLUS_10M, T0),
+        "VALUES (?, ?, 1, ?, '<p@x>', ?)",
+        [(i + 2, f"<r{i}@x>", T0_PLUS_10M, T0) for i in range(replies)],
     )
-    conn.execute(
+    conn.executemany(
         "INSERT INTO extractions(message_id, extracted_text, method, char_count, status, "
-        "created_at) VALUES (2, ?, 'test', 3000, 'ok', ?)",
-        ("x" * 3000, T0),
+        "created_at) VALUES (?, ?, 'test', 3000, 'ok', ?)",
+        [(i + 2, "x" * 3000, T0) for i in range(replies)],
     )
     conn.commit()
     conn.close()
 
+
+def test_migration_009_backfills_existing_rows(tmp_path):
+    path = tmp_path / "old.db"
+    _build_old_db(path)
+
     with Store(path) as store:
         assert _timing(store, 1) is None
         assert _timing(store, 2) == "implausible"
+        assert _rate(store, 2) == pytest.approx(chars_per_minute(3000, 600))
+
+
+def test_migration_010_backfills_the_rate_behind_an_existing_band(tmp_path):
+    """A version-9 database carries bands but no rates; the open fills them in.
+
+    The backfilled rate must be exactly what :func:`chars_per_minute` returns
+    for the inputs the stored band was classified from.
+    """
+    path = tmp_path / "v9.db"
+    _build_old_db(path, up_to=9)
+    # Stand in for migration 009's Python backfill, so the fixture looks like a
+    # version-9 database that has been in use rather than a freshly rewound one.
+    conn = sqlite3.connect(path)
+    conn.execute("UPDATE messages SET timing = 'implausible' WHERE id = 2")
+    conn.commit()
+    conn.close()
+
+    with Store(path) as store:
+        assert _timing(store, 2) == "implausible"  # the band is left as it was
+        assert _rate(store, 2) == pytest.approx(chars_per_minute(3000, 600))
+        assert _timing(store, 1) is None
+        assert _rate(store, 1) is None
+
+
+def test_concurrent_opens_apply_migrations_once(tmp_path):
+    """Concurrent first opens after an upgrade must not race the migration.
+
+    The dashboard opens one Store per request and the SPA fires several
+    requests in parallel, so the first page load after an upgrade opens the
+    out-of-date database from many threads at once. Regression test for the
+    read-check-apply race in apply_migrations, whose losing connections threw
+    "duplicate column name" (and, without a busy timeout, "database is
+    locked") as transient 500s.
+    """
+    path = tmp_path / "old.db"
+    _build_old_db(path, replies=3000)
+
+    thread_count = 6
+    barrier = threading.Barrier(thread_count)
+    errors: list[Exception] = []
+
+    def open_store() -> None:
+        barrier.wait()
+        try:
+            Store(path).close()
+        except Exception as exc:  # noqa: BLE001 - collected for the assertion
+            errors.append(exc)
+
+    threads = [threading.Thread(target=open_store) for _ in range(thread_count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    with Store(path) as store:
+        rows = store.conn.execute(
+            "SELECT version, COUNT(*) AS n FROM schema_version GROUP BY version"
+        ).fetchall()
+        assert {row["version"] for row in rows} == {v for v, _ in MIGRATIONS}
+        assert all(row["n"] == 1 for row in rows)
+        classified = store.conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE timing = 'implausible'"
+        ).fetchone()[0]
+        assert classified == 3000
 
 
 # --- query / summary plumbing --------------------------------------------------------
 
 
-def test_timing_filter_and_summary_distribution(store):
+def _three_replies(store: Store) -> int:
+    """One parent plus replies implying 300, 150 and 50 chars/minute."""
     lid = _list(store)
     _message(store, lid, "<p@x>", T0)
     _message(store, lid, "<r1@x>", T0_PLUS_10M, in_reply_to="<p@x>", chars=3000)
     _message(store, lid, "<r2@x>", T0_PLUS_10M, in_reply_to="<p@x>", chars=1500)
     _message(store, lid, "<r3@x>", T0_PLUS_10M, in_reply_to="<p@x>", chars=500)
     store.recompute_timing()
+    return lid
 
-    rows, total = store.query_messages(MessageFilters(timing="implausible"))
-    assert total == 1
-    assert rows[0]["message_id"] == "<r1@x>"
-    assert rows[0]["timing"] == "implausible"
 
+def _matching(store: Store, **filters) -> list[str]:
+    """The Message-IDs matching ``filters``, sorted; asserts ``total`` agrees."""
+    rows, total = store.query_messages(MessageFilters(**filters))
+    assert total == len(rows)
+    return sorted(row["message_id"] for row in rows)
+
+
+def test_summary_distribution_counts_the_bands(store):
+    _three_replies(store)
     summary = store.summary(MessageFilters())
     assert summary["timing_distribution"] == {"implausible": 1, "suspicious": 1, "normal": 1}
+
+
+def test_rate_filter_lower_bound_is_inclusive(store):
+    _three_replies(store)
+    assert _matching(store, cpm_min=150) == ["<r1@x>", "<r2@x>"]
+    assert _matching(store, cpm_min=300) == ["<r1@x>"]
+    assert _matching(store, cpm_min=300.5) == []
+
+
+def test_rate_filter_upper_bound_is_inclusive(store):
+    _three_replies(store)
+    assert _matching(store, cpm_max=150) == ["<r2@x>", "<r3@x>"]
+    assert _matching(store, cpm_max=50) == ["<r3@x>"]
+    assert _matching(store, cpm_max=49.5) == []
+
+
+def test_rate_filter_combines_both_bounds(store):
+    _three_replies(store)
+    assert _matching(store, cpm_min=50, cpm_max=150) == ["<r2@x>", "<r3@x>"]
+    assert _matching(store, cpm_min=60, cpm_max=200) == ["<r2@x>"]
+    assert _matching(store, cpm_min=200, cpm_max=100) == []  # empty, not an error
+
+
+def test_rate_filter_excludes_messages_with_no_rate(store):
+    """Either bound drops every message whose rate is not computable."""
+    lid = _three_replies(store)
+    _message(store, lid, "<r4@x>", T0_PLUS_10M, in_reply_to="<gone@x>", chars=1000)
+    store.recompute_timing()
+
+    # Unfiltered, the parent and the parentless reply are in the result set.
+    assert _matching(store) == ["<p@x>", "<r1@x>", "<r2@x>", "<r3@x>", "<r4@x>"]
+    assert _matching(store, cpm_min=0) == ["<r1@x>", "<r2@x>", "<r3@x>"]
+    assert _matching(store, cpm_max=1000) == ["<r1@x>", "<r2@x>", "<r3@x>"]
+
+
+def test_rate_filter_applies_before_pagination(store):
+    """The filter runs in SQL, so the count and the pages span every match."""
+    _three_replies(store)
+    rows, total = store.query_messages(MessageFilters(cpm_min=0, per_page=2, page=1))
+    assert (total, len(rows)) == (3, 2)
+    rows, total = store.query_messages(MessageFilters(cpm_min=0, per_page=2, page=2))
+    assert (total, len(rows)) == (3, 1)
+
+
+def _cpm_by_message_id(store: Store, filters: MessageFilters | None = None) -> dict[str, float]:
+    rows, _ = store.query_messages(filters or MessageFilters())
+    return {row["message_id"]: row["timing_cpm"] for row in rows}
+
+
+def test_query_rows_carry_the_rate_behind_the_band(store):
+    lid = _list(store)
+    _message(store, lid, "<p@x>", T0)
+    _message(store, lid, "<r1@x>", T0_PLUS_10M, in_reply_to="<p@x>", chars=3000)
+    _message(store, lid, "<r2@x>", T0_PLUS_10M, in_reply_to="<p@x>", chars=500)
+    store.recompute_timing()
+
+    rates = _cpm_by_message_id(store)
+    assert rates["<r1@x>"] == pytest.approx(300.0)  # 3000 chars / 10 min
+    assert rates["<r2@x>"] == pytest.approx(50.0)
+    assert rates["<p@x>"] is None  # not a reply: no band, so no rate
+
+
+def test_query_rate_is_null_wherever_the_band_is(store):
+    lid = _list(store)
+    _message(store, lid, "<p@x>", T0)
+    _message(store, lid, "<r1@x>", T0_PLUS_10M, in_reply_to="<gone@x>", chars=1000)
+    _message(store, lid, "<r2@x>", T0_MINUS_10M, in_reply_to="<p@x>", chars=1000)
+    _message(store, lid, "<r3@x>", T0_PLUS_10M, in_reply_to="<p@x>")
+    store.recompute_timing()
+
+    rates = _cpm_by_message_id(store)
+    assert rates["<r1@x>"] is None  # parent not stored
+    assert rates["<r2@x>"] is None  # non-positive gap
+    assert rates["<r3@x>"] is None  # no extraction
+
+
+def test_query_rate_resolves_the_parent_as_the_classification_does(store):
+    """Header normalization and the same-list preference, as in recompute_timing."""
+    l1 = _list(store, "l1")
+    l2 = _list(store, "l2")
+    _message(store, l1, "<p@x>", T0)
+    _message(store, l2, "<p@x>", "2026-05-01T09:00:00+00:00")
+    _message(
+        store,
+        l2,
+        "<r@x>",
+        T0_PLUS_10M,
+        in_reply_to="  (comment) <p@x> <other@x>  ",
+        chars=3500,
+    )
+    store.recompute_timing()
+
+    # The l2 copy of the parent is 70 minutes before the reply, the l1 copy 10.
+    assert _cpm_by_message_id(store)["<r@x>"] == pytest.approx(50.0)
+
+
+def test_query_serves_the_stored_rate_rather_than_recomputing(store):
+    """The row reports what is stored, so a lost parent shows until a recompute."""
+    lid = _list(store)
+    parent = _message(store, lid, "<p@x>", T0)
+    _message(store, lid, "<r@x>", T0_PLUS_10M, in_reply_to="<p@x>", chars=3000)
+    store.recompute_timing()
+    store.conn.execute("DELETE FROM messages WHERE id = ?", (parent,))
+
+    rows, _ = store.query_messages(MessageFilters())
+    assert [row["timing"] for row in rows] == ["implausible"]
+    assert rows[0]["timing_cpm"] == pytest.approx(300.0)
+
+    store.recompute_timing()
+    rows, _ = store.query_messages(MessageFilters())
+    assert rows[0]["timing"] is None
+    assert rows[0]["timing_cpm"] is None
 
 
 # --- pipeline hooks -------------------------------------------------------------------

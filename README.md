@@ -163,8 +163,9 @@ filter state lives in the URL query string — so every view is a shareable link
   chart, and top flagged senders/lists; each element drills into the message
   explorer with that filter applied.
 - **Messages** — a paginated, sortable table of messages under the current
-  filter; click a row for detail. A Timing column carries the reply-timing
-  classification (see below), with a matching column filter.
+  filter; click a row for detail. The last column, Chars/min, carries the
+  reply-timing rate (see below), with a filter taking a minimum and/or a
+  maximum rate.
 - **Detail** — one message: metadata, the extracted new text highlighted within
   the full body, the Pangram score/label with a raw-response toggle, and a link
   to the thread.
@@ -187,8 +188,9 @@ interval is an upper bound on the time the author had to read the parent and
 compose the reply, so the rate is a lower bound on the writing speed the reply
 implies.
 
-The classification is stored in the messages table (`timing`) and shown in the
-dashboard's Messages table and message detail:
+The rate is stored in the messages table (`timing_cpm`) alongside the band it
+falls in (`timing`); the two are always written together. The Messages table's
+Chars/min column shows the rate, and the message detail shows the band:
 
 - **implausible** — at or above 250 characters per minute.
 - **suspicious** — at or above 100 characters per minute.
@@ -196,6 +198,14 @@ dashboard's Messages table and message detail:
 - empty — not computable: the message is not a reply, its parent is not in the
   store, a date is missing or malformed, the interval is not positive, or the
   message has no extraction with authored text (status `ok` or `too_short`).
+
+The Chars/min column filters on the stored rate: the `cpm_min` and `cpm_max`
+query parameters are inclusive bounds in characters per minute, and either one
+excludes every message whose rate is not computable.
+
+From 100 characters per minute up, the Chars/min cell is tinted in ten steps of
+one purple, one step per hundred characters per minute (100–199 the lightest
+through 1000 and above the strongest); lower rates and empty cells are untinted.
 
 The signal is one-sided: a high rate shows the text was not composed within the
 interval, while a low rate shows nothing. It is not by itself evidence of AI

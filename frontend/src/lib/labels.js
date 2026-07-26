@@ -56,6 +56,17 @@ export const LABEL_COLORS = {
   unscored: OBSERVABLE_10.grey,
 }
 
+// Messages gated under the 50-word reliability floor (extraction status
+// `too_short`) are never sent to Pangram, so they carry no label. They get the
+// Observable-10 grey: the trailing segment of every aggregate detection bar and
+// the bar of a too-short message in a rug plot.
+export const TOO_SHORT_COLOR = OBSERVABLE_10.grey
+
+// A message that is neither scored nor gated (no extraction yet, an empty or a
+// failed one) gets a lighter neutral in the rugs, so the two cases stay apart:
+// the same neutral the dashboard uses elsewhere for "no value".
+export const UNSCORED_RUG_COLOR = '#c7ccd1'
+
 // Lighter tints of the label colors (the score-band backgrounds). Used by
 // bandFor for the percent-pill backgrounds (dark text sits on them).
 export const LABEL_TINTS = {
@@ -88,6 +99,14 @@ export function bandFor(fractionAi) {
 // The label color for a given label name (falls back to the unscored grey).
 export function labelColor(label) {
   return LABEL_COLORS[label] || LABEL_COLORS.unscored
+}
+
+// The fill for one rug-plot bar: its label color when scored, the too-short grey
+// when the extraction was gated under the reliability floor, and the lighter
+// unscored neutral otherwise.
+export function rugBarColor(label, tooShort = false) {
+  if (tooShort) return TOO_SHORT_COLOR
+  return LABEL_COLORS[label] || UNSCORED_RUG_COLOR
 }
 
 // The prediction bucket for a per-window label. Pangram's window vocabulary is

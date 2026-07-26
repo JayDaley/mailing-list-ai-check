@@ -46,6 +46,47 @@ export function likelihoodTint(fraction) {
   return `hsl(${hue.toFixed(0)}, 70%, 92%)`
 }
 
+// --- reply-rate heat scale ----------------------------------------------------
+// The chars/minute a reply implies (see the reply-timing analysis in store.py)
+// is tinted in ten steps of the Observable-10 purple, one per hundred: 100-199,
+// 200-299, ... 900-999, and 1000+. Each step mixes the full colour with white
+// in sRGB, from a tenth of it at 100-199 up to the colour itself at 1000+.
+// Below 100 chars/minute — the threshold under which the rate is not flagged at
+// all — and for an unknown rate there is no tint.
+const RATE_PURPLE_RGB = [164, 99, 242] // #a463f2
+const RATE_TINT_FLOOR = 100 // chars/minute of the first tinted band
+const RATE_TINT_BANDS = 10 // bands, the last one open-ended
+//: Above this rate the tint is dark enough that the muted grey cell text drops
+//: below white's contrast against it, so those cells take white text instead.
+const RATE_WHITE_TEXT_FLOOR = 700
+
+function mixWithWhite([r, g, b], fraction) {
+  const hex = (c) =>
+    Math.round(255 + (c - 255) * fraction)
+      .toString(16)
+      .padStart(2, '0')
+  return `#${hex(r)}${hex(g)}${hex(b)}`
+}
+
+// The band index (0-based) of a chars/minute rate, or null when untinted.
+function rateBand(cpm) {
+  if (cpm === null || cpm === undefined || Number.isNaN(cpm) || cpm < RATE_TINT_FLOOR) {
+    return null
+  }
+  return Math.min(Math.floor(cpm / 100) - 1, RATE_TINT_BANDS - 1)
+}
+
+// Cell background for a chars/minute rate; null means "leave it untinted".
+export function rateTint(cpm) {
+  const band = rateBand(cpm)
+  return band === null ? null : mixWithWhite(RATE_PURPLE_RGB, (band + 1) / RATE_TINT_BANDS)
+}
+
+// Text colour override for a tinted cell; null means "keep the cell's own".
+export function rateTextColor(cpm) {
+  return rateBand(cpm) !== null && cpm >= RATE_WHITE_TEXT_FLOOR ? '#ffffff' : null
+}
+
 // Fixed colours per Pangram label, used by label distribution bars & badges.
 export const LABEL_COLORS = {
   AI: '#d64545',

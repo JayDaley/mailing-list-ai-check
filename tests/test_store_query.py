@@ -189,6 +189,20 @@ def test_summary_by_list_label_counts(store):
     assert by_list["quic"]["label_counts"] == {"AI": 1}
 
 
+def test_summary_by_list_too_short_count(store):
+    by_list = {row["list"]: row for row in store.summary(MessageFilters())["by_list"]}
+    # m5 is the only too_short extraction, and it is on announce. m6 (empty) and
+    # m10 (failed) are gated by nothing and must not count.
+    assert by_list["announce"]["too_short_count"] == 1
+    assert by_list["last-call"]["too_short_count"] == 0
+    assert by_list["quic"]["too_short_count"] == 0
+
+
+def test_summary_by_list_too_short_count_respects_filters(store):
+    by_list = store.summary(MessageFilters(list_name="last-call"))["by_list"]
+    assert [row["too_short_count"] for row in by_list] == [0]
+
+
 def test_summary_by_list_label_counts_empty_when_unscored(store):
     # has_score=False selects only unscored messages, so every list's scored
     # subset is empty and label_counts collapses to {}.
@@ -259,6 +273,30 @@ def test_list_rows_scored_count_and_label_counts(store):
     assert rows["quic"]["label_counts"] == {"AI": 1}
 
 
+def test_list_rows_too_short_count(store):
+    rows = {row["name"]: row for row in store.list_rows()}
+    # announce holds m5, the only too_short extraction; m6 (empty) and m10
+    # (failed) are other statuses and must not count.
+    assert rows["announce"]["too_short_count"] == 1
+    assert rows["last-call"]["too_short_count"] == 0
+    assert rows["quic"]["too_short_count"] == 0
+
+
+def test_list_rows_earliest_message_at(store):
+    rows = {row["name"]: row for row in store.list_rows()}
+    # Oldest message date per list: m1 (announce), m8 (last-call), m13 (quic).
+    assert rows["announce"]["earliest_message_at"] == "2026-01-05T10:00:00"
+    assert rows["last-call"]["earliest_message_at"] == "2026-01-08T10:00:00"
+    assert rows["quic"]["earliest_message_at"] == "2026-01-25T10:00:00"
+
+
+def test_list_rows_earliest_message_at_none_without_messages(store):
+    store.upsert_list("empty", "Shared Folders/empty")
+    row = next(r for r in store.list_rows() if r["name"] == "empty")
+    assert row["message_count"] == 0
+    assert row["earliest_message_at"] is None
+
+
 # --- sender_rows --------------------------------------------------------------
 
 
@@ -302,6 +340,22 @@ def test_sender_rows_unlinked_addresses(store):
     # Attached addresses never appear as their own entry.
     assert "alice@example.org" not in senders
     assert "bob@example.org" not in senders
+
+
+def test_sender_rows_too_short_count(store):
+    senders = _by_name(store.sender_rows(per_page=200)[0])
+    # Dave sent m5 (too_short) and m10 (failed): only the gated one counts.
+    assert senders["Dave"]["too_short_count"] == 1
+    assert senders["Eve"]["too_short_count"] == 0  # m6 is empty, m12 unextracted
+    assert senders["Alice Smith"]["too_short_count"] == 0
+
+
+def test_sender_rows_too_short_count_scoped_to_list(store):
+    # m5 is on announce, so Dave's gated count follows the list scope.
+    announce = _by_name(store.sender_rows(per_page=200, list_name="announce")[0])
+    assert announce["Dave"]["too_short_count"] == 1
+    last_call = _by_name(store.sender_rows(per_page=200, list_name="last-call")[0])
+    assert last_call["Dave"]["too_short_count"] == 0
 
 
 def test_sender_rows_q_matches_name_and_email(store):

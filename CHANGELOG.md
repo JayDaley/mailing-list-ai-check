@@ -37,6 +37,34 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.2.8] - 2026-07-27
+
+Summary: Serialize schema migrations, surface too-short messages in the aggregate bars and rug plots, and add list coverage dates, sender reply rug plots, and a chars-per-minute column to the dashboard.
+
+- Run the schema-version check and the whole migration batch in one BEGIN IMMEDIATE transaction, so concurrent connections opening an out-of-date database apply each migration exactly once instead of failing with duplicate-column errors.
+- Execute migration statements individually instead of via executescript, whose implicit commit would break the migration transaction.
+- Set a 30-second busy timeout on every connection so lock waiters queue behind a migration catch-up instead of raising "database is locked".
+- Retry the one-time WAL journal-mode conversion on a busy database, which bypasses the busy timeout and could fail concurrent first opens of a brand-new database.
+- Add a regression test opening a version-8 database from six threads at once.
+- Rename the message table's analysis text for too-short messages to "Too short to test".
+- Append a grey too-short segment to the end of every aggregate detection bar, computing all shares over a total that includes the too-short messages.
+- Label the too-short segment "Too short" in the detection bar's hover popover and in the detection summary caption.
+- Colour rug-plot bars for too-short messages with the Observable-10 grey, and merely-unscored bars with a lighter neutral.
+- Add too_short_count to the list rows of GET /api/lists, the sender rows of GET /api/senders, and each by_list row of GET /api/summary.
+- Add an earliest_message_at field to each GET /api/lists row, the oldest stored message date for the list.
+- Add an "Earliest" column to the lists index showing the date and time of the earliest fetched message.
+- Narrow the lists-index name column to two thirds of its width, truncating long names with an ellipsis and a full-name tooltip.
+- Add GET /api/senders/reply-rugs, returning per sender and list the last 50 messages the sender replied to and the last 50 replies from others to the sender's messages, resolving parents with the same In-Reply-To linkage as the reply-timing analysis.
+- Add "Replied to" and "Reply from" rug-plot columns to the sender screen's activity-by-list table, with extraction_status carried on the rug rows.
+- Move the message table's timing column to the last position and rename its header to "Chars/min".
+- Show the implied chars-per-minute rate in the timing column, in the chars column's monospace style, moving the timing classification to the cell tooltip.
+- Tint the chars/min cell background in ten steps of the Observable-10 purple, one step per hundred chars/minute from 100 to 1000 and above.
+- Expose the rate behind each timing classification as timing_cpm on message rows returned by GET /api/messages.
+- Document the chars-per-minute column and its tint ramp in the README.
+- Store the reply-timing rate in a new messages.timing_cpm column (migration 010, backfilled on first open), written together with the band in one recompute pass and served to the message list instead of being recomputed per page.
+- Replace the message list's timing band filter with inclusive cpm_min and cpm_max bounds on the reply-timing rate, applied in SQL so counts and pagination match.
+- Replace the chars/min column's band select with minimum and maximum chars-per-minute filter inputs, synced to the URL and shown as active-filter chips.
+
 ## [1.2.7] - 2026-07-26
 
 Summary: Classify each reply by the writing rate its new text implies over the gap since its parent message.

@@ -453,6 +453,23 @@ def test_lists_endpoint_label_mix(client):
         "Mixed": 1,
     }
     assert rows["quic"]["label_counts"] == {"AI": 1}
+    # m5 (announce) is the only extraction gated under the reliability floor.
+    assert rows["announce"]["too_short_count"] == 1
+    assert rows["quic"]["too_short_count"] == 0
+
+
+def test_summary_by_list_carries_too_short_count(client):
+    by_list = {row["list"]: row for row in client.get("/api/summary").get_json()["by_list"]}
+    assert by_list["announce"]["too_short_count"] == 1
+    assert by_list["last-call"]["too_short_count"] == 0
+
+
+def test_lists_endpoint_earliest_message_at(client):
+    rows = {row["name"]: row for row in client.get("/api/lists").get_json()["lists"]}
+    # The oldest stored message date per list, as an ISO-8601 string.
+    assert rows["announce"]["earliest_message_at"] == "2026-01-05T10:00:00"
+    assert rows["last-call"]["earliest_message_at"] == "2026-01-08T10:00:00"
+    assert rows["quic"]["earliest_message_at"] == "2026-01-25T10:00:00"
 
 
 # --- /api/senders -------------------------------------------------------------
@@ -489,11 +506,16 @@ def test_senders_person_and_unlinked_shape(client):
     assert alice["message_count"] == 5
     assert alice["label_counts"] == {"AI": 1, "Human": 1, "AI-Assisted": 1, "Mixed": 1}
 
+    assert alice["too_short_count"] == 0
+
     carol = senders["Carol"]
     assert carol["type"] == "address"
     assert "address_id" in carol
     assert carol["emails"] == ["carol@example.org"]
     assert carol["label_counts"] == {"Human": 2, "AI": 1}
+
+    # Dave sent m5, the only extraction gated under the reliability floor.
+    assert senders["Dave"]["too_short_count"] == 1
 
     # Linked addresses never surface as their own entry.
     assert "bob@example.org" not in senders
@@ -1748,26 +1770,61 @@ def _recompute_timing(db_path):
         store.recompute_timing()
 
 
-def test_messages_include_timing_and_filter_by_it(client, db_path):
+def test_messages_include_timing_and_filter_by_the_rate(client, db_path):
     _recompute_timing(db_path)
     # m2 is the only seeded reply whose parent is stored: 26 chars of new text
-    # over a 10-day gap classifies as normal.
-    body = client.get("/api/messages?timing=normal").get_json()
+    # over a 10-day gap, a small fraction of a char/minute (band: normal).
+    body = client.get("/api/messages?cpm_max=1").get_json()
     assert body["total"] == 1
     assert body["messages"][0]["message_id"] == "<m2@test>"
     assert body["messages"][0]["timing"] == "normal"
-    assert client.get("/api/messages?timing=implausible").get_json()["total"] == 0
+    # Every other seeded message has no rate, so any bound excludes them all.
+    assert client.get("/api/messages?cpm_min=1").get_json()["total"] == 0
 
 
 def test_messages_timing_is_null_before_classification(client):
     body = client.get("/api/messages?q=Re: Intro").get_json()
     assert body["messages"][0]["timing"] is None
+    assert body["messages"][0]["timing_cpm"] is None
 
 
-def test_messages_rejects_unknown_timing(client):
-    resp = client.get("/api/messages?timing=bogus")
+def test_messages_include_the_rate_behind_the_timing_band(client, db_path):
+    _recompute_timing(db_path)
+    row = client.get("/api/messages?cpm_max=1").get_json()["messages"][0]
+    # m2's 26 characters of new text over a 10-day gap: a fraction of a
+    # char/minute, rounded to one decimal place.
+    assert row["timing_cpm"] is not None
+    assert 0 <= row["timing_cpm"] < 1
+    # A message with no band (not a reply) carries no rate either.
+    unbanded = client.get("/api/messages?list=announce&label=AI").get_json()["messages"][0]
+    assert unbanded["timing"] is None
+    assert unbanded["timing_cpm"] is None
+
+
+@pytest.mark.parametrize("param", ["cpm_min", "cpm_max"])
+def test_messages_rejects_non_numeric_rate_bounds(client, param):
+    resp = client.get(f"/api/messages?{param}=bogus")
     assert resp.status_code == 400
-    assert "timing" in resp.get_json()["error"]
+    assert resp.get_json()["error"] == f"{param} must be a number"
+
+
+@pytest.mark.parametrize("param", ["cpm_min", "cpm_max"])
+def test_messages_rejects_negative_rate_bounds(client, param):
+    resp = client.get(f"/api/messages?{param}=-1")
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == f"{param} must be >= 0"
+
+
+def test_messages_ignores_the_withdrawn_timing_param(client, db_path):
+    """The band filter is gone: an old link's ``timing`` param selects nothing.
+
+    It is an unknown query param now, so it is ignored rather than rejected —
+    the request returns the unfiltered page instead of a 400.
+    """
+    _recompute_timing(db_path)
+    unfiltered = client.get("/api/messages").get_json()["total"]
+    body = client.get("/api/messages?timing=implausible").get_json()
+    assert body["total"] == unfiltered
 
 
 def test_message_detail_includes_timing(client, db_path):

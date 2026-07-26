@@ -23,7 +23,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { get, postJson } from '../api'
 import { fmtDate, fmtInt } from '../lib/format'
-import { labelColor } from '../lib/labels'
+import { rugBarColor } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
@@ -38,7 +38,7 @@ const mode = computed(() => (filters.list ? 'list' : 'index'))
 const contextSub = computed(() => (mode.value === 'list' ? 'per-list aggregates' : 'lists index'))
 
 // --- data -------------------------------------------------------------------
-const lists = ref([]) // [{name, message_count, label_counts, last_synced_at, ...}]
+const lists = ref([]) // [{name, message_count, label_counts, last_synced_at, earliest_message_at, ...}]
 const summary = ref(null) // GET /api/summary for the selected list
 const summaryLoading = ref(false)
 const summaryError = ref(null)
@@ -96,13 +96,19 @@ async function loadRug() {
   }
 }
 
+// A bar per message, coloured by its label — or grey when the extraction was
+// gated under the reliability floor, which the tooltip names where a label would
+// otherwise sit.
 const rugBars = computed(() =>
   rugMsgs.value.map((m) => {
     const label = m.score?.label || null
+    const tooShort = m.extraction?.status === 'too_short'
     return {
       id: m.id,
-      color: labelColor(label),
-      title: `${fmtDate(m.date)} · ${label || 'unscored'} — ${m.subject || '(no subject)'}`,
+      color: rugBarColor(label, tooShort),
+      title:
+        `${fmtDate(m.date)} · ${tooShort ? 'Too short' : label || 'unscored'} — ` +
+        `${m.subject || '(no subject)'}`,
     }
   }),
 )
@@ -306,6 +312,11 @@ const listRows = computed(() =>
       name: l.name,
       count: fmtInt(l.message_count || 0),
       counts: l.label_counts || {},
+      // Gated under the reliability floor: the mix bar's trailing grey segment.
+      tooShort: l.too_short_count || 0,
+      // Oldest stored message date for the list (the message's own date), or an
+      // em-dash when the list has no dated messages.
+      earliest: l.earliest_message_at ? fmtDate(l.earliest_message_at) : '—',
       synced: fmtSynced(l.last_synced_at),
     })),
 )
@@ -572,6 +583,7 @@ const listCard = computed(() => {
     total: fmtInt(s.total),
     scored: fmtInt(s.scored),
     mix: s.label_distribution || {},
+    tooShort: s.too_short || 0,
   }
 })
 
@@ -660,6 +672,7 @@ function closeList() {
             </div>
             <MixSummary
               :counts="listCard.mix"
+              :too-short="listCard.tooShort"
               :clickable="true"
               class="stats-mix"
               @select="(l) => filters.setFilter('label', l)"
@@ -698,6 +711,7 @@ function closeList() {
           <span>List</span>
           <span style="text-align: right;">Msgs</span>
           <span>Aggregate analysis</span>
+          <span style="text-align: right;">Earliest</span>
           <span style="text-align: right;">Synced</span>
           <span></span>
         </div>
@@ -710,9 +724,10 @@ function closeList() {
           class="index-row hover-row"
           @click="filters.setFilter('list', l.name)"
         >
-          <span class="index-name mono">{{ l.name }}</span>
+          <span class="index-name mono" :title="l.name">{{ l.name }}</span>
           <span class="index-count mono">{{ l.count }}</span>
-          <MixBar :counts="l.counts" :height="9" />
+          <MixBar :counts="l.counts" :too-short="l.tooShort" :height="9" />
+          <span class="index-earliest mono">{{ l.earliest }}</span>
           <span class="index-synced mono">{{ l.synced }}</span>
           <button
             type="button"
@@ -1016,9 +1031,16 @@ function closeList() {
 }
 
 /* --- index mode --- */
+/* Columns: name · msgs · mix · earliest · synced · Add. The name and Earliest
+   columns share the space left by the fixed ones in a 2:1 ratio, so the name
+   gets two thirds of the width it had before Earliest existed. `minmax(64px, 2fr)`
+   lets the name shrink below its own min-content width (it ellipsises instead of
+   forcing the row wider) but never collapse to nothing in a narrow pane, while
+   Earliest keeps a floor wide enough for a full 'YYYY-MM-DD HH:mm' stamp in the
+   mono face. */
 .index-caption {
   display: grid;
-  grid-template-columns: 1fr 44px 150px 88px 34px;
+  grid-template-columns: minmax(64px, 2fr) 44px 150px minmax(104px, 1fr) 88px 34px;
   gap: 6px;
   border-bottom: 1px solid var(--border);
   padding: 2px 0;
@@ -1030,7 +1052,7 @@ function closeList() {
 }
 .index-row {
   display: grid;
-  grid-template-columns: 1fr 44px 150px 88px 34px;
+  grid-template-columns: minmax(64px, 2fr) 44px 150px minmax(104px, 1fr) 88px 34px;
   gap: 6px;
   align-items: center;
   border-bottom: 1px solid var(--border-row);
@@ -1042,6 +1064,9 @@ function closeList() {
 .index-name {
   font-weight: 500;
   color: var(--text-name);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .index-row:hover .index-name {
   color: var(--accent);
@@ -1049,6 +1074,12 @@ function closeList() {
 .index-count {
   text-align: right;
   color: var(--text-secondary);
+}
+.index-earliest {
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  white-space: nowrap;
 }
 .index-synced {
   text-align: right;

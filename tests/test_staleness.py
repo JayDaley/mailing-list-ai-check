@@ -104,11 +104,13 @@ def test_migration_backfills_extraction_version_from_message(tmp_path):
             pipeline_version="1.1.0",
         )
         # Rewind to pre-008 with the column gone, leaving only the message
-        # stamp. The timing column (009) is dropped too so it re-applies.
+        # stamp. The timing columns (009/010) are dropped too so they re-apply.
         s.conn.execute("DELETE FROM schema_version WHERE version >= 8")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
         s.conn.execute("DROP INDEX idx_messages_timing")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
+        s.conn.execute("DROP INDEX idx_messages_timing_cpm")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.commit()
     with Store(db) as s:
         assert s.extraction_for_message(message.id).pipeline_version == "1.1.0"

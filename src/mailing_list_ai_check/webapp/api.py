@@ -57,8 +57,8 @@ from ..staleness import (
 from ..store import (
     DEFAULT_PER_PAGE,
     MAX_PER_PAGE,
+    REPLY_RUG_LIMIT,
     SORT_COLUMNS,
-    TIMING_VALUES,
     MessageFilters,
     Store,
 )
@@ -183,9 +183,14 @@ def parse_filters(args: Any) -> MessageFilters:
         if value is not None and not (0.0 <= value <= 1.0):
             raise ApiError(f"{label} must be between 0 and 1")
 
-    timing = args.get("timing") or None
-    if timing is not None and timing not in TIMING_VALUES:
-        raise ApiError(f"timing must be one of {sorted(TIMING_VALUES)}")
+    # Inclusive bounds on the reply-timing rate (``messages.timing_cpm``). A
+    # rate is a count per minute, so negatives are meaningless; either bound
+    # excludes every message with no rate.
+    cpm_min = _parse_float("cpm_min", args.get("cpm_min"))
+    cpm_max = _parse_float("cpm_max", args.get("cpm_max"))
+    for label, value in (("cpm_min", cpm_min), ("cpm_max", cpm_max)):
+        if value is not None and value < 0:
+            raise ApiError(f"{label} must be >= 0")
 
     return MessageFilters(
         list_name=args.get("list") or None,
@@ -198,7 +203,8 @@ def parse_filters(args: Any) -> MessageFilters:
         max_likelihood=max_l,
         q=args.get("q") or None,
         has_score=_parse_bool("has_score", args.get("has_score")),
-        timing=timing,
+        cpm_min=cpm_min,
+        cpm_max=cpm_max,
         page=page,
         per_page=per_page,
         sort=sort,
@@ -333,7 +339,12 @@ def _window_details(raw: dict[str, Any] | None, extracted_text: str | None) -> l
 
 
 def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Shape a :meth:`Store.query_messages` row into the list-item JSON."""
+    """Shape a :meth:`Store.query_messages` row into the list-item JSON.
+
+    ``timing`` is the stored classification band and ``timing_cpm`` the stored
+    chars/minute rate it was derived from, rounded to one decimal place and
+    ``null`` whenever the band is (see :meth:`Store.recompute_timing`).
+    """
     extraction = None
     if row["extraction_status"] is not None:
         extraction = {
@@ -370,6 +381,7 @@ def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
     person = None
     if row["person_id"] is not None:
         person = {"id": row["person_id"], "name": row["person_name"]}
+    timing_cpm = row.get("timing_cpm")
     return {
         "id": row["id"],
         "message_id": row["message_id"],
@@ -377,6 +389,7 @@ def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
         "date": row["date"],
         "subject": row["subject"],
         "timing": row["timing"],
+        "timing_cpm": round(timing_cpm, 1) if timing_cpm is not None else None,
         "from": {"address": row["from_address"], "display_name": row["from_display_name"]},
         "person": person,
         "extraction": extraction,
@@ -1238,6 +1251,13 @@ def pull_range_fetch() -> Any:
 
 @api_bp.get("/lists")
 def list_lists() -> Any:
+    """Every list with its counts, label mix and date stamps (see :meth:`Store.list_rows`).
+
+    ``earliest_message_at`` is the oldest stored message date for the list (the
+    message's own date, ISO-8601 UTC), or ``null`` when the list has no dated
+    messages. ``too_short_count`` is the list's messages gated under the
+    reliability floor, which the mix bar draws as a trailing grey segment.
+    """
     return jsonify({"lists": get_store().list_rows()})
 
 
@@ -1286,6 +1306,10 @@ def list_persons() -> Any:
 @api_bp.get("/senders")
 def list_senders() -> Any:
     """One entry per person (linked address group) or per unlinked address.
+
+    Each entry carries ``message_count``, ``label_counts`` and
+    ``too_short_count`` (messages gated under the reliability floor), the three
+    figures the sender row's mix bar is drawn from.
 
     Query params (all optional): ``q`` (case-insensitive substring over name or
     any email), ``list`` (restrict to senders who posted to that list, with
@@ -1340,6 +1364,46 @@ def list_senders() -> Any:
             "list": list_name,
         }
     )
+
+
+@api_bp.get("/senders/reply-rugs")
+def sender_reply_rugs() -> Any:
+    """Per-list reply rug data for one sender (the sender screen's activity table).
+
+    Query params: exactly one of ``person`` (a person id) or ``address`` (an
+    email) — the two sender scopes the message filters define — plus an optional
+    ``limit`` (default :data:`REPLY_RUG_LIMIT`, clamped to ``MAX_PER_PAGE``).
+    Passing both, neither, or bad input yields a 400.
+
+    Returns ``{"person": …, "address": …, "limit": …, "by_list": [...]}``. Each
+    ``by_list`` entry is ``{"list": <name>, "replied_to": [...], "reply_from":
+    [...]}`` — the messages the sender replied to on that list, and other
+    senders' replies to the sender's messages there. Both arrays hold at most
+    ``limit`` slim message rows (``id``, ``message_id``, ``list``, ``date``,
+    ``subject``, ``extraction_status``, ``label``, ``prediction_short``),
+    **newest first**, as
+    ``GET /messages`` orders its rows. An unknown person/address yields an empty
+    ``by_list`` rather than a 404: the payload decorates rows the client already
+    has. See :meth:`Store.sender_reply_rugs` for the exact reply linkage.
+    """
+    args = request.args
+    person_raw = args.get("person") or None
+    address = args.get("address") or None
+    if (person_raw is None) == (address is None):
+        raise ApiError("pass exactly one of 'person' or 'address'")
+
+    person_id = _parse_int("person", person_raw)
+
+    limit = _parse_int("limit", args.get("limit"))
+    if limit is None:
+        limit = REPLY_RUG_LIMIT
+    elif limit < 1:
+        raise ApiError("limit must be >= 1")
+    else:
+        limit = min(limit, MAX_PER_PAGE)
+
+    by_list = get_store().sender_reply_rugs(person_id=person_id, address=address, limit=limit)
+    return jsonify({"person": person_id, "address": address, "limit": limit, "by_list": by_list})
 
 
 @api_bp.get("/persons/suggestions")
