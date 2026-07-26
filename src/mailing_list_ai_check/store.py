@@ -38,6 +38,22 @@ from . import __version__
 #: Allowed values for ``extractions.status``.
 EXTRACTION_STATUSES = ("ok", "empty", "too_short", "failed")
 
+# --- Reply-timing analysis ------------------------------------------------------
+
+#: Allowed values for ``messages.timing`` (NULL means "not computable").
+TIMING_VALUES = ("implausible", "suspicious", "normal")
+#: Implied composition rate (extracted chars per minute of reply gap) at or
+#: above which a reply is classified "implausible": faster than even a fast
+#: writer composes original prose, so the text cannot have been written within
+#: the window between the parent message and the reply.
+TIMING_IMPLAUSIBLE_CPM = 250.0
+#: Rate at or above which a reply is classified "suspicious": possible for a
+#: fast writer but in the top few percent of observed rates.
+TIMING_SUSPICIOUS_CPM = 100.0
+#: Extraction statuses whose text counts as authored new text for the timing
+#: analysis. "empty" has no new text to time; "failed" text is unreliable.
+_TIMING_STATUSES = ("ok", "too_short")
+
 # --- Dashboard query constants ------------------------------------------------
 
 #: Pangram ``prediction_short`` labels that count as "flagged" for the dashboard
@@ -202,6 +218,21 @@ UPDATE extractions SET pipeline_version = (
 );
 """
 
+# Reply-timing classification: how plausibly the reply's new text could have
+# been composed within the gap since its parent message. Values are
+# 'implausible' (>= TIMING_IMPLAUSIBLE_CPM chars/min), 'suspicious'
+# (>= TIMING_SUSPICIOUS_CPM) or 'normal', and NULL when the rate cannot be
+# computed (not a reply, parent not stored, missing dates, non-positive gap,
+# or no extraction with authored text). Backfilled in Python by
+# :meth:`Store.__init__` right after this migration applies — the parent
+# lookup normalizes In-Reply-To the way :func:`_parent_message_id` does,
+# which plain SQL cannot.
+_MIGRATION_009 = """
+ALTER TABLE messages ADD COLUMN timing TEXT;
+
+CREATE INDEX idx_messages_timing ON messages(timing);
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
@@ -211,24 +242,33 @@ MIGRATIONS: list[tuple[int, str]] = [
     (6, _MIGRATION_006),
     (7, _MIGRATION_007),
     (8, _MIGRATION_008),
+    (9, _MIGRATION_009),
 ]
 
+#: The migration whose backfill runs in Python (see :meth:`Store.__init__`).
+_TIMING_MIGRATION = 9
 
-def apply_migrations(conn: sqlite3.Connection) -> None:
+
+def apply_migrations(conn: sqlite3.Connection) -> list[int]:
     """Bring ``conn``'s database up to the latest schema version.
 
     Idempotent: creates the ``schema_version`` bookkeeping table if missing and
     applies only migrations newer than the recorded version, so calling this on
-    an already-current database is a no-op.
+    an already-current database is a no-op. Returns the versions applied by
+    this call (empty when the database was already current), so the caller can
+    run any Python-side backfill a migration needs.
     """
     conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
     row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
     current = row["v"] if row and row["v"] is not None else 0
+    applied: list[int] = []
     for version, script in MIGRATIONS:
         if version > current:
             conn.executescript(script)
             conn.execute("INSERT INTO schema_version(version) VALUES (?)", (version,))
             conn.commit()
+            applied.append(version)
+    return applied
 
 
 # --- Row dataclasses ----------------------------------------------------------
@@ -315,6 +355,10 @@ class Message:
 
     ``pipeline_version`` is the app version that last ran a pipeline stage
     against the message (NULL for legacy rows predating the column).
+
+    ``timing`` is the reply-timing classification (one of
+    :data:`TIMING_VALUES`, or NULL when it cannot be computed — see
+    :meth:`Store.recompute_timing`).
     """
 
     id: int
@@ -329,6 +373,7 @@ class Message:
     fetched_at: str
     raw_html: str | None = None
     pipeline_version: str | None = None
+    timing: str | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Message":
@@ -345,6 +390,7 @@ class Message:
             fetched_at=row["fetched_at"],
             raw_html=row["raw_html"],
             pipeline_version=row["pipeline_version"],
+            timing=row["timing"],
         )
 
 
@@ -449,6 +495,7 @@ class MessageFilters:
     max_likelihood: float | None = None
     q: str | None = None
     has_score: bool | None = None
+    timing: str | None = None
     page: int = 1
     per_page: int = DEFAULT_PER_PAGE
     sort: str = "date"
@@ -504,6 +551,50 @@ def _word_count(text: str) -> int:
     return len(text.split())
 
 
+def _parent_message_id(in_reply_to: str) -> str:
+    """The parent Message-ID named by a raw ``In-Reply-To`` header value.
+
+    The header may carry surrounding whitespace or (rarely) several ids / CFWS
+    comments; the first angle-bracket ``<...>`` token is the parent Message-ID,
+    falling back to the stripped raw value when there is no such token.
+    """
+    match = re.search(r"<[^>]+>", in_reply_to)
+    return match.group(0) if match else in_reply_to.strip()
+
+
+def _parse_message_date(value: str | None) -> datetime | None:
+    """Parse a stored ``messages.date`` into an aware datetime, or ``None``.
+
+    Stored dates are UTC ISO-8601, but the column ultimately comes from the
+    sender-set ``Date:`` header, so tolerate the malformed: an unparsable value
+    yields ``None`` and a naive one is taken as UTC.
+    """
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
+def classify_timing(char_count: int, gap_seconds: float) -> str:
+    """Classify the implied composition rate of a reply's new text.
+
+    ``gap_seconds`` (> 0) is the interval from the parent message to the reply
+    — an upper bound on the time the author had to read the parent and compose
+    ``char_count`` characters of new text. The rate in chars/minute maps to
+    :data:`TIMING_IMPLAUSIBLE_CPM` and :data:`TIMING_SUSPICIOUS_CPM`. The bound
+    is one-sided: a low rate proves nothing, only high rates are informative.
+    """
+    chars_per_minute = char_count / (gap_seconds / 60.0)
+    if chars_per_minute >= TIMING_IMPLAUSIBLE_CPM:
+        return "implausible"
+    if chars_per_minute >= TIMING_SUSPICIOUS_CPM:
+        return "suspicious"
+    return "normal"
+
+
 # --- Dashboard query building -------------------------------------------------
 
 #: The shared FROM/JOIN skeleton for every dashboard query. A message has at
@@ -527,6 +618,7 @@ _MESSAGE_COLUMNS = """
     m.date AS date,
     m.subject AS subject,
     m.in_reply_to AS in_reply_to,
+    m.timing AS timing,
     a.email AS from_address,
     a.display_name AS from_display_name,
     a.person_id AS person_id,
@@ -591,6 +683,9 @@ def _build_message_where(f: MessageFilters) -> tuple[str, list[Any]]:
         clauses.append("s.id IS NOT NULL")
     elif f.has_score is False:
         clauses.append("s.id IS NULL")
+    if f.timing:
+        clauses.append("m.timing = ?")
+        params.append(f.timing)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     return where, params
 
@@ -616,7 +711,11 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.execute("PRAGMA foreign_keys = ON")
-        apply_migrations(self.conn)
+        applied = apply_migrations(self.conn)
+        # The timing column's backfill needs Python (In-Reply-To normalization
+        # and date parsing), so it runs here, once, when its migration applies.
+        if _TIMING_MIGRATION in applied:
+            self.recompute_timing()
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -911,8 +1010,7 @@ class Store:
         then delete the entire message. When the resolved parent id equals it,
         ``None`` is returned so the message is extracted as if it had no parent.
         """
-        match = re.search(r"<[^>]+>", in_reply_to)
-        parent_id = match.group(0) if match else in_reply_to.strip()
+        parent_id = _parent_message_id(in_reply_to)
         if exclude_message_id is not None and parent_id == exclude_message_id:
             return None
         row = self.conn.execute(
@@ -970,6 +1068,73 @@ class Store:
         ).fetchall()
         for row in rows:
             yield Message.from_row(row)
+
+    # -- reply timing ----------------------------------------------------------
+
+    def recompute_timing(self) -> int:
+        """Recompute ``messages.timing`` for every message; return rows changed.
+
+        A reply's timing classifies the implied composition rate of its new
+        text — the extraction's ``char_count`` over the gap between the parent
+        message's ``date`` and the reply's own (see :func:`classify_timing`).
+        ``timing`` is NULL wherever that rate cannot be computed: the message
+        is not a reply, its parent is not stored, its ``In-Reply-To`` resolves
+        to itself, either date is missing or unparsable, the gap is not
+        positive (sender clocks are untrusted), or it has no extraction with
+        authored text (status in :data:`_TIMING_STATUSES`).
+
+        When the same parent Message-ID is stored on several lists, the copy
+        on the reply's own list is preferred, then the lowest ``id`` (the
+        copies carry the same ``Date:`` header, so this only breaks ties
+        deterministically).
+
+        The whole table is recomputed in one pass — a few hundred milliseconds
+        at 100k messages — so the callers are the pipeline stages that change
+        its inputs (fetch, extract, re-extract, import) plus the migration
+        backfill, not per-row writes.
+        """
+        rows = self.conn.execute(
+            "SELECT m.id, m.message_id, m.list_id, m.date, m.in_reply_to, m.timing, "
+            "e.char_count AS char_count, e.status AS status "
+            "FROM messages m LEFT JOIN extractions e ON e.message_id = m.id "
+            "ORDER BY m.id"
+        ).fetchall()
+
+        # Message-ID -> [(pk, list_id, date)], in id order (rows are id-sorted).
+        parents: dict[str, list[tuple[int, int, str | None]]] = {}
+        for row in rows:
+            parents.setdefault(row["message_id"], []).append(
+                (row["id"], row["list_id"], row["date"])
+            )
+
+        def timing_for(row: sqlite3.Row) -> str | None:
+            if not row["in_reply_to"] or row["status"] not in _TIMING_STATUSES:
+                return None
+            parent_mid = _parent_message_id(row["in_reply_to"])
+            if parent_mid == row["message_id"]:  # self-reply, as in get_parent_body
+                return None
+            candidates = parents.get(parent_mid, [])
+            chosen = next((c for c in candidates if c[1] == row["list_id"]), None)
+            if chosen is None:
+                chosen = candidates[0] if candidates else None
+            if chosen is None:
+                return None
+            reply_dt = _parse_message_date(row["date"])
+            parent_dt = _parse_message_date(chosen[2])
+            if reply_dt is None or parent_dt is None:
+                return None
+            gap_seconds = (reply_dt - parent_dt).total_seconds()
+            if gap_seconds <= 0:
+                return None
+            return classify_timing(row["char_count"], gap_seconds)
+
+        updates = [
+            (value, row["id"]) for row in rows if (value := timing_for(row)) != row["timing"]
+        ]
+        if updates:
+            self.conn.executemany("UPDATE messages SET timing = ? WHERE id = ?", updates)
+            self.conn.commit()
+        return len(updates)
 
     # -- extractions ----------------------------------------------------------
 
@@ -1656,6 +1821,14 @@ class Store:
             row["label"]: row["count"] for row in label_rows if row["label"] is not None
         }
 
+        timing_rows = self.conn.execute(
+            "SELECT m.timing AS timing, COUNT(*) AS count" + base + " GROUP BY m.timing",
+            params,
+        ).fetchall()
+        timing_distribution = {
+            row["timing"]: row["count"] for row in timing_rows if row["timing"] is not None
+        }
+
         list_label_rows = self.conn.execute(
             "SELECT l.name AS list, s.label AS label, COUNT(*) AS count"
             + base
@@ -1714,6 +1887,7 @@ class Store:
             "too_short": totals["too_short"],
             "avg_fraction_ai": totals["avg_fraction_ai"],
             "label_distribution": label_distribution,
+            "timing_distribution": timing_distribution,
             "by_list": by_list,
             "by_address": by_address,
             "by_month": by_month,

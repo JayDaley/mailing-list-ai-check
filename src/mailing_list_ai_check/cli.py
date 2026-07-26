@@ -390,6 +390,9 @@ def run_extract(store: Store, limit: int | None = None) -> tuple[Counter[str], C
             result.method,
             len(result.text),
         )
+    # New extractions give replies a char_count to time against their parent.
+    if processed:
+        store.recompute_timing()
     return status_counts, method_counts
 
 

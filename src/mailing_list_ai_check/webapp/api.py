@@ -58,6 +58,7 @@ from ..store import (
     DEFAULT_PER_PAGE,
     MAX_PER_PAGE,
     SORT_COLUMNS,
+    TIMING_VALUES,
     MessageFilters,
     Store,
 )
@@ -182,6 +183,10 @@ def parse_filters(args: Any) -> MessageFilters:
         if value is not None and not (0.0 <= value <= 1.0):
             raise ApiError(f"{label} must be between 0 and 1")
 
+    timing = args.get("timing") or None
+    if timing is not None and timing not in TIMING_VALUES:
+        raise ApiError(f"timing must be one of {sorted(TIMING_VALUES)}")
+
     return MessageFilters(
         list_name=args.get("list") or None,
         address=args.get("address") or None,
@@ -193,6 +198,7 @@ def parse_filters(args: Any) -> MessageFilters:
         max_likelihood=max_l,
         q=args.get("q") or None,
         has_score=_parse_bool("has_score", args.get("has_score")),
+        timing=timing,
         page=page,
         per_page=per_page,
         sort=sort,
@@ -370,6 +376,7 @@ def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
         "list": row["list"],
         "date": row["date"],
         "subject": row["subject"],
+        "timing": row["timing"],
         "from": {"address": row["from_address"], "display_name": row["from_display_name"]},
         "person": person,
         "extraction": extraction,
@@ -539,6 +546,7 @@ def message_detail(message_id: int) -> Any:
             "list": mailing_list.name if mailing_list else None,
             "date": msg.date,
             "subject": msg.subject,
+            "timing": msg.timing,
             "in_reply_to": msg.in_reply_to,
             "thread_parent_id": thread_parent_id,
             "raw_body": msg.raw_body,

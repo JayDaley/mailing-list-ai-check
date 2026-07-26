@@ -320,4 +320,8 @@ def reextract(store: Store, message_ids: Sequence[int]) -> ReextractSummary:
         if rederived.status == "ok" and store.score_for_extraction(extraction.id) is None:
             summary.rescore_message_ids.append(message_pk)
 
+    # Rewritten extractions change char_count/status, the reply-timing inputs.
+    if summary.rewritten:
+        store.recompute_timing()
+
     return summary

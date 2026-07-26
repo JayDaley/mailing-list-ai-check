@@ -1737,3 +1737,48 @@ def test_docs_index_covers_the_real_repository(db_path):
     assert paths[:2] == ["README.md", "CHANGELOG.md"]
     assert "docs/export-import.md" in paths
     assert not any(p.startswith("docs/findings/") for p in paths)
+
+
+# --- reply timing ---------------------------------------------------------------
+
+
+def _recompute_timing(db_path):
+    """Classify the seeded replies (the pipeline stages normally do this)."""
+    with Store(db_path) as store:
+        store.recompute_timing()
+
+
+def test_messages_include_timing_and_filter_by_it(client, db_path):
+    _recompute_timing(db_path)
+    # m2 is the only seeded reply whose parent is stored: 26 chars of new text
+    # over a 10-day gap classifies as normal.
+    body = client.get("/api/messages?timing=normal").get_json()
+    assert body["total"] == 1
+    assert body["messages"][0]["message_id"] == "<m2@test>"
+    assert body["messages"][0]["timing"] == "normal"
+    assert client.get("/api/messages?timing=implausible").get_json()["total"] == 0
+
+
+def test_messages_timing_is_null_before_classification(client):
+    body = client.get("/api/messages?q=Re: Intro").get_json()
+    assert body["messages"][0]["timing"] is None
+
+
+def test_messages_rejects_unknown_timing(client):
+    resp = client.get("/api/messages?timing=bogus")
+    assert resp.status_code == 400
+    assert "timing" in resp.get_json()["error"]
+
+
+def test_message_detail_includes_timing(client, db_path):
+    _recompute_timing(db_path)
+    with Store(db_path) as store:
+        message = store.find_message_by_message_id("<m2@test>")
+    body = client.get(f"/api/messages/{message.id}").get_json()
+    assert body["timing"] == "normal"
+
+
+def test_summary_timing_distribution(client, db_path):
+    _recompute_timing(db_path)
+    body = client.get("/api/summary").get_json()
+    assert body["timing_distribution"] == {"normal": 1}

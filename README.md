@@ -163,7 +163,8 @@ filter state lives in the URL query string — so every view is a shareable link
   chart, and top flagged senders/lists; each element drills into the message
   explorer with that filter applied.
 - **Messages** — a paginated, sortable table of messages under the current
-  filter; click a row for detail.
+  filter; click a row for detail. A Timing column carries the reply-timing
+  classification (see below), with a matching column filter.
 - **Detail** — one message: metadata, the extracted new text highlighted within
   the full body, the Pangram score/label with a raw-response toggle, and a link
   to the thread.
@@ -176,6 +177,33 @@ The ⓘ button beside the app name in the header opens a documentation panel: a
 file list on the left, the rendered Markdown on the right. It shows `README.md`,
 `CHANGELOG.md` and the Markdown files at the top level of `docs/`, read from the
 checkout at request time. Files in sub-directories of `docs/` are not included.
+
+### Reply-timing analysis
+
+Every reply whose parent message is also in the store is classified by its
+implied composition rate: the character count of its extracted new text divided
+by the interval between the parent message's date and the reply's. That
+interval is an upper bound on the time the author had to read the parent and
+compose the reply, so the rate is a lower bound on the writing speed the reply
+implies.
+
+The classification is stored in the messages table (`timing`) and shown in the
+dashboard's Messages table and message detail:
+
+- **implausible** — at or above 250 characters per minute.
+- **suspicious** — at or above 100 characters per minute.
+- **normal** — below 100 characters per minute.
+- empty — not computable: the message is not a reply, its parent is not in the
+  store, a date is missing or malformed, the interval is not positive, or the
+  message has no extraction with authored text (status `ok` or `too_short`).
+
+The signal is one-sided: a high rate shows the text was not composed within the
+interval, while a low rate shows nothing. It is not by itself evidence of AI
+generation — pasting a previously drafted passage, or replying to a message
+first seen through another channel, produces the same rate. Both dates come
+from the sender-set `Date:` header, so the interval depends on the senders'
+clocks. The classification is recomputed after every pull, extract, re-extract
+and import.
 
 ### Re-processing text derived by an older version
 

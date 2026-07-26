@@ -940,5 +940,7 @@ def import_file(
         conn.rollback()
     else:
         conn.commit()
+        # Imported messages/extractions may complete (or be) reply pairs.
+        store.recompute_timing()
 
     return importer.summary(dry_run=dry_run)

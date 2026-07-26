@@ -118,6 +118,15 @@ const dateFull = computed(() => {
   return Number.isNaN(dt.getTime()) ? String(iso) : dt.toUTCString()
 })
 
+// Reply-timing tooltips: the thresholds live in store.py (TIMING_*_CPM).
+const TIMING_TITLES = {
+  implausible:
+    'New text implies ≥ 250 chars/minute since the parent message — too fast to have been composed in the window',
+  suspicious: 'New text implies ≥ 100 chars/minute since the parent message',
+  normal: 'New text implies < 100 chars/minute since the parent message',
+}
+const timingTitle = computed(() => TIMING_TITLES[detail.value?.timing] || '')
+
 // --- analysis card ---
 const scored = computed(() => {
   const sc = detail.value?.score
@@ -391,6 +400,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <span class="meta-key">Date</span>
             <span>{{ dateFull }}</span>
 
+            <template v-if="detail.timing">
+              <span class="meta-key">Timing</span>
+              <span
+                ><span class="timing-pill" :class="'timing-' + detail.timing" :title="timingTitle">{{
+                  detail.timing
+                }}</span></span
+              >
+            </template>
+
             <span class="meta-key">Message-ID</span>
             <span
               style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10.5px; word-break: break-all;"
@@ -608,6 +626,31 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   font-size: 10.5px;
   color: #8a929b;
   font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+/* Reply-timing classification, matching the message table's pills. */
+.timing-pill {
+  padding: 0 7px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  text-transform: capitalize;
+}
+.timing-implausible {
+  background: #c93a3a;
+  color: #ffffff;
+}
+.timing-suspicious {
+  background: #f2c744;
+  color: #4a3600;
+}
+.timing-normal {
+  padding: 0;
+  font-weight: 400;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  color: #8a929b;
+  text-transform: none;
 }
 /* Section heading and its one-line note above the per-window table. */
 .win-head {

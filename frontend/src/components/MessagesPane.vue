@@ -140,6 +140,7 @@ const filterKey = computed(() =>
     filters.max_likelihood,
     filters.q,
     filters.has_score,
+    filters.timing,
     filters.sort,
     filters.order,
   ]),
@@ -169,12 +170,13 @@ const b = (v) => (v !== '' && v != null ? ACTIVE : IDLE)
 
 // --- grid columns (From collapses to 0 in anonymous mode) ---
 // Date · List · From · Subject · Analysis (prediction pill + headline) ·
-// AI Score (per-window scores) · Chars. The filter row stacks its controls two
-// deep, so Date needs room for only one date input and List gains the rest.
+// AI Score (per-window scores) · Timing · Chars. The filter row stacks its
+// controls two deep, so Date needs room for only one date input and List gains
+// the rest.
 const gridCols = computed(() =>
   ui.anonymous
-    ? '120px 156px 0px minmax(200px, 1fr) 230px 220px 64px'
-    : '120px 156px 170px minmax(200px, 1fr) 230px 220px 64px',
+    ? '120px 156px 0px minmax(200px, 1fr) 230px 220px 92px 64px'
+    : '120px 156px 170px minmax(200px, 1fr) 230px 220px 92px 64px',
 )
 const cellPad = computed(() => (ui.density === 'comfortable' ? '6px 10px' : '2px 10px'))
 const fromCellPad = computed(() => (ui.anonymous ? '0' : cellPad.value))
@@ -264,6 +266,7 @@ const chips = computed(() => {
     ['date_from', 'from'],
     ['date_to', 'to'],
     ['has_score', 'scored'],
+    ['timing', 'timing'],
   ]
   const out = []
   for (const [key, name] of defs) {
@@ -291,6 +294,7 @@ function clearAll() {
     max_likelihood: '',
     q: '',
     has_score: '',
+    timing: '',
   })
 }
 
@@ -404,6 +408,13 @@ async function onImportFile(e) {
 }
 
 // --- rows ---
+// Reply-timing tooltips: the thresholds live in store.py (TIMING_*_CPM).
+const TIMING_TITLES = {
+  implausible:
+    'New text implies ≥ 250 chars/minute since the parent message — too fast to have been composed in the window',
+  suspicious: 'New text implies ≥ 100 chars/minute since the parent message',
+  normal: 'New text implies < 100 chars/minute since the parent message',
+}
 const rows = computed(() =>
   messages.items.map((m) => {
     const person = m.person
@@ -441,6 +452,8 @@ const rows = computed(() =>
       // Pangram's per-window scores, in document order. Pangram emits no
       // document-level score, so the column lists one entry per window.
       windows: scored ? sc.windows || [] : [],
+      timing: m.timing || '',
+      timingTitle: TIMING_TITLES[m.timing] || '',
       chars: ext && ext.char_count ? fmtInt(ext.char_count) : '—',
       person,
       address: m.from?.address || '',
@@ -535,7 +548,7 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
 
     <!-- scroll region -->
     <div class="messages-scroll" @scroll="onScroll">
-      <div style="min-width: 1220px;">
+      <div style="min-width: 1320px;">
         <div class="messages-sticky">
           <!-- header row -->
           <div class="messages-grid messages-head" :style="{ gridTemplateColumns: gridCols }">
@@ -549,6 +562,7 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
             <div class="col-head sortable" @click="sortBy('fraction_ai')">
               AI Score (Confidence){{ scoreInd }}
             </div>
+            <div class="col-head">Timing</div>
             <div class="col-head" style="text-align: right;">Chars</div>
           </div>
           <!-- column filter row -->
@@ -666,6 +680,21 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
                 <option value="false">unscored</option>
               </select>
             </div>
+            <div class="fcell">
+              <select
+                :value="filters.timing"
+                title="Reply timing"
+                class="fctl"
+                style="width: 100%;"
+                :style="{ border: `1px solid ${b(filters.timing)}` }"
+                @change="(e) => filters.setFilter('timing', e.target.value)"
+              >
+                <option value="">any</option>
+                <option value="implausible">implausible</option>
+                <option value="suspicious">suspicious</option>
+                <option value="normal">normal</option>
+              </select>
+            </div>
             <div class="fcell"></div>
           </div>
         </div>
@@ -715,6 +744,16 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
             </div>
             <div class="cell" :style="{ padding: cellPad, minWidth: 0 }">
               <WindowScores :windows="m.windows" />
+            </div>
+            <div class="cell" :style="{ padding: cellPad }">
+              <span
+                v-if="m.timing"
+                class="timing-pill"
+                :class="'timing-' + m.timing"
+                :title="m.timingTitle"
+                >{{ m.timing }}</span
+              >
+              <span v-else class="cell-dash">—</span>
             </div>
             <div
               class="cell cell-mono cell-muted"
@@ -983,6 +1022,32 @@ select.fctl {
 }
 .cell-dash {
   color: #b3b9c0;
+}
+/* Reply-timing classification. "normal" stays plain muted text; the two
+   flagged bands get coloured pills so they stand out in a scan. */
+.timing-pill {
+  padding: 0 7px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  text-transform: capitalize;
+}
+.timing-implausible {
+  background: #c93a3a;
+  color: #ffffff;
+}
+.timing-suspicious {
+  background: #f2c744;
+  color: #4a3600;
+}
+.timing-normal {
+  padding: 0;
+  font-weight: 400;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: #8a929b;
+  text-transform: none;
 }
 .messages-empty {
   padding: 28px;

@@ -4,7 +4,7 @@
 // filter bar writes into it; the views read `asParams()` and pass it straight
 // to the API (the param names match webapp/api.py: list, address, person,
 // date_from, date_to, label, min_likelihood, max_likelihood, q, has_score,
-// sort, order, page, per_page).
+// timing, sort, order, page, per_page).
 //
 // URL sync (for agent 2): call `bindToRouter(router)` once from main.js after
 // the router is created. From then on:
@@ -28,6 +28,7 @@ const DEFAULTS = {
   max_likelihood: '',
   q: '',
   has_score: '',
+  timing: '',
   sort: 'date',
   order: 'desc',
   page: 1,
@@ -59,6 +60,7 @@ const PAGE_RESETTING = new Set([
   'max_likelihood',
   'q',
   'has_score',
+  'timing',
   'sort',
   'order',
   'per_page',
@@ -92,7 +94,7 @@ export const useFiltersStore = defineStore('filters', {
     hasActiveFilters(state) {
       const keys = [
         'list', 'address', 'person', 'date_from', 'date_to',
-        'label', 'min_likelihood', 'max_likelihood', 'q', 'has_score',
+        'label', 'min_likelihood', 'max_likelihood', 'q', 'has_score', 'timing',
       ]
       return keys.some((k) => state[k] !== '' && state[k] !== null && state[k] !== undefined)
     },

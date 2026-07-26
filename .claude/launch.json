@@ -6,6 +6,12 @@
       "runtimeExecutable": ".venv/bin/mail-ai-web",
       "runtimeArgs": ["--host", "127.0.0.1", "--port", "8050", "--db", "data/mail.db"],
       "port": 8050
+    },
+    {
+      "name": "dashboard-alt",
+      "runtimeExecutable": ".venv/bin/mail-ai-web",
+      "runtimeArgs": ["--host", "127.0.0.1", "--port", "8051", "--db", "data/mail.db"],
+      "port": 8051
     }
   ]
 }

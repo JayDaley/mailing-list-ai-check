@@ -460,6 +460,11 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
         if remaining is not None:
             remaining -= list_count
 
+    # A pulled message may be a reply whose parent just arrived (or vice
+    # versa), so the reply-timing classification is refreshed once per run.
+    if not request.dry_run:
+        store.recompute_timing()
+
     return summary
 
 
@@ -542,6 +547,7 @@ def run_fetch_uids(
     summary.matched = len(uids)
     fetched = _fetch_folder(client, store, mlist.id, folder, uids, batch_size, summary)
     summary.per_list[name] = fetched
+    store.recompute_timing()
     return summary
 
 

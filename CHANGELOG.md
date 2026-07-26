@@ -37,6 +37,16 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.2.7] - 2026-07-26
+
+Summary: Classify each reply by the writing rate its new text implies over the gap since its parent message.
+
+- Add a timing column to messages classifying the implied composition rate of a reply's extracted text over the gap since its parent: implausible at >= 250 chars/minute, suspicious at >= 100, normal below, NULL when not computable (migration 009, backfilled on first open).
+- Recompute the timing classification after every fetch, extract, re-extract and import run.
+- Expose timing in the message list and detail API responses, add a timing filter to the shared filter params, and add a timing_distribution to the summary endpoint.
+- Add a Timing column with a matching filter to the dashboard message table, and a Timing row to the message detail drawer.
+- Document the reply-timing analysis in the README.
+
 ## [1.2.6] - 2026-07-25
 
 Summary: Widen the per-list rug plot to the last 100 messages.
