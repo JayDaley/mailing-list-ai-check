@@ -1292,6 +1292,49 @@ def regenerate_lists() -> Any:
     return jsonify(counts)
 
 
+@api_bp.get("/lists/thread-graph")
+def list_thread_graph() -> Any:
+    """Reply-thread graph data for one list (the list panel's thread graph).
+
+    Query params: ``list`` (required; an unknown list is a 404) and the optional
+    window bounds ``start`` and ``end`` — 0-based inclusive ranks into the
+    list's IMAP receipt order, rank 0 being the furthest back. ``end`` defaults
+    to the list's most recent rank and ``start`` to a
+    :data:`THREAD_GRAPH_LIMIT`-wide window ending there. A non-integer bound, a
+    negative one, or ``start`` greater than ``end`` is a 400. ``end`` beyond the
+    list's last rank is clamped to it, and a span wider than
+    :data:`THREAD_GRAPH_MAX_LIMIT` is narrowed by raising ``start``, so the more
+    recent end of the range is kept.
+
+    Returns ``{"list": …, "list_total": …, "start": …, "end": …, "total": …,
+    "first_date": …, "last_date": …, "threads": [...]}``, where ``start`` and
+    ``end`` echo the effective (clamped) bounds and the dates are those of the
+    window's oldest and newest messages. Each thread is ``{"messages": [...]}``
+    — one connected reply component, messages oldest first — and each message
+    carries ``id``, ``message_id``, ``seq``, ``uid``, ``date``, ``subject``,
+    ``from_name``, ``from_email``, ``extraction_status``, ``label``,
+    ``prediction_short``, ``timing_cpm`` and ``parent_id``. See
+    :meth:`Store.thread_graph` for the exact ordering and reply linkage.
+    """
+    list_name = request.args.get("list") or None
+    if not list_name:
+        raise ApiError("pass a 'list'")
+    store = get_store()
+    list_row = _resolve_list_or_404(store, list_name)
+
+    start = _parse_int("start", request.args.get("start"))
+    end = _parse_int("end", request.args.get("end"))
+    if start is not None and start < 0:
+        raise ApiError("start must be >= 0")
+    if end is not None and end < 0:
+        raise ApiError("end must be >= 0")
+    if start is not None and end is not None and start > end:
+        raise ApiError("start must not be greater than end")
+
+    graph = store.thread_graph(list_row.id, start=start, end=end)
+    return jsonify({"list": list_name, **graph})
+
+
 @api_bp.get("/addresses")
 def list_addresses() -> Any:
     q = request.args.get("q") or None

@@ -28,6 +28,7 @@ import { useFiltersStore } from '../stores/filters'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
 import RunProcessModal from './RunProcessModal.vue'
+import ThreadGraph from './ThreadGraph.vue'
 
 const filters = useFiltersStore()
 const route = useRoute()
@@ -117,10 +118,116 @@ function openRugMessage(id) {
   router.push({ path: `/messages/${id}`, query: route.query })
 }
 
-// Refetch whenever the selected list changes.
+// --- thread graph (the list's messages grouped into reply threads) -----------
+// The graph is fetched lazily: only when its lightbox opens, and again when the
+// window slider is released. The panel itself shows just the button that opens
+// it, so neither mounting the pane, switching list nor a pipeline run pays for
+// the query.
+//
+// GET /api/lists/thread-graph?list=&start=&end= takes 0-based inclusive message
+// ranks in receipt order over the whole list (0 = furthest back) and returns
+// {list, list_total, start, end, total, first_date, last_date, threads}. The
+// echoed start/end are the effective window: the server clamps a span wider
+// than its maximum by moving the left handle, so the slider always syncs to the
+// response rather than to what it asked for. Omitting start/end asks for the
+// server's default (newest) window.
+const threadGraph = ref(null) // GET /api/lists/thread-graph payload
+const graphOpen = ref(false) // the 80%-wide lightbox
+const graphLoading = ref(false)
+const graphError = ref('')
+const winStart = ref(null) // slider handles: 0-based receipt ranks, inclusive
+const winEnd = ref(null)
+
+let graphToken = 0
+async function loadThreadGraph(start = null, end = null) {
+  if (!filters.list) return
+  const token = ++graphToken
+  graphLoading.value = true
+  graphError.value = ''
+  try {
+    const data = await get('/lists/thread-graph', { list: filters.list, start, end })
+    if (token !== graphToken) return
+    threadGraph.value = data
+    winStart.value = data?.start ?? null
+    winEnd.value = data?.end ?? null
+  } catch (err) {
+    if (token === graphToken) {
+      threadGraph.value = null
+      graphError.value = err instanceof Error ? err.message : String(err)
+    }
+  } finally {
+    if (token === graphToken) graphLoading.value = false
+  }
+}
+
+// Reopening keeps the window the slider was left on; the first open (or one
+// after the list changed) takes the server's default.
+function openGraph() {
+  graphOpen.value = true
+  loadThreadGraph(winStart.value, winEnd.value)
+}
+
+// Slider geometry. Ranks run 0..list_total-1; an empty list has no window at
+// all (list_total 0, start/end null) and shows no slider.
+const graphTotal = computed(() => threadGraph.value?.list_total || 0)
+const winMax = computed(() => Math.max(graphTotal.value - 1, 0))
+const hasWindow = computed(
+  () => graphTotal.value > 0 && winStart.value !== null && winEnd.value !== null,
+)
+// Percentages for the highlighted span of the slider rail.
+const winFillStyle = computed(() => {
+  const span = winMax.value || 1
+  const left = (winStart.value / span) * 100
+  const right = (winEnd.value / span) * 100
+  return { left: `${left}%`, width: `${Math.max(right - left, 0)}%` }
+})
+const winCaption = computed(() => {
+  if (!hasWindow.value) return ''
+  const span = `${fmtInt(winStart.value + 1)}–${fmtInt(winEnd.value + 1)}`
+  return `messages ${span} of ${fmtInt(graphTotal.value)}`
+})
+
+// The two overlaid range inputs are clamped against each other so the left
+// handle can never pass the right one. Vue will not re-patch an input whose
+// bound value did not change, so a clamped drag is written back to the element
+// directly, keeping the native thumb where the model says it is.
+function setHandle(which, event) {
+  const raw = parseInt(event.target.value, 10)
+  if (!Number.isFinite(raw)) return
+  if (which === 'start') winStart.value = Math.min(raw, winEnd.value)
+  else winEnd.value = Math.max(raw, winStart.value)
+  event.target.value = which === 'start' ? winStart.value : winEnd.value
+}
+// Refetch on release, not on every drag tick.
+function commitWindow() {
+  loadThreadGraph(winStart.value, winEnd.value)
+}
+
+// Opening a message from the lightbox: close it so the detail drawer is not
+// buried under the overlay.
+function openGraphMessage(id) {
+  graphOpen.value = false
+  openRugMessage(id)
+}
+
+function onGraphKeydown(e) {
+  if (e.key === 'Escape') graphOpen.value = false
+}
+watch(graphOpen, (open) => {
+  if (open) document.addEventListener('keydown', onGraphKeydown)
+  else document.removeEventListener('keydown', onGraphKeydown)
+})
+
+// Refetch whenever the selected list changes. The graph is not refetched, only
+// discarded: the next open loads it for the new list.
 watch(
   () => filters.list,
   () => {
+    graphOpen.value = false
+    threadGraph.value = null
+    graphError.value = ''
+    winStart.value = null
+    winEnd.value = null
     loadSummary()
     loadRug()
   },
@@ -570,6 +677,7 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onPopoverKeydown)
   document.removeEventListener('click', onPopoverDocClick, true)
   document.removeEventListener('scroll', onPopoverScroll, true)
+  document.removeEventListener('keydown', onGraphKeydown)
 })
 
 // --- list-stats mode --------------------------------------------------------
@@ -691,6 +799,9 @@ function closeList() {
               :title="b.title"
               @click="openRugMessage(b.id)"
             ></span>
+          </div>
+          <div class="threads-row">
+            <button type="button" class="io-btn" @click="openGraph">Show thread chart</button>
           </div>
           <div class="pull-footer">
             <button
@@ -868,6 +979,73 @@ function closeList() {
       </div>
     </Teleport>
 
+    <!-- thread-graph lightbox (80% wide), teleported to <body> so no ancestor
+         overflow can clip it; backdrop click or Escape closes it -->
+    <Teleport to="body">
+      <div v-if="graphOpen" class="tg-overlay" @click.self="graphOpen = false">
+        <div class="tg-lightbox" role="dialog" aria-modal="true">
+          <div class="tg-lb-head">
+            <span class="tg-lb-title mono">{{ filters.list }} — threads</span>
+            <span class="tg-lb-note">
+              receipt order → · one circle per email · one row per thread
+            </span>
+            <span v-if="graphLoading && threadGraph" class="status-mono tg-lb-busy">loading…</span>
+            <button type="button" class="pop-close" title="Close" @click="graphOpen = false">
+              ✕
+            </button>
+          </div>
+          <div class="tg-lb-body">
+            <div v-if="graphLoading && !threadGraph" class="ctx-status">loading…</div>
+            <div v-else-if="graphError" class="ctx-status ctx-error">{{ graphError }}</div>
+            <div v-else-if="!threadGraph || !threadGraph.total" class="ctx-status">no messages</div>
+            <ThreadGraph
+              v-else
+              :threads="threadGraph.threads"
+              :total="threadGraph.total"
+              @select="openGraphMessage"
+            />
+          </div>
+          <!-- window slider: two overlaid range inputs (transparent tracks, only
+               the thumbs take pointer events) selecting the shown messages by
+               receipt rank, not by date -->
+          <div v-if="hasWindow" class="tg-win">
+            <div class="tg-win-track">
+              <div class="tg-win-rail"></div>
+              <div class="tg-win-fill" :style="winFillStyle"></div>
+              <input
+                type="range"
+                class="tg-win-range"
+                :class="{ 'tg-win-range-top': winStart >= winEnd }"
+                min="0"
+                :max="winMax"
+                :value="winStart"
+                aria-label="Furthest-back message shown"
+                @input="setHandle('start', $event)"
+                @change="commitWindow"
+              />
+              <input
+                type="range"
+                class="tg-win-range"
+                min="0"
+                :max="winMax"
+                :value="winEnd"
+                aria-label="Most recent message shown"
+                @input="setHandle('end', $event)"
+                @change="commitWindow"
+              />
+            </div>
+            <div class="tg-win-legend">
+              <span class="tg-win-date mono">{{ fmtDate(threadGraph.first_date) }}</span>
+              <span class="tg-win-count mono">{{ winCaption }}</span>
+              <span class="tg-win-date tg-win-date-r mono">
+                {{ fmtDate(threadGraph.last_date) }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- staged run modal, teleported to <body> (inside the component) -->
     <RunProcessModal
       :open="processModalOpen"
@@ -991,6 +1169,158 @@ function closeList() {
 }
 .hover-row:hover {
   background: var(--hover-row);
+}
+
+/* --- thread graph (opener only; the chart itself lives in the lightbox) --- */
+.threads-row {
+  margin-top: 12px;
+}
+
+/* --- thread-graph lightbox --- */
+.tg-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tg-lightbox {
+  width: 80vw;
+  max-height: 90vh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+}
+.tg-lb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.tg-lb-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-name);
+}
+.tg-lb-note {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.tg-lb-busy {
+  margin-left: auto;
+}
+.tg-lb-body {
+  height: 64vh;
+  min-height: 0;
+}
+
+/* --- thread-graph window slider ---
+   Two range inputs stacked on one rail. Both are transparent and inert; only
+   their thumbs take pointer events, so each handle is grabbable across the
+   whole track. With the handles on the same rank the upper input wins the
+   pointer, so the left one is raised in that case: the drag then widens the
+   window backwards instead of deadlocking against the clamp. */
+.tg-win {
+  margin-top: 10px;
+}
+.tg-win-track {
+  position: relative;
+  height: 18px;
+}
+.tg-win-rail,
+.tg-win-fill {
+  position: absolute;
+  top: 8px;
+  height: 3px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+.tg-win-rail {
+  left: 0;
+  right: 0;
+  background: var(--border);
+}
+.tg-win-fill {
+  background: var(--accent);
+}
+.tg-win-range {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.tg-win-range-top {
+  z-index: 2;
+}
+.tg-win-range::-webkit-slider-runnable-track {
+  height: 18px;
+  background: none;
+}
+.tg-win-range::-moz-range-track {
+  height: 18px;
+  background: none;
+}
+.tg-win-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  cursor: pointer;
+}
+.tg-win-range::-moz-range-thumb {
+  pointer-events: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  cursor: pointer;
+}
+.tg-win-range:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.tg-win-range:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.tg-win-legend {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 2px;
+}
+.tg-win-date {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.tg-win-date-r {
+  text-align: right;
+}
+.tg-win-count {
+  flex: 1;
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 /* --- pull footer (list stats) --- */

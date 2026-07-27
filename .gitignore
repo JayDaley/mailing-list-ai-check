@@ -52,6 +52,9 @@ htmlcov/
 # ---- CodeGraph index (local, rebuilt from the source) ----
 .codegraph/
 
+# ---- graphify knowledge graph (local, rebuilt from the source) ----
+graphify-out/
+
 # ---- Local runtime ----
 *.log
 *.sqlite3

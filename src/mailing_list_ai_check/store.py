@@ -76,6 +76,12 @@ REPLY_RUG_LIMIT = 50
 #: How many of a sender's lists reply rugs are computed for, most-posted first.
 #: Matches the ``by_list`` cap in :meth:`Store.summary`, whose rows they decorate.
 REPLY_RUG_MAX_LISTS = 20
+#: Default and maximum window spans for :meth:`Store.thread_graph` (the list
+#: panel's thread graph). The default span, used when no explicit start is
+#: given, matches the list rug's last-100 window; the maximum caps how wide a
+#: start/end range may be.
+THREAD_GRAPH_LIMIT = 100
+THREAD_GRAPH_MAX_LIMIT = 500
 #: Batch size for ``IN (...)`` lookups over an unbounded id/Message-ID set.
 #: SQLite's bound-parameter limit is 999 on older builds; stay well under it.
 _IN_CHUNK = 400
@@ -2271,3 +2277,128 @@ class Store:
                 }
             )
         return result
+
+    # -- dashboard: list thread graph ------------------------------------------
+
+    def thread_graph(
+        self, list_id: int, start: int | None = None, end: int | None = None
+    ) -> dict[str, Any]:
+        """A rank window of ``list_id``'s messages grouped into reply threads.
+
+        The list's messages are ranked by IMAP receipt over the whole list:
+        ``uid`` ascending (a folder's UIDs are assigned in arrival order), rows
+        without a stored UID sorting oldest, ties broken by ``id``. Rank 0 is
+        the furthest back, rank ``list_total - 1`` the most recent.
+
+        ``start`` and ``end`` are 0-based inclusive ranks into that order.
+        ``end`` defaults to the most recent rank and ``start`` to
+        ``end - THREAD_GRAPH_LIMIT + 1`` (never below 0). Both are clamped to
+        the data: ``end`` down to ``list_total - 1``, ``start`` down to ``end``,
+        and up so the span is at most :data:`THREAD_GRAPH_MAX_LIMIT` (the more
+        recent end of the range wins). Callers are expected to have rejected
+        negative ranks and ``start > end`` already.
+
+        Returns ``{"list_total": <messages on the list>, "start": <effective
+        start rank>, "end": <effective end rank>, "total": <window size>,
+        "first_date": …, "last_date": …, "threads": [{"messages": [...]}, ...]}``.
+        ``first_date``/``last_date`` are the ``date`` values of the window's
+        oldest and newest messages, either of which may be ``None``. For a list
+        with no messages ``start``, ``end``, ``first_date`` and ``last_date``
+        are all ``None``, ``total`` is 0 and ``threads`` is empty.
+
+        Each message dict carries ``id``, ``message_id``, ``seq`` (its 0-based
+        receipt rank within the window, oldest first — the graph's x position),
+        ``uid``, ``date``, ``subject``, ``from_name``, ``from_email``,
+        ``extraction_status``, ``label``, ``prediction_short`` (the stored label
+        with the "AI-Assisted" rebadge undone, as in :data:`_RUG_COLUMNS`),
+        ``timing_cpm`` (the stored chars/minute writing rate, or ``None``) and
+        ``parent_id`` — the ``id`` of the window message its ``In-Reply-To``
+        names, resolved with the same normalisation as the reply-timing
+        analysis (see :func:`_parent_message_id`). ``parent_id`` is ``None``
+        when the parent is not in the window: unstored, on another list, outside
+        the rank range, or a self-reference.
+
+        Threads are the connected components of the parent links, each holding
+        its messages oldest first; a message with no links is a one-message
+        thread. Threads are ordered by their oldest message's ``seq``.
+        """
+        list_total = self.conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE list_id = ?", (list_id,)
+        ).fetchone()[0]
+        if not list_total:
+            return {
+                "list_total": 0,
+                "start": None,
+                "end": None,
+                "total": 0,
+                "first_date": None,
+                "last_date": None,
+                "threads": [],
+            }
+
+        end = list_total - 1 if end is None else min(end, list_total - 1)
+        if start is None:
+            start = max(0, end - THREAD_GRAPH_LIMIT + 1)
+        start = min(start, end)
+        # Cap the span by raising the start: the newer end of the range wins.
+        start = max(start, end - THREAD_GRAPH_MAX_LIMIT + 1)
+
+        rows = self.conn.execute(
+            "SELECT m.id AS id, m.message_id AS message_id, m.uid AS uid, "
+            "m.date AS date, m.subject AS subject, m.in_reply_to AS in_reply_to, "
+            "a.display_name AS from_name, a.email AS from_email, "
+            "e.status AS extraction_status, s.label AS label, "
+            "CASE WHEN s.label = 'AI-Assisted' THEN 'Mixed' ELSE s.label END "
+            "AS prediction_short, "
+            "m.timing_cpm AS timing_cpm "
+            "FROM messages m "
+            "LEFT JOIN addresses a ON a.id = m.address_id "
+            "LEFT JOIN extractions e ON e.message_id = m.id "
+            "LEFT JOIN scores s ON s.extraction_id = e.id "
+            "WHERE m.list_id = ? "
+            "ORDER BY m.uid ASC, m.id ASC LIMIT ? OFFSET ?",
+            (list_id, end - start + 1, start),
+        ).fetchall()
+        window = [dict(row) for row in rows]
+        # Message-IDs are unique per list (schema UNIQUE), so this cannot clash.
+        by_mid = {msg["message_id"]: i for i, msg in enumerate(window)}
+
+        # Union-find over window indices: one set per thread. Links may point
+        # either way in receipt order (a reply can arrive before its parent).
+        root = list(range(len(window)))
+
+        def find(i: int) -> int:
+            while root[i] != i:
+                root[i] = root[root[i]]
+                i = root[i]
+            return i
+
+        for i, msg in enumerate(window):
+            msg["seq"] = i
+            parent_idx = None
+            if msg["in_reply_to"]:
+                parent_mid = _parent_message_id(msg["in_reply_to"])
+                # A message naming itself as its own parent is not a reply (the
+                # same guard the timing analysis applies).
+                if parent_mid != msg["message_id"]:
+                    parent_idx = by_mid.get(parent_mid)
+            msg["parent_id"] = None if parent_idx is None else window[parent_idx]["id"]
+            del msg["in_reply_to"]
+            if parent_idx is not None:
+                root[find(i)] = find(parent_idx)
+
+        groups: dict[int, list[dict[str, Any]]] = {}
+        for i, msg in enumerate(window):
+            groups.setdefault(find(i), []).append(msg)
+        threads = [
+            {"messages": msgs} for msgs in sorted(groups.values(), key=lambda ms: ms[0]["seq"])
+        ]
+        return {
+            "list_total": list_total,
+            "start": start,
+            "end": start + len(window) - 1,
+            "total": len(window),
+            "first_date": window[0]["date"],
+            "last_date": window[-1]["date"],
+            "threads": threads,
+        }

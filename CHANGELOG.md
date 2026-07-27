@@ -37,6 +37,19 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.2.9] - 2026-07-28
+
+Summary: Add a per-list thread chart to the dashboard, drawing each message as a circle coloured by its prediction and each reply as a line to its parent, with a message-window slider in an 80%-wide lightbox.
+
+- Add GET /api/lists/thread-graph, returning a start/end rank window of a list's messages in IMAP receipt (UID) order grouped into reply threads, with sender, subject, date, prediction, chars-per-minute rate and in-window parent linkage per message.
+- Resolve thread parents with the same normalised In-Reply-To linkage as the reply-timing analysis, dropping self-references and parents outside the window.
+- Clamp the requested window span to 500 messages, keeping the most-recent handle and echoing the effective start/end in the response.
+- Add a "Show thread chart" button to the list panel, opening a text-free SVG thread chart in an 80%-wide lightbox: one circle per message coloured like the rug plots, threads in horizontal rows, receipt order left to right, straight lines linking each reply to its parent.
+- Draw a wider tinted underlay beneath a reply's line when its implied writing rate is flagged, using the same chars-per-minute bands and colours as the messages table.
+- Show the message's sender, subject and date/time in a tooltip when hovering a circle; open its detail view on click.
+- Add a dual-handle slider under the chart selecting the shown window by message count over the whole list, labelled with the date/time of the first and last shown messages, fetching the chart lazily on open and on handle release.
+- Ignore the local graphify-out/ knowledge-graph directory.
+
 ## [1.2.8] - 2026-07-27
 
 Summary: Serialize schema migrations, surface too-short messages in the aggregate bars and rug plots, and add list coverage dates, sender reply rug plots, and a chars-per-minute column to the dashboard.
