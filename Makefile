@@ -26,3 +26,4 @@ test:
 
 lint:
 	.venv/bin/ruff check .
+	.venv/bin/ruff format --check .

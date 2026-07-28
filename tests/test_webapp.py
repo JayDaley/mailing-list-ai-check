@@ -9,9 +9,10 @@ and CORS headers in dev mode.
 
 from __future__ import annotations
 
-import gzip
 import io
 import json
+import os
+import tempfile
 from collections import Counter
 from dataclasses import replace
 from datetime import datetime
@@ -21,6 +22,7 @@ import pytest
 
 from conftest import FakeFolder, FakeImapConn, make_raw
 
+from mailing_list_ai_check import codec
 from mailing_list_ai_check.cli import ScoreSummary
 from mailing_list_ai_check.config import Config
 from mailing_list_ai_check.fetcher import FetchSummary
@@ -955,29 +957,44 @@ def _empty_client(tmp_path, name="empty.db"):
     return path, app.test_client()
 
 
-def _records(gz_bytes):
-    """Decode a gzip JSON Lines export body into its list of records."""
-    text = gzip.decompress(gz_bytes).decode("utf-8")
-    return [json.loads(line) for line in text.splitlines() if line.strip()]
+def _records(body):
+    """Decode an export response body into its list of records.
+
+    :func:`codec.open_read_text` classifies the container from its content and
+    works on a path, so the response bytes go through a temporary file; the
+    decoding therefore makes no assumption about which container was served.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".export") as fh:
+        fh.write(body)
+        fh.flush()
+        with codec.open_read_text(fh.name) as text:
+            return [json.loads(line) for line in text if line.strip()]
 
 
-def _multipart(data_bytes, filename="mlac-export.jsonl.gz"):
+def _multipart(data_bytes, filename="mlac-export.jsonl.zst"):
     return {"file": (io.BytesIO(data_bytes), filename)}
 
 
 def test_export_all_lists(client):
     resp = client.get("/api/export")
     assert resp.status_code == 200
-    assert resp.mimetype == "application/gzip"
+    assert resp.mimetype == "application/zstd"
     disposition = resp.headers["Content-Disposition"]
     assert disposition.startswith("attachment;")
-    assert disposition.endswith('.jsonl.gz"')
+    assert disposition.endswith('.jsonl.zst"')
 
     records = _records(resp.data)
     assert records[0]["type"] == "header"
     assert records[0]["format"] == "mlac-export"
     assert records[-1]["type"] == "trailer"
     assert records[-1]["messages"] == 15
+
+
+def test_export_body_is_really_zstd(client):
+    """The download is a zstd stream, not JSON Lines under a compressed name."""
+    resp = client.get("/api/export")
+    assert resp.status_code == 200
+    assert resp.data[:4] == codec.ZSTD_MAGIC
 
 
 def test_export_single_list(client):
@@ -1060,6 +1077,116 @@ def test_import_corrupt_file_400(tmp_path):
     assert "error" in resp.get_json()
     # All-or-nothing: the failed import left the target empty.
     assert c2.get("/api/messages").get_json()["total"] == 0
+
+
+def test_import_corrupt_compressed_upload_400(tmp_path):
+    """Content that only looks like zstd is a bad request, not a 500."""
+    _, c2 = _empty_client(tmp_path)
+    resp = c2.post(
+        "/api/import",
+        data=_multipart(codec.ZSTD_MAGIC + b"not a zstd frame" * 8),
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+    assert c2.get("/api/messages").get_json()["total"] == 0
+
+
+def test_import_non_utf8_binary_upload_400(tmp_path):
+    """A binary upload is a bad request, not a 500.
+
+    Only zstd and gzip magic mark an upload as compressed, so binary content
+    without either is read as plain text and fails in the UTF-8 decoder rather
+    than the codec layer; that path has to reach the client as a 400 too.
+    """
+    _, c2 = _empty_client(tmp_path)
+    junk = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x02\x03\x0a\xfe\xff\x80\x81" * 8
+    assert not junk.startswith(codec.ZSTD_MAGIC)
+    assert not junk.startswith(codec.GZIP_MAGIC)
+
+    resp = c2.post(
+        "/api/import",
+        data=_multipart(junk, filename="photo.jpg"),
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    # The decode branch, not a broken container.
+    assert "not valid UTF-8" in resp.get_json()["error"]
+    assert c2.get("/api/messages").get_json()["total"] == 0
+
+
+def test_import_truncated_export_upload_400(client, tmp_path):
+    """A download cut short mid-transfer fails as a bad request and writes nothing."""
+    export_bytes = client.get("/api/export").data
+    _, c2 = _empty_client(tmp_path)
+
+    resp = c2.post(
+        "/api/import",
+        data=_multipart(export_bytes[: len(export_bytes) // 2]),
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+    assert c2.get("/api/messages").get_json()["total"] == 0
+
+
+def test_import_accepts_an_uncompressed_upload(client, tmp_path):
+    """The uploaded name is irrelevant: plain JSON Lines under a .zst name imports."""
+    records = _records(client.get("/api/export").data)
+    plain = "".join(json.dumps(rec) + "\n" for rec in records).encode("utf-8")
+
+    _, c2 = _empty_client(tmp_path)
+    resp = c2.post(
+        "/api/import",
+        data=_multipart(plain, filename="mlac-export.jsonl.zst"),
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["messages_inserted"] == 15
+
+
+# --- /api/export temp-file hygiene --------------------------------------------
+#
+# The endpoint builds the export in a temporary file and must remove it on every
+# exit path. Redirecting :mod:`tempfile` at an empty directory makes any leftover
+# directly observable.
+
+
+@pytest.fixture
+def temp_dir(tmp_path, monkeypatch):
+    """An empty directory that :func:`tempfile.mkstemp` writes into."""
+    path = tmp_path / "tempfiles"
+    path.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(path))
+    return path
+
+
+def test_export_leaves_no_temp_file_on_success(client, temp_dir):
+    assert client.get("/api/export").status_code == 200
+    assert os.listdir(temp_dir) == []
+
+
+def test_export_leaves_no_temp_file_on_unknown_list_404(client, temp_dir):
+    assert client.get("/api/export?list=does-not-exist").status_code == 404
+    assert os.listdir(temp_dir) == []
+
+
+def test_export_leaves_no_temp_file_when_there_is_nothing_to_export(tmp_path, temp_dir):
+    _, c = _empty_client(tmp_path)
+    assert c.get("/api/export").status_code == 404
+    assert os.listdir(temp_dir) == []
+
+
+def test_export_leaves_no_temp_file_when_the_export_fails(client, temp_dir, monkeypatch):
+    """An unexpected failure mid-export still removes the temporary file."""
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("export exploded")
+
+    monkeypatch.setattr(webapp_api, "export_lists", _boom)
+    with pytest.raises(RuntimeError):
+        client.get("/api/export")
+    assert os.listdir(temp_dir) == []
 
 
 # --- /api/lists/preview + /api/pull/range -------------------------------------

@@ -21,7 +21,10 @@ text) → **score** (Pangram verdict). A Flask + Vue dashboard reads the results
 
 ## Requirements
 
-- Python ≥ 3.11
+- Python ≥ 3.14. The export/import format is compressed with zstd, which entered
+  the standard library in 3.14 as `compression.zstd`; requiring that release
+  keeps compression a standard-library concern and adds no third-party
+  dependency. Earlier interpreters are not supported.
 - Node.js (only to build the dashboard front end)
 
 ## Install
@@ -251,22 +254,32 @@ seeding another checkout. Neither command touches IMAP or Pangram; both are pure
 local database operations.
 
 ```bash
-# Export named lists to a file (gzip-compressed because the path ends '.gz')
-mail-ai-export announce last-call -o export.jsonl.gz
+# Export named lists to a file (writes export.jsonl.zst)
+mail-ai-export announce last-call -o export.jsonl
 
 # Export every list that has at least one message
-mail-ai-export --all-lists -o all-lists.jsonl.gz
+mail-ai-export --all-lists -o all-lists.jsonl
+
+# Export without compression (writes plain-lists.jsonl as given)
+mail-ai-export --all-lists -o plain-lists.jsonl --no-compress
 
 # Import into another database
-mail-ai-import export.jsonl.gz
+mail-ai-import export.jsonl.zst
 
 # Preview an import without writing anything
-mail-ai-import export.jsonl.gz --dry-run
+mail-ai-import export.jsonl.zst --dry-run
 ```
 
 `mail-ai-export` takes one or more list names, or `--all-lists` (not both), and
-requires `-o/--output`. A `.gz` suffix on the output path turns on gzip
-compression; `mail-ai-import` recognises the same suffix on input.
+requires `-o/--output`. The file is zstd-compressed and `.zst` is appended to
+the output path unless it is already there; the summary line reports the path
+actually written. `--no-compress` writes plain JSON Lines to the path as given.
+
+`mail-ai-import` needs no flag for compression: it identifies the container from
+the file's leading bytes rather than its name, so zstd, gzip and uncompressed
+input are all accepted under any suffix, and exports produced before zstd became
+the default still import. A corrupt or truncated file is rejected like any other
+malformed input, and nothing is written.
 
 Import is **idempotent and collision-safe**: a message already present in the
 target (same Message-ID on the same list) is skipped along with its

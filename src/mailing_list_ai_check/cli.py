@@ -641,7 +641,9 @@ def build_export_parser() -> argparse.ArgumentParser:
         prog="mail-ai-export",
         description=(
             "Export one or more lists' messages, extractions and scores to a "
-            "portable JSON Lines file (gzip-compressed when the path ends '.gz'). "
+            "portable JSON Lines file. The file is zstd-compressed by default and "
+            "'.zst' is appended to the output path unless it is already there; "
+            "--no-compress writes plain JSON Lines to the path as given. "
             "A local database read only — no IMAP or Pangram calls."
         ),
     )
@@ -659,7 +661,12 @@ def build_export_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         metavar="FILE",
-        help="output file path ('.gz' suffix ⇒ gzip); required",
+        help="output file path ('.zst' is appended unless --no-compress); required",
+    )
+    parser.add_argument(
+        "--no-compress",
+        action="store_true",
+        help="write plain uncompressed JSON Lines to the output path as given",
     )
     parser.add_argument("--db", metavar="PATH", help="override the database path")
     return parser
@@ -686,7 +693,13 @@ def export_main(argv: Sequence[str] | None = None) -> int:
     list_names = args.lists or None
     try:
         with Store(db_path) as store:
-            summary = export_lists(store, list_names, args.output, all_lists=args.all_lists)
+            summary = export_lists(
+                store,
+                list_names,
+                args.output,
+                all_lists=args.all_lists,
+                compress=not args.no_compress,
+            )
     except ValueError as exc:
         parser.error(str(exc))
 
@@ -703,11 +716,15 @@ def build_import_parser() -> argparse.ArgumentParser:
         description=(
             "Import a JSON Lines export produced by mail-ai-export. Idempotent and "
             "collision-safe (messages already present are skipped) and all-or-nothing "
-            "(one transaction, rolled back on any error). Gzip input is handled by the "
-            "'.gz' suffix."
+            "(one transaction, rolled back on any error). The container is detected "
+            "from the file's content, not its name: zstd, gzip and uncompressed input "
+            "are all accepted under any suffix."
         ),
     )
-    parser.add_argument("file", help="the export file to import ('.gz' suffix ⇒ gzip)")
+    parser.add_argument(
+        "file",
+        help="the export file to import (zstd, gzip or uncompressed; detected from content)",
+    )
     parser.add_argument("--db", metavar="PATH", help="override the database path")
     parser.add_argument(
         "--dry-run",

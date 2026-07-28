@@ -7,7 +7,8 @@ SQLite databases as a single JSON Lines file, without ever corrupting the target
 on re-import. The full format and semantics live in ``docs/export-import.md``;
 this module is the authoritative implementation of that spec.
 
-Two design choices keep the file small and the import safe:
+Four design choices keep the file small, the import safe, and both directions
+usable on a database of any size:
 
 - **Text pointers.** A message body is static, so an extraction's text is stored
   as a pointer into ``raw_body`` (whole body, or a character span) rather than a
@@ -20,6 +21,19 @@ Two design choices keep the file small and the import safe:
   mutators), committed once at the end and rolled back on any error, so a
   truncated or malformed file can never leave a half-imported database.
   ``dry_run`` takes the identical code path and rolls back instead of committing.
+- **Both directions stream.** Neither export nor import ever holds more than one
+  message in memory. Message bodies dominate an export — a JSON Lines file runs
+  about 2.3x the size of the rows it came from — so buffering them would put
+  peak memory in the gigabytes at realistic list sizes. The exporter therefore
+  iterates its message cursor and writes each record as it is read (a cheap
+  pre-pass over ``address_id`` alone supplies the addresses and persons that the
+  format requires ahead of the messages), and the importer consumes one line at
+  a time. Only the small per-file structures — the selected lists, the referenced
+  addresses and persons — are collected up front.
+- **Compression is a content question, not a naming one.** Exports are written
+  zstd-compressed by default (see :mod:`.codec`); imports sniff the file's magic
+  bytes and transparently accept zstd, the gzip of older exports, or plain text,
+  whatever the file is called.
 
 Import is idempotent and collision-safe: a message already present in the target
 (same Message-ID on the same list) is skipped along with its extraction/score,
@@ -29,7 +43,6 @@ no-op.
 
 from __future__ import annotations
 
-import gzip
 import json
 import logging
 from collections.abc import Sequence
@@ -39,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .codec import CodecError, compressed_path, open_read_text, open_write_text
 from .store import EXTRACTION_STATUSES, Store, sha256_text, version_key
 
 log = logging.getLogger("mailing_list_ai_check.export_import")
@@ -144,12 +158,6 @@ def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _open_text(path: str | Path, mode: str):
-    """Open ``path`` for text I/O, transparently gzip-compressed when it ends ``.gz``."""
-    opener = gzip.open if str(path).endswith(".gz") else open
-    return opener(path, mode, encoding="utf-8")
-
-
 def _text_pointer(extracted_text: str, raw_body: str | None) -> dict[str, Any]:
     """Choose the smallest faithful pointer for ``extracted_text`` in ``raw_body``.
 
@@ -203,6 +211,7 @@ def export_lists(
     out_path: str | Path,
     *,
     all_lists: bool = False,
+    compress: bool = True,
 ) -> ExportSummary:
     """Export one or more lists and everything derived from their messages.
 
@@ -215,9 +224,19 @@ def export_lists(
     written, each once (deduplicated across the whole file). Records are emitted
     in the fixed order ``header`` → (``list``, optional ``pull_state``) per list
     → ``person``s → ``address``es → ``message``s (extraction and score embedded)
-    → ``trailer``, and the file is gzip-compressed when ``out_path`` ends ``.gz``.
+    → ``trailer``.
 
-    Purely a local database read: no IMAP, no Pangram, no caps involved.
+    With ``compress`` (the default) the file is zstd-compressed and
+    :data:`~.codec.COMPRESSED_SUFFIX` is appended to ``out_path`` unless it is
+    already there; the returned summary's ``path`` is always the path actually
+    written, so a caller that passed ``export.jsonl`` can report the
+    ``export.jsonl.zst`` it got. ``compress=False`` writes plain text to
+    ``out_path`` as given. The output suffix has no other meaning — nothing about
+    the format is inferred from it, on write or on read.
+
+    Messages are streamed: each record is written as its row is read, so peak
+    memory is independent of how much mail is being exported. Purely a local
+    database read: no IMAP, no Pangram, no caps involved.
     """
     has_names = list_names is not None and len(list_names) > 0
     if all_lists and has_names:
@@ -252,87 +271,42 @@ def export_lists(
                     seen_folders.add(row["folder"])
                     selected.append(row)
 
-    # Gather message rows per list, collecting referenced addresses as we go so
-    # persons/addresses can be emitted (once each) ahead of the messages.
-    message_records: list[dict[str, Any]] = []
+    # Pre-pass: which addresses do the exported messages reference? The format
+    # puts person and address records ahead of the messages that reference them
+    # (see _RECORD_RANK), but the reference set is only knowable by walking the
+    # messages — so walk them twice. This pass selects the address_id column
+    # alone, which keeps the bodies out of memory; the ordering (lists in
+    # `selected` order, messages by id, first sighting wins) is the same
+    # first-seen ordering the streaming pass below re-derives, and record order
+    # is part of the format.
     referenced_address_ids: list[int] = []
     seen_address_ids: set[int] = set()
-    n_extractions = 0
-    n_scores = 0
-
     for lst in selected:
-        msg_rows = conn.execute(
-            "SELECT * FROM messages WHERE list_id = ? ORDER BY id", (lst["id"],)
-        ).fetchall()
-        for m in msg_rows:
-            email = None
-            if m["address_id"] is not None:
-                if m["address_id"] not in seen_address_ids:
-                    seen_address_ids.add(m["address_id"])
-                    referenced_address_ids.append(m["address_id"])
-                addr = conn.execute(
-                    "SELECT email FROM addresses WHERE id = ?", (m["address_id"],)
-                ).fetchone()
-                email = addr["email"] if addr else None
-
-            extraction_obj: dict[str, Any] | None = None
-            ext = conn.execute(
-                "SELECT * FROM extractions WHERE message_id = ?", (m["id"],)
-            ).fetchone()
-            if ext is not None:
-                n_extractions += 1
-                score_obj: dict[str, Any] | None = None
-                sc = conn.execute(
-                    "SELECT * FROM scores WHERE extraction_id = ?", (ext["id"],)
-                ).fetchone()
-                if sc is not None:
-                    n_scores += 1
-                    score_obj = {
-                        "fraction_ai": sc["fraction_ai"],
-                        "fraction_ai_assisted": sc["fraction_ai_assisted"],
-                        "fraction_human": sc["fraction_human"],
-                        "label": sc["label"],
-                        "detector_version": sc["detector_version"],
-                        "raw_response": sc["raw_response"],
-                        "text_sha256": sc["text_sha256"],
-                        "scored_at": sc["scored_at"],
-                    }
-                extraction_obj = {
-                    "method": ext["method"],
-                    "char_count": ext["char_count"],
-                    "status": ext["status"],
-                    "created_at": ext["created_at"],
-                    "text": _text_pointer(ext["extracted_text"], m["raw_body"]),
-                    "sha256": sha256_text(ext["extracted_text"]),
-                    "score": score_obj,
-                }
-
-            message_records.append(
-                {
-                    "type": "message",
-                    "folder": lst["folder"],
-                    "message_id": m["message_id"],
-                    "email": email,
-                    "subject": m["subject"],
-                    "date": m["date"],
-                    "in_reply_to": m["in_reply_to"],
-                    "raw_body": m["raw_body"],
-                    "raw_html": m["raw_html"],
-                    "uid": m["uid"],
-                    "fetched_at": m["fetched_at"],
-                    "pipeline_version": m["pipeline_version"],
-                    "extraction": extraction_obj,
-                }
-            )
+        for row in conn.execute(
+            "SELECT address_id FROM messages WHERE list_id = ? AND address_id IS NOT NULL "
+            "ORDER BY id",
+            (lst["id"],),
+        ):
+            address_id = row["address_id"]
+            if address_id not in seen_address_ids:
+                seen_address_ids.add(address_id)
+                referenced_address_ids.append(address_id)
 
     # Resolve the referenced addresses and, through them, the persons to emit.
+    # These are bounded by the number of distinct senders rather than by the
+    # number of messages, so they are cheap to hold. The email map they build on
+    # the way saves a lookup per message in the streaming pass; an address id
+    # with no row is absent from it, which resolves to the same null email the
+    # per-message lookup produced.
     address_records: list[dict[str, Any]] = []
+    email_by_address_id: dict[int, str] = {}
     person_ids: list[int] = []
     seen_person_ids: set[int] = set()
     for address_id in referenced_address_ids:
         a = conn.execute("SELECT * FROM addresses WHERE id = ?", (address_id,)).fetchone()
         if a is None:  # pragma: no cover - address_id came from a live FK
             continue
+        email_by_address_id[address_id] = a["email"]
         person_key = None
         if a["person_id"] is not None:
             person_key = f"p{a['person_id']}"
@@ -365,7 +339,15 @@ def export_lists(
     schema_version = schema_row["v"] if schema_row and schema_row["v"] is not None else 0
     folders = [lst["folder"] for lst in selected]
 
-    with _open_text(out_path, "wt") as fh:
+    written_path = compressed_path(out_path) if compress else out_path
+
+    # Counted during the streaming pass; the trailer is written after the
+    # messages, so the totals are complete by the time they are needed.
+    n_messages = 0
+    n_extractions = 0
+    n_scores = 0
+
+    with open_write_text(written_path, compress=compress) as fh:
 
         def emit(record: dict[str, Any]) -> None:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -406,13 +388,78 @@ def export_lists(
             emit(record)
         for record in address_records:
             emit(record)
-        for record in message_records:
-            emit(record)
+
+        # The streaming pass. Iterating the cursor rather than fetching it means
+        # only one message row — one body — is live at a time; each record is
+        # serialised and handed to the writer before the next row is read. The
+        # per-message extraction/score lookups run on their own cursors, which
+        # SQLite is happy to interleave with the open one.
+        for lst in selected:
+            for m in conn.execute(
+                "SELECT * FROM messages WHERE list_id = ? ORDER BY id", (lst["id"],)
+            ):
+                n_messages += 1
+                email = (
+                    email_by_address_id.get(m["address_id"])
+                    if m["address_id"] is not None
+                    else None
+                )
+
+                extraction_obj: dict[str, Any] | None = None
+                ext = conn.execute(
+                    "SELECT * FROM extractions WHERE message_id = ?", (m["id"],)
+                ).fetchone()
+                if ext is not None:
+                    n_extractions += 1
+                    score_obj: dict[str, Any] | None = None
+                    sc = conn.execute(
+                        "SELECT * FROM scores WHERE extraction_id = ?", (ext["id"],)
+                    ).fetchone()
+                    if sc is not None:
+                        n_scores += 1
+                        score_obj = {
+                            "fraction_ai": sc["fraction_ai"],
+                            "fraction_ai_assisted": sc["fraction_ai_assisted"],
+                            "fraction_human": sc["fraction_human"],
+                            "label": sc["label"],
+                            "detector_version": sc["detector_version"],
+                            "raw_response": sc["raw_response"],
+                            "text_sha256": sc["text_sha256"],
+                            "scored_at": sc["scored_at"],
+                        }
+                    extraction_obj = {
+                        "method": ext["method"],
+                        "char_count": ext["char_count"],
+                        "status": ext["status"],
+                        "created_at": ext["created_at"],
+                        "text": _text_pointer(ext["extracted_text"], m["raw_body"]),
+                        "sha256": sha256_text(ext["extracted_text"]),
+                        "score": score_obj,
+                    }
+
+                emit(
+                    {
+                        "type": "message",
+                        "folder": lst["folder"],
+                        "message_id": m["message_id"],
+                        "email": email,
+                        "subject": m["subject"],
+                        "date": m["date"],
+                        "in_reply_to": m["in_reply_to"],
+                        "raw_body": m["raw_body"],
+                        "raw_html": m["raw_html"],
+                        "uid": m["uid"],
+                        "fetched_at": m["fetched_at"],
+                        "pipeline_version": m["pipeline_version"],
+                        "extraction": extraction_obj,
+                    }
+                )
+
         emit(
             {
                 "type": "trailer",
                 "lists": len(selected),
-                "messages": len(message_records),
+                "messages": n_messages,
                 "extractions": n_extractions,
                 "scores": n_scores,
             }
@@ -420,10 +467,10 @@ def export_lists(
 
     summary = ExportSummary(
         lists=len(selected),
-        messages=len(message_records),
+        messages=n_messages,
         extractions=n_extractions,
         scores=n_scores,
-        path=str(out_path),
+        path=str(written_path),
     )
     return summary
 
@@ -903,34 +950,53 @@ def import_file(
 ) -> ImportSummary:
     """Import an export file into ``store`` as one all-or-nothing transaction.
 
-    Streams the JSON Lines file once (gzip-decompressed when it ends ``.gz``),
-    validating structure — header first with a matching format/version, records
-    in their fixed order, no forward references, valid extraction statuses,
-    extraction hashes that resolve, and a trailer whose counts match the records
-    seen. Messages colliding on ``(list_id, message_id)`` are skipped (their
-    extraction/score with them); everything else is inserted with raw SQL.
+    Streams the JSON Lines file once, line by line, so memory is independent of
+    the file's size. The container is recognised from the file's leading bytes,
+    not its name (see :func:`~.codec.detect`): zstd, the gzip of older exports,
+    and plain text are all accepted, under any suffix. A compressed stream that
+    is truncated or corrupt raises :class:`ExportImportError`, the same type as
+    every other bad-file failure.
+
+    Validates structure as it goes — header first with a matching
+    format/version, records in their fixed order, no forward references, valid
+    extraction statuses, extraction hashes that resolve, and a trailer whose
+    counts match the records seen. Messages colliding on
+    ``(list_id, message_id)`` are skipped (their extraction/score with them);
+    everything else is inserted with raw SQL.
 
     The whole pass runs inside a single explicit transaction on ``store.conn``,
     committed once on success and rolled back on any error (which is re-raised).
     ``dry_run`` takes the identical path and rolls back instead of committing, so
     its returned :class:`ImportSummary` (with ``dry_run=True``) is exact. Any
-    validation failure raises :class:`ExportImportError`.
+    validation failure raises :class:`ExportImportError`; a missing file still
+    raises :class:`FileNotFoundError`.
     """
     conn = store.conn
     importer = _Importer(store)
 
     conn.execute("BEGIN")
     try:
-        with _open_text(in_path, "rt") as fh:
-            for lineno, line in enumerate(fh, 1):
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    record = json.loads(stripped)
-                except json.JSONDecodeError as exc:
-                    raise ExportImportError(f"line {lineno}: invalid JSON: {exc}") from exc
-                importer.handle(record, lineno)
+        try:
+            with open_read_text(in_path) as fh:
+                for lineno, line in enumerate(fh, 1):
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        record = json.loads(stripped)
+                    except json.JSONDecodeError as exc:
+                        raise ExportImportError(f"line {lineno}: invalid JSON: {exc}") from exc
+                    importer.handle(record, lineno)
+        except CodecError as exc:
+            # One exception type for callers: a broken container is as much a
+            # bad file as a broken record, and the CLI/webapp handlers catch
+            # ExportImportError.
+            raise ExportImportError(f"cannot read {in_path}: {exc}") from exc
+        except UnicodeDecodeError as exc:
+            # Detection classifies anything without a zstd or gzip magic as
+            # plain text, so arbitrary binary reaches the UTF-8 decoder here
+            # rather than the codec layer. Same contract as a broken container.
+            raise ExportImportError(f"cannot read {in_path}: not valid UTF-8 text: {exc}") from exc
         importer.finish()
     except Exception:
         conn.rollback()

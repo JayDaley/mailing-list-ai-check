@@ -37,6 +37,29 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.2.10] - 2026-07-28
+
+Summary: Prepare export/import for databases of 100,000 messages and more — compress exports with zstd by default, detect an import file's container from its content rather than its name, and stream export records so peak memory no longer tracks export size.
+
+- Size export/import for a 100,000-message database, projected at 2.2 GB uncompressed from the measured 20,944 bytes per message: zstd level 3 compresses that in about 5 seconds to roughly a tenth of the size, and streaming holds peak memory flat instead of the projected 4.5 GiB.
+- Add a codec module owning export compression: zstd at level 3, the `.zst` suffix, content-based container detection, streaming read and write helpers, and one CodecError type for every backend failure.
+- Use the standard library's `compression.zstd`, adding no third-party compression dependency.
+- Raise `requires-python` from `>=3.11` to `>=3.14`, the release that added `compression.zstd`.
+- Add a keyword-only `compress` parameter to export_lists, defaulting to True, which writes the file zstd-compressed and appends `.zst` to the output path unless it is already there.
+- Report the path actually written in ExportSummary.path, so a caller that passed `export.jsonl` sees the `export.jsonl.zst` it got.
+- Detect an import file's container from its leading bytes instead of its suffix, accepting zstd, gzip and uncompressed input under any name.
+- Raise ExportImportError for a corrupt or truncated compressed import file, the same type as every other bad-file failure.
+- Raise ExportImportError for an import file that is not valid UTF-8 text, so binary input carrying no container magic returns exit code 1 from mail-ai-import and 400 from POST /api/import instead of an unhandled UnicodeDecodeError.
+- Write each export record as its row is read instead of accumulating records in memory, and iterate the per-list message cursor instead of fetching it, which cut peak resident memory on a 430 MB export from 480.8 MB to 29.8 MB.
+- Add `--no-compress` to mail-ai-export, writing plain uncompressed JSON Lines to the output path as given.
+- Serve GET /api/export as an `application/zstd` attachment named `mlac-export-<slug>-<YYYYMMDD>.jsonl.zst`.
+- Save a POST /api/import upload under a neutral temporary name, relying on content detection instead of reconstructing a suffix from the uploaded file name.
+- Request `application/zstd` from the dashboard's export button, default the downloaded name to `mailing-list-export.jsonl.zst`, and accept `.zst` alongside `.jsonl` and older `.gz` files in the import picker.
+- Document compression, content detection and the bounded-memory property of both directions in docs/export-import.md and the README, including that compression is not part of the record format and leaves FORMAT_VERSION at 2.
+- Correct the FORMAT_VERSION value in the public API block of docs/export-import.md from 1 to 2, matching the code.
+- Add `ruff format --check .` to the `make lint` target, which previously ran only `ruff check .` and so never verified formatting.
+- Reformat tests/seed.py and tests/test_store_query.py, which had drifted from `ruff format` while unchecked.
+
 ## [1.2.9] - 2026-07-28
 
 Summary: Add a per-list thread chart to the dashboard, drawing each message as a circle coloured by its prediction and each reply as a line to its parent, with a message-window slider in an 80%-wide lightbox.

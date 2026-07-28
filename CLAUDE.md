@@ -72,14 +72,14 @@ them, and what depends on them.
 
 ## Conventions
 
-- Python >= 3.11, `src/` layout.
+- Python >= 3.14 (the release that added `compression.zstd`), `src/` layout.
 - Lint/format with `ruff`; test with `pytest`.
 - Access configuration through `Config.load()`, not `os.environ` directly.
 
 ## Versioning
 
 The app uses [semantic versioning](https://semver.org/); the current version is
-**1.2.9**. The single source of truth is `mailing_list_ai_check.__version__`
+**1.2.10**. The single source of truth is `mailing_list_ai_check.__version__`
 (in `__init__.py`); `pyproject.toml` reads it dynamically, so the two never
 drift.
 

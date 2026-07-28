@@ -111,7 +111,9 @@ def test_filter_q_matches_extracted_text(store):
 
 
 def test_filters_combine_with_and(store):
-    rows, total = store.query_messages(MessageFilters(list_name="announce", label="AI", per_page=200))
+    rows, total = store.query_messages(
+        MessageFilters(list_name="announce", label="AI", per_page=200)
+    )
     assert total == 1
     assert _keys(rows) == {"<m1@test>"}
 

@@ -361,7 +361,7 @@ def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
         if row.get("raw_response"):
             try:
                 raw = json.loads(row["raw_response"])
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 raw = None
         label = row["label"]
         prediction_short = (raw or {}).get("prediction_short")
@@ -534,7 +534,7 @@ def message_detail(message_id: int) -> Any:
         if score.raw_response:
             try:
                 raw_response = json.loads(score.raw_response)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 raw_response = None
         score_json = {
             "fraction_ai": score.fraction_ai,
@@ -1533,23 +1533,28 @@ def _export_slug(list_name: str | None) -> str:
 
 @api_bp.get("/export")
 def export() -> Any:
-    """Download a list's messages and pipeline state as a gzip JSON Lines export.
+    """Download a list's messages and pipeline state as a zstd JSON Lines export.
 
     Query param ``list`` (optional) names one list to export (an unknown name is a
     404); omitting it exports every list that has at least one message. When there
     is nothing to export — an empty database, or no list has any message — the
     response is a 404. The file is built via
     :func:`mailing_list_ai_check.export_import.export_lists` into a temporary
-    ``.jsonl.gz`` file that is always removed before returning, and served as an
-    ``application/gzip`` attachment named
-    ``mlac-export-<slug>-<YYYYMMDD>.jsonl.gz``. A local database read only — no
+    ``.jsonl.zst`` file that is always removed before returning, and served as an
+    ``application/zstd`` attachment named
+    ``mlac-export-<slug>-<YYYYMMDD>.jsonl.zst``. A local database read only — no
     IMAP or Pangram calls, and message bodies are never logged.
     """
     store = get_store()
     list_name = request.args.get("list") or None
 
-    fd, tmp_path = tempfile.mkstemp(suffix=".jsonl.gz")
+    # The temp name already carries the compressed suffix the exporter would
+    # otherwise append, so it is written in place. The summary reports the path
+    # actually written either way, and that — not the name guessed here — is what
+    # gets served and unlinked.
+    fd, tmp_path = tempfile.mkstemp(suffix=".jsonl.zst")
     os.close(fd)
+    written_path = tmp_path
     try:
         try:
             if list_name is None:
@@ -1559,22 +1564,26 @@ def export() -> Any:
         except ValueError as exc:
             # Unknown list name (the only ValueError export_lists raises for input).
             raise ApiError(str(exc), 404) from exc
+        written_path = summary.path
 
         if summary.lists == 0:
             raise ApiError("nothing to export", 404)
 
-        with open(tmp_path, "rb") as fh:
+        with open(written_path, "rb") as fh:
             data = fh.read()
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:  # pragma: no cover - best-effort cleanup
-            pass
+        for path in {tmp_path, written_path}:
+            try:
+                os.unlink(path)
+            except OSError:  # pragma: no cover - best-effort cleanup
+                pass
 
-    filename = f"mlac-export-{_export_slug(list_name)}-{datetime.now().strftime('%Y%m%d')}.jsonl.gz"
+    filename = (
+        f"mlac-export-{_export_slug(list_name)}-{datetime.now().strftime('%Y%m%d')}.jsonl.zst"
+    )
     return Response(
         data,
-        mimetype="application/gzip",
+        mimetype="application/zstd",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -1586,7 +1595,8 @@ def import_() -> Any:
     Expects a multipart upload with the export in the ``file`` field (missing ⇒
     400). ``dry_run`` (query or form param, parsed like the other boolean params)
     validates and reports without writing. The upload is saved to a temporary file
-    — preserving a ``.gz`` suffix so the importer's gzip sniffing works — passed to
+    under a neutral name — the importer detects zstd, gzip and uncompressed input
+    from the content, so the uploaded filename is irrelevant — passed to
     :func:`mailing_list_ai_check.export_import.import_file`, and the temp file is
     always removed. Returns the :class:`ImportSummary` fields plus ``"ok": true``;
     a malformed or corrupt file surfaces as a 400.
@@ -1600,8 +1610,7 @@ def import_() -> Any:
         dry_run_raw = request.form.get("dry_run")
     dry_run = bool(_parse_bool("dry_run", dry_run_raw))
 
-    suffix = ".jsonl.gz" if (upload.filename or "").endswith(".gz") else ".jsonl"
-    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    fd, tmp_path = tempfile.mkstemp(suffix=".jsonl")
     os.close(fd)
     try:
         upload.save(tmp_path)

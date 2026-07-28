@@ -314,7 +314,8 @@ function clearAll() {
 // --- export / import ---
 // Export and import operate on whole lists (the pipeline state), not the
 // filtered message subset: export sends the current list-name filter (or all
-// lists when none is set); import ingests an uploaded .jsonl(.gz) dump. Both
+// lists when none is set); import ingests an uploaded JSON Lines dump, zstd-
+// compressed (as exports now are), gzipped (as older ones are) or plain. Both
 // surface their outcome in a transient toolbar status that auto-clears.
 const exporting = ref(false)
 const importing = ref(false)
@@ -356,7 +357,7 @@ async function doExport() {
   exporting.value = true
   try {
     const res = await fetch(apiUrl('/export', filters.list ? { list: filters.list } : undefined), {
-      headers: { Accept: 'application/gzip' },
+      headers: { Accept: 'application/zstd' },
     })
     if (!res.ok) {
       let msg = `Export failed (${res.status})`
@@ -370,7 +371,7 @@ async function doExport() {
     }
     const blob = await res.blob()
     const fname =
-      filenameFromDisposition(res.headers.get('Content-Disposition')) || 'mailing-list-export.jsonl.gz'
+      filenameFromDisposition(res.headers.get('Content-Disposition')) || 'mailing-list-export.jsonl.zst'
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -398,7 +399,7 @@ async function onImportFile(e) {
   importing.value = true
   try {
     const fd = new FormData()
-    fd.append('file', file, file.name) // preserve the .gz-bearing filename
+    fd.append('file', file, file.name) // informational only: the server sniffs the content
     const data = await postForm('/import', fd)
     const parts = [
       `imported ${fmtInt(data.messages_inserted || 0)}`,
@@ -554,7 +555,7 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
       <button
         class="io-btn"
         :disabled="importing"
-        title="Import a list export (.jsonl / .gz)…"
+        title="Import a list export (.jsonl.zst / .jsonl / older .gz)…"
         @click="pickImport"
       >
         {{ importing ? 'importing…' : 'import' }}
@@ -562,7 +563,7 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
       <input
         ref="fileInput"
         type="file"
-        accept=".jsonl,.gz,.jsonl.gz,application/gzip"
+        accept=".jsonl,.zst,.jsonl.zst,.gz,.jsonl.gz,application/zstd,application/gzip"
         style="display: none;"
         @change="onImportFile"
       />

@@ -144,7 +144,7 @@ class ImapClient:
         if data and data[0] is not None:
             try:
                 exists = int(data[0])
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 exists = None
         return FolderStatus(
             folder=folder,

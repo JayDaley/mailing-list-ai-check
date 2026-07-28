@@ -85,6 +85,10 @@ never lexically. An unparsable or missing version compares as `(0, 0, 0)`.
 - This is a breaking format change, so `FORMAT_VERSION` is **2**; version-1
   files are rejected (none exist in the wild — the format shipped
   unreleased).
+- Compression is not part of the format and is not format-versioned. The
+  records, their field order and `FORMAT_VERSION` are the same whether the
+  file is zstd-compressed, gzip-compressed or plain; the container is chosen
+  on write and detected on read (see "Compression").
 
 ### Version-aware import of existing messages
 
@@ -125,7 +129,8 @@ A UTF-8 [JSON Lines](https://jsonlines.org/) stream, one record per line, in a
 fixed order: `header`, then per list `list` → `pull_state?`, then `person`s,
 then `address`es, then `message`s (extraction and score **embedded** in the
 message record so a skipped message atomically skips its children), then
-`trailer`. An output path ending in `.gz` is gzip-compressed transparently.
+`trailer`. The stream is written zstd-compressed by default; see "Compression"
+below.
 
 Cross-references use **natural keys**, never local integer ids:
 list → `folder`, address → `email`, message → `(folder, message_id)`.
@@ -187,6 +192,58 @@ Persons have no natural key, so each gets a file-scoped synthetic key
 recomputes the hash and **aborts the import on mismatch** — a pointer that no
 longer resolves means the file is corrupt.
 
+## Compression
+
+Compression is a property of the container, not of the record format. It is
+declared on write and detected on read; a file's name never decides how it is
+read. `codec.py` owns both directions and raises a single error type,
+`CodecError`.
+
+Writing:
+
+- `export_lists(..., compress=True)` (the default) writes a zstd stream at
+  level 3 and appends `.zst` to the output path unless the path already ends
+  with it. `ExportSummary.path` reports the path actually written, so a caller
+  that passed `export.jsonl` can report the `export.jsonl.zst` it got.
+- `compress=False` writes plain UTF-8 JSON Lines to the path as given; no
+  suffix is added.
+- Level 3 is the zstd library default. On JSON Lines it compresses about as
+  well as gzip's default while being several times faster in both directions;
+  higher levels cost more CPU for a small further reduction.
+- gzip is no longer written.
+
+Reading:
+
+- `import_file` classifies the input from its first bytes: the zstd frame magic
+  `0x28B52FFD`, the gzip member magic `0x1F8B`, or otherwise plain text. The
+  suffix is not consulted, so a compressed export imports under any name.
+- zstd, gzip and uncompressed input are all accepted. Exports written as gzip
+  before zstd became the default, and exports written with `--no-compress`,
+  remain importable unchanged.
+- A corrupt or truncated compressed stream raises `ExportImportError`, the same
+  error type as a malformed record, whether the failure surfaces on open or
+  part-way through the stream.
+
+Backend: zstd is in the standard library from Python 3.14 as
+`compression.zstd`. That release is the project's `requires-python` floor, so
+compression needs no third-party dependency.
+
+### Memory
+
+Neither direction holds more than one message in memory, compressed or
+decompressed:
+
+- The exporter writes each record as its row is read, iterating the per-list
+  message cursor rather than fetching it. Only the small per-file structures —
+  the selected lists, and the addresses and persons the messages reference —
+  are collected up front, from a pre-pass that selects `address_id` alone.
+- The importer consumes one line at a time, and decompression is chunked
+  behind the text handle it reads.
+
+Peak resident memory is therefore a function of the compressor's buffer sizes
+rather than of the file's size. Measured on a 430 MB export, peak RSS fell from
+480.8 MB to 29.8 MB and no longer tracks the export's size.
+
 ## Export semantics
 
 - Lists are selected by `lists.name` (`--all-lists` = every list that has at
@@ -194,6 +251,8 @@ longer resolves means the file is corrupt.
   all matches are exported. An unknown name is an error (`ValueError`).
 - Only persons/addresses actually referenced by the exported messages are
   included, each once (deduplicated across lists in the same file).
+- The file is zstd-compressed unless `compress=False` (`--no-compress` on the
+  CLI); see "Compression" for the suffix and path rules.
 - Purely a local database read: no IMAP, no Pangram, no caps involved.
 
 ## Import semantics
@@ -239,7 +298,7 @@ extraction status, or JSON parse failure → error, rollback, non-zero exit.
 
 ```python
 FORMAT_NAME = "mlac-export"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 @dataclass(frozen=True)
 class ExportSummary:
@@ -273,8 +332,9 @@ class ImportError_(Exception): ...   # module-specific error (name TBD by implem
 
 def export_lists(
     store: Store, list_names: Sequence[str] | None, out_path: str | Path,
-    *, all_lists: bool = False,
-) -> ExportSummary: ...
+    *, all_lists: bool = False, compress: bool = True,
+) -> ExportSummary: ...        # compress ⇒ zstd, '.zst' appended to out_path;
+                               # ExportSummary.path is the path written
 
 def import_file(
     store: Store, in_path: str | Path, *, dry_run: bool = False,
@@ -289,13 +349,17 @@ patterns (argparse, `Config.load()` for the default `--db`, logging setup,
 summary via the module logger, return `0`/`1`):
 
 ```
-mail-ai-export LIST [LIST…] -o FILE [--all-lists] [--db PATH]
+mail-ai-export LIST [LIST…] -o FILE [--all-lists] [--no-compress] [--db PATH]
 mail-ai-import FILE [--db PATH] [--dry-run]
 ```
 
 - `mail-ai-export`: list names or `--all-lists` (not both, mirroring
-  `mail-ai-pull` validation); `-o/--output` required; `.gz` suffix ⇒ gzip.
-- `mail-ai-import`: positional file; `--dry-run` reports without writing;
-  import validation errors log the reason and exit `1`.
+  `mail-ai-pull` validation); `-o/--output` required; the file is
+  zstd-compressed and `.zst` is appended to the output path unless it is
+  already there, and `--no-compress` writes plain JSON Lines to the path as
+  given.
+- `mail-ai-import`: positional file; no compression flag, because the
+  container is detected from the file's content; `--dry-run` reports without
+  writing; import validation errors log the reason and exit `1`.
 
 Message bodies are never logged (matching the existing convention).

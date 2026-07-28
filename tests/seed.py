@@ -37,7 +37,17 @@ _ADDRESSES = {
 # label not None       -> scored with that label / fraction_ai
 _MESSAGES = [
     ("m1", "announce", "a1", "2026-01-05T10:00:00", "Intro to draft", "ok", "AI", 0.95, None),
-    ("m2", "announce", "a1", "2026-01-15T10:00:00", "Re: Intro to draft", "ok", "Human", 0.02, "m1"),
+    (
+        "m2",
+        "announce",
+        "a1",
+        "2026-01-15T10:00:00",
+        "Re: Intro to draft",
+        "ok",
+        "Human",
+        0.02,
+        "m1",
+    ),
     ("m3", "announce", "a3", "2026-01-20T10:00:00", "Comments", "ok", "AI-Assisted", 0.55, None),
     ("m4", "announce", "a4", "2026-02-03T10:00:00", "Question", "ok", "Human", 0.10, None),
     ("m5", "announce", "a5", "2026-02-10T10:00:00", "Short note", "too_short", None, None, None),

@@ -613,12 +613,15 @@ def test_run_fetch_dry_run_does_not_classify(tmp_path):
 def test_import_classifies_the_imported_messages(tmp_path):
     # timing is derived, so it is not carried in the export file; the importer
     # recomputes it in the target instead.
-    out = tmp_path / "export.jsonl"
     with Store(tmp_path / "source.db") as source:
         lid = _list(source, "t")
         _message(source, lid, "<p@x>", T0)
         _message(source, lid, "<r@x>", T0_PLUS_10M, in_reply_to="<p@x>", chars=3000)
-        export_import.export_lists(source, None, out, all_lists=True)
+        # The exporter compresses and appends '.zst', so the summary reports the
+        # path actually written.
+        out = export_import.export_lists(
+            source, None, tmp_path / "export.jsonl", all_lists=True
+        ).path
 
     with Store(tmp_path / "target.db") as target:
         export_import.import_file(target, out)

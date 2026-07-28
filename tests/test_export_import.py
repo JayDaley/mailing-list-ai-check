@@ -6,6 +6,13 @@ records with extraction + score embedded, ``trailer`` last), text stored as a
 pointer into the message body (``full_body`` / ``span`` / ``inline``), and an
 idempotent, collision-safe, all-or-nothing import.
 
+Exports are zstd-compressed by default and the writer appends ``.zst`` to the
+path it is given, so tests read back ``summary.path`` -- the path actually
+written -- rather than the path they passed in. Imports classify the container
+from its content, so the gzip and plain files of older exports are built here
+directly (the exporter can no longer produce them) and imported under whatever
+name they carry.
+
 Fixtures are built through the public :class:`Store` API. The source database
 covers: two lists; messages with and without a sender address; an address linked
 to a person plus unlinked ones; an address with no messages (never exported); a
@@ -16,13 +23,16 @@ and a pull_state cursor for one list.
 
 from __future__ import annotations
 
+import gc
 import gzip
 import json
+import logging
+import tracemalloc
 from pathlib import Path
 
 import pytest
 
-from mailing_list_ai_check import __version__, export_import
+from mailing_list_ai_check import __version__, codec, export_import
 from mailing_list_ai_check.cli import export_main, import_main
 from mailing_list_ai_check.store import Store, sha256_text
 
@@ -223,23 +233,50 @@ def target():
 # --- file helpers -------------------------------------------------------------
 
 
-def _opener(path: Path):
-    return gzip.open if path.suffix == ".gz" else open
-
-
 def _read_records(path: str | Path) -> list[dict]:
-    """Read a (optionally gzip) JSONL export file into a list of record dicts."""
-    p = Path(path)
-    with _opener(p)(p, "rt", encoding="utf-8") as fh:
+    """Read a JSONL export file into record dicts, whatever container it is in."""
+    with codec.open_read_text(path) as fh:
         return [json.loads(line) for line in fh if line.strip()]
 
 
 def _write_records(path: str | Path, records: list[dict]) -> None:
-    """Write record dicts back out as JSONL (gzip when the suffix is .gz)."""
-    p = Path(path)
-    with _opener(p)(p, "wt", encoding="utf-8") as fh:
+    """Write record dicts back out as plain, uncompressed JSONL.
+
+    Deliberately uncompressed: the callers below build malformed files to prove
+    the importer rejects them, and the importer must reach that validation on an
+    uncompressed file just as it does on a zstd one.
+    """
+    with codec.open_write_text(path, compress=False) as fh:
         for rec in records:
             fh.write(json.dumps(rec) + "\n")
+
+
+def _write_gzip_records(path: str | Path, records: list[dict]) -> None:
+    """Write record dicts as a gzip JSONL file, the shape of a pre-zstd export.
+
+    The exporter cannot produce gzip any more, so the backward-compatibility
+    tests build one here instead.
+    """
+    with gzip.open(path, "wt", encoding="utf-8") as fh:
+        for rec in records:
+            fh.write(json.dumps(rec) + "\n")
+
+
+def _write_zstd_records(path: str | Path, records: list[dict]) -> None:
+    """Write record dicts as a zstd JSONL file under whatever name is given."""
+    with codec.open_write_text(path, compress=True) as fh:
+        for rec in records:
+            fh.write(json.dumps(rec) + "\n")
+
+
+def _export_all(store: Store, tmp_path: Path, name: str = "all.jsonl") -> Path:
+    """Export every list from ``store`` and return the path actually written.
+
+    The exporter compresses by default and appends ``.zst``, so the path it
+    reports -- not the one it was handed -- is the file that exists.
+    """
+    summary = export_import.export_lists(store, None, tmp_path / name, all_lists=True)
+    return Path(summary.path)
 
 
 def _messages_of_type(records: list[dict], type_: str) -> list[dict]:
@@ -327,7 +364,7 @@ def test_export_writes_valid_jsonl_with_header_and_trailer(source, tmp_path):
     out = tmp_path / "all.jsonl"
     summary = export_import.export_lists(source, None, out, all_lists=True)
 
-    records = _read_records(out)
+    records = _read_records(summary.path)
     assert records[0]["type"] == "header"
     assert records[-1]["type"] == "trailer"
 
@@ -355,14 +392,15 @@ def test_export_writes_valid_jsonl_with_header_and_trailer(source, tmp_path):
         2,
     )
     assert (summary.lists, summary.messages, summary.extractions, summary.scores) == (2, 6, 5, 2)
-    assert summary.path == str(out)
+    # The summary reports the path actually written -- the compressed one.
+    assert summary.path == str(codec.compressed_path(out))
 
 
 def test_export_text_pointers_and_sha256(source, tmp_path):
     """full_body / span / inline are chosen per spec; sha256 is always the text hash."""
     out = tmp_path / "ptr.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
-    msgs = _message_by_id(_read_records(out))
+    summary = export_import.export_lists(source, None, out, all_lists=True)
+    msgs = _message_by_id(_read_records(summary.path))
 
     # full_body: extracted_text == raw_body.
     e1 = msgs[M1]["extraction"]
@@ -386,8 +424,8 @@ def test_export_text_pointers_and_sha256(source, tmp_path):
 def test_export_message_without_extraction_and_unscored(source, tmp_path):
     """A message with no extraction and an ok-but-unscored extraction round-trip as nulls."""
     out = tmp_path / "misc.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
-    msgs = _message_by_id(_read_records(out))
+    summary = export_import.export_lists(source, None, out, all_lists=True)
+    msgs = _message_by_id(_read_records(summary.path))
 
     assert msgs[M4]["extraction"] is None  # no extraction row
     assert msgs[M2]["extraction"] is not None
@@ -397,8 +435,8 @@ def test_export_message_without_extraction_and_unscored(source, tmp_path):
 def test_export_message_without_sender(source, tmp_path):
     """A message with no sender address exports ``email: null``."""
     out = tmp_path / "nosender.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
-    msgs = _message_by_id(_read_records(out))
+    summary = export_import.export_lists(source, None, out, all_lists=True)
+    msgs = _message_by_id(_read_records(summary.path))
     assert msgs[M3]["email"] is None
     assert msgs[M1]["email"] == "alice@example.org"
 
@@ -406,8 +444,8 @@ def test_export_message_without_sender(source, tmp_path):
 def test_export_score_record_fields(source, tmp_path):
     """The embedded score carries fractions, label, version, raw_response verbatim, sha, time."""
     out = tmp_path / "score.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
-    msgs = _message_by_id(_read_records(out))
+    summary = export_import.export_lists(source, None, out, all_lists=True)
+    msgs = _message_by_id(_read_records(summary.path))
 
     score = msgs[M1]["extraction"]["score"]
     assert score["fraction_ai"] == 0.95
@@ -428,8 +466,8 @@ def test_export_message_records_carry_pipeline_version(source, tmp_path):
     """Every message record carries a ``pipeline_version`` key; the fixture rows
     were all written under the current package version."""
     out = tmp_path / "pv.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
-    msgs = _message_by_id(_read_records(out))
+    summary = export_import.export_lists(source, None, out, all_lists=True)
+    msgs = _message_by_id(_read_records(summary.path))
     assert set(msgs) == {M1, M2, M3, M4, M5, M6}
     for rec in msgs.values():
         assert "pipeline_version" in rec
@@ -440,7 +478,7 @@ def test_export_single_list_only_that_lists_data(source, tmp_path):
     """Selecting one list exports only its messages and only referenced addresses/persons."""
     out = tmp_path / "announce.jsonl"
     summary = export_import.export_lists(source, ["announce"], out)
-    records = _read_records(out)
+    records = _read_records(summary.path)
 
     assert set(_message_by_id(records)) == {M1, M2, M3, M4, M6}  # no M5 (last-call)
     emails = {r["email"] for r in _messages_of_type(records, "address")}
@@ -461,7 +499,7 @@ def test_export_other_single_list_narrows_addresses(source, tmp_path):
     """last-call alone references only Alice; Bob/Carol are not exported."""
     out = tmp_path / "lc.jsonl"
     summary = export_import.export_lists(source, ["last-call"], out)
-    records = _read_records(out)
+    records = _read_records(summary.path)
     assert set(_message_by_id(records)) == {M5}
     emails = {r["email"] for r in _messages_of_type(records, "address")}
     assert emails == {"alice@example.org"}
@@ -470,8 +508,8 @@ def test_export_other_single_list_narrows_addresses(source, tmp_path):
 
 def test_export_all_lists_covers_every_list_with_messages(source, tmp_path):
     out = tmp_path / "all2.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
-    folders = {r["folder"] for r in _messages_of_type(_read_records(out), "list")}
+    summary = export_import.export_lists(source, None, out, all_lists=True)
+    folders = {r["folder"] for r in _messages_of_type(_read_records(summary.path), "list")}
     assert folders == {ANNOUNCE, LAST_CALL}
 
 
@@ -490,19 +528,84 @@ def test_export_rejects_unknown_list_name(source, tmp_path):
         export_import.export_lists(source, ["nope"], tmp_path / "x.jsonl")
 
 
-def test_export_gzip_roundtrips(source, target, tmp_path):
-    """A .gz output is a real gzip file and imports back into a fresh DB."""
-    out = tmp_path / "all.jsonl.gz"
-    export_import.export_lists(source, None, out, all_lists=True)
+def test_export_zstd_roundtrips(source, target, tmp_path):
+    """The default output is a real zstd file and imports back into a fresh DB."""
+    out = tmp_path / "all.jsonl"
+    summary = export_import.export_lists(source, None, out, all_lists=True)
 
-    with open(out, "rb") as fh:
-        assert fh.read(2) == b"\x1f\x8b"  # gzip magic
-    records = _read_records(out)  # transparently decompressed
+    written = Path(summary.path)
+    with open(written, "rb") as fh:
+        assert fh.read(4) == codec.ZSTD_MAGIC
+    records = _read_records(written)  # transparently decompressed
     assert records[0]["type"] == "header"
 
-    summary = export_import.import_file(target, out)
-    assert summary.messages_inserted == 6
+    imported = export_import.import_file(target, written)
+    assert imported.messages_inserted == 6
     assert _messages_by_key(target) == _messages_by_key(source)
+
+
+# ==============================================================================
+# EXPORT -- compression and output paths
+# ==============================================================================
+
+
+def test_export_default_compresses_and_appends_the_suffix(source, tmp_path):
+    """The default run writes zstd to ``<path>.zst``; the bare path is not created."""
+    out = tmp_path / "all.jsonl"
+    summary = export_import.export_lists(source, None, out, all_lists=True)
+
+    written = Path(summary.path)
+    assert written == tmp_path / "all.jsonl.zst"
+    assert written.exists()
+    assert not out.exists()
+    assert codec.detect(written) == "zstd"
+
+
+def test_export_no_compress_writes_plain_and_appends_nothing(source, tmp_path):
+    """``compress=False`` writes uncompressed JSON Lines to the path as given."""
+    out = tmp_path / "plain.jsonl"
+    summary = export_import.export_lists(source, None, out, all_lists=True, compress=False)
+
+    assert summary.path == str(out)
+    assert out.exists()
+    assert not (tmp_path / "plain.jsonl.zst").exists()
+    assert codec.detect(out) == "plain"
+    assert _read_records(out)[0]["type"] == "header"
+
+
+def test_export_does_not_double_suffix_an_already_zst_path(source, tmp_path):
+    """A path that already ends .zst is written in place, not as .zst.zst."""
+    out = tmp_path / "all.jsonl.zst"
+    summary = export_import.export_lists(source, None, out, all_lists=True)
+
+    assert summary.path == str(out)
+    assert out.exists()
+    assert not (tmp_path / "all.jsonl.zst.zst").exists()
+    assert codec.detect(out) == "zstd"
+
+
+def test_export_compressed_and_plain_hold_the_same_records(source, tmp_path):
+    """Compression is a container choice only: the emitted records are identical."""
+    zstd_summary = export_import.export_lists(source, None, tmp_path / "z.jsonl", all_lists=True)
+    plain_summary = export_import.export_lists(
+        source, None, tmp_path / "p.jsonl", all_lists=True, compress=False
+    )
+
+    def _without_timestamp(records: list[dict]) -> list[dict]:
+        return [{k: v for k, v in r.items() if k != "exported_at"} for r in records]
+
+    assert _without_timestamp(_read_records(zstd_summary.path)) == _without_timestamp(
+        _read_records(plain_summary.path)
+    )
+
+
+def test_export_is_smaller_compressed(source, tmp_path):
+    """The zstd container really shrinks the JSON Lines it holds."""
+    zstd_summary = export_import.export_lists(source, None, tmp_path / "z.jsonl", all_lists=True)
+    plain_summary = export_import.export_lists(
+        source, None, tmp_path / "p.jsonl", all_lists=True, compress=False
+    )
+    assert Path(zstd_summary.path).stat().st_size < Path(plain_summary.path).stat().st_size
 
 
 # ==============================================================================
@@ -512,8 +615,7 @@ def test_export_gzip_roundtrips(source, target, tmp_path):
 
 def test_import_into_fresh_db_reproduces_everything(source, target, tmp_path):
     """A fresh import reproduces lists, pull_state, persons, addresses, messages, +children."""
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
     summary = export_import.import_file(target, out)
 
     assert summary.lists_created == 2
@@ -560,8 +662,7 @@ def test_import_into_fresh_db_reproduces_everything(source, target, tmp_path):
 
 def test_import_preserves_file_pipeline_version(source, target, tmp_path):
     """Each imported message carries the exact ``pipeline_version`` from the file."""
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
     export_import.import_file(target, out)
 
     file_versions = {
@@ -575,8 +676,7 @@ def test_import_preserves_file_pipeline_version(source, target, tmp_path):
 
 def test_import_reconstructs_pointer_text_exactly(source, target, tmp_path):
     """full_body / span / inline all reconstruct the original extracted_text verbatim."""
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
     export_import.import_file(target, out)
 
     ext = _extractions_by_key(target)
@@ -593,8 +693,7 @@ def test_import_reconstructs_pointer_text_exactly(source, target, tmp_path):
 
 def test_import_is_idempotent(source, target, tmp_path):
     """Importing the same file twice inserts nothing new and skips every message."""
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
     export_import.import_file(target, out)
     before = _counts(target)
 
@@ -608,8 +707,7 @@ def test_import_is_idempotent(source, target, tmp_path):
 
 def test_import_into_source_db_is_a_noop(source, tmp_path):
     """Importing an export back into the database it came from skips everything."""
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
     before = _counts(source)
 
     summary = export_import.import_file(source, out)
@@ -623,8 +721,7 @@ def test_import_into_source_db_is_a_noop(source, tmp_path):
 def test_import_partial_overlap_skips_existing_and_flags_body_mismatch(source, target, tmp_path):
     """A pre-existing message (same folder+id, different body) is skipped and its
     children are not imported; the mismatch is counted; other messages import."""
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
 
     # Seed the target with m1 under a different body and no extraction.
     ann = target.upsert_list("announce", ANNOUNCE)
@@ -657,8 +754,7 @@ def test_import_partial_overlap_skips_existing_and_flags_body_mismatch(source, t
 
 def test_import_does_not_overwrite_existing_pull_state(source, target, tmp_path):
     """An existing cursor for the list always wins; a fresh cursor is created."""
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
 
     # Target already has a last-call list with its own cursor.
     lc = target.upsert_list("last-call", LAST_CALL)
@@ -671,8 +767,7 @@ def test_import_does_not_overwrite_existing_pull_state(source, target, tmp_path)
 
 
 def test_import_creates_pull_state_when_absent(source, target, tmp_path):
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
     summary = export_import.import_file(target, out)
     assert summary.pull_states_created == 1
     assert _pull_states_by_folder(target) == {LAST_CALL: (42, 99)}
@@ -680,8 +775,7 @@ def test_import_creates_pull_state_when_absent(source, target, tmp_path):
 
 def test_import_existing_list_is_left_untouched(source, target, tmp_path):
     """A list already present is not re-created and its metadata is not overwritten."""
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
 
     target.upsert_list("announce", ANNOUNCE)
     summary = export_import.import_file(target, out)
@@ -692,8 +786,7 @@ def test_import_existing_list_is_left_untouched(source, target, tmp_path):
 def test_import_person_group_joins_existing_target_person(source, target, tmp_path):
     """When a target person already owns one of a group's addresses, the imported
     siblings join that person and no new person row is created."""
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
 
     # Target already links alice@example.org to an existing person.
     existing = target.create_person("Existing Alice")
@@ -713,8 +806,7 @@ def test_import_person_group_joins_existing_target_person(source, target, tmp_pa
 
 def test_import_dry_run_reports_but_writes_nothing(source, target, tmp_path):
     """dry_run mirrors a real run's counts, sets the flag, and leaves the DB untouched."""
-    out = tmp_path / "all.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
+    out = _export_all(source, tmp_path)
 
     before = _counts(target)
     dry = export_import.import_file(target, out, dry_run=True)
@@ -825,9 +917,7 @@ def _versioned_file(tmp_path, name, **seed_kwargs):
     """Build a one-message export file whose version + derived data we control."""
     with Store(":memory:") as s:
         _seed_versioned(s, **seed_kwargs)
-        out = tmp_path / name
-        export_import.export_lists(s, None, out, all_lists=True)
-    return out
+        return _export_all(s, tmp_path, name)
 
 
 def test_import_later_version_replaces_differing_derived_data(target, tmp_path):
@@ -1079,19 +1169,27 @@ def test_import_dry_run_over_update_reports_counts_without_writing(target, tmp_p
 
 
 def _valid_records(source, tmp_path) -> list[dict]:
-    out = tmp_path / "valid.jsonl"
-    export_import.export_lists(source, None, out, all_lists=True)
-    return _read_records(out)
+    return _read_records(_export_all(source, tmp_path, "valid.jsonl"))
+
+
+def _assert_import_of_path_fails_and_rolls_back(target, path):
+    """Assert importing ``path`` raises and leaves ``target`` exactly as it was.
+
+    Returns the raised error, so a caller that cares which failure it got can
+    assert on the message.
+    """
+    before = _counts(target)
+    with pytest.raises(export_import.ExportImportError) as exc:
+        export_import.import_file(target, path)
+    assert _counts(target) == before  # rolled back -- no partial write
+    return exc.value
 
 
 def _assert_import_fails_and_rolls_back(target, records, tmp_path, name="bad.jsonl"):
     """Write ``records`` and assert importing them raises and leaves ``target`` empty."""
     bad = tmp_path / name
     _write_records(bad, records)
-    before = _counts(target)
-    with pytest.raises(export_import.ExportImportError):
-        export_import.import_file(target, bad)
-    assert _counts(target) == before  # rolled back -- no partial write
+    _assert_import_of_path_fails_and_rolls_back(target, bad)
 
 
 def test_import_rejects_first_record_not_header(source, target, tmp_path):
@@ -1163,6 +1261,168 @@ def test_import_rejects_address_referencing_unknown_person_key(source, target, t
 
 
 # ==============================================================================
+# IMPORT -- containers, backward compatibility and corruption
+# ==============================================================================
+#
+# The importer classifies a file by its leading bytes, never by its name, so
+# every container these tests build is read the same way whatever it is called.
+# gzip and plain are the shapes of exports written before zstd; the exporter can
+# no longer produce them, so they are written here directly from a valid record
+# list.
+
+_CONTAINER_WRITERS = {
+    "gzip": _write_gzip_records,
+    "plain": _write_records,
+    "zstd": _write_zstd_records,
+}
+
+#: Bytes of a file that is neither a container nor text: they carry neither the
+#: zstd nor the gzip magic, so detection classifies them as "plain" and they are
+#: handed straight to the UTF-8 decoder, which rejects the very first byte. This
+#: is the shape of any binary file (the leading bytes here are a JPEG's) given to
+#: the importer by mistake, and it exercises the decode failure rather than the
+#: CodecError one -- the tests below assert on the message to keep them apart.
+_BINARY_JUNK = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x02\x03\x0a\xfe\xff\x80\x81" * 8
+
+
+def _assert_matches_source(target, source):
+    """Assert ``target`` holds exactly the source's messages, extractions and scores."""
+    assert _messages_by_key(target) == _messages_by_key(source)
+    assert _extractions_by_key(target) == _extractions_by_key(source)
+    assert _scores_by_key(target) == _scores_by_key(source)
+
+
+def test_import_reads_an_old_gzip_export(source, target, tmp_path):
+    """Backward compatibility: a gzip export from before zstd still imports in full."""
+    old = tmp_path / "old-export.jsonl.gz"
+    _write_gzip_records(old, _valid_records(source, tmp_path))
+    assert codec.detect(old) == "gzip"
+
+    summary = export_import.import_file(target, old)
+    assert summary.messages_inserted == 6
+    assert summary.extractions_inserted == 5
+    assert summary.scores_inserted == 2
+    _assert_matches_source(target, source)
+
+
+def test_import_reads_an_old_uncompressed_export(source, target, tmp_path):
+    """Backward compatibility: an uncompressed export still imports in full."""
+    old = tmp_path / "old-export.jsonl"
+    _write_records(old, _valid_records(source, tmp_path))
+    assert codec.detect(old) == "plain"
+
+    summary = export_import.import_file(target, old)
+    assert summary.messages_inserted == 6
+    _assert_matches_source(target, source)
+
+
+@pytest.mark.parametrize(
+    ("container", "name"),
+    [
+        ("zstd", "zstd-under-a-plain-name.jsonl"),
+        ("gzip", "gzip-under-a-plain-name.jsonl"),
+        ("plain", "plain-under-a-compressed-name.zst"),
+    ],
+)
+def test_import_ignores_the_file_suffix(source, target, tmp_path, container, name):
+    """A misleading suffix changes nothing: the content decides how the file is read."""
+    path = tmp_path / name
+    _CONTAINER_WRITERS[container](path, _valid_records(source, tmp_path))
+    assert codec.detect(path) == container
+
+    summary = export_import.import_file(target, path)
+    assert summary.messages_inserted == 6
+    _assert_matches_source(target, source)
+
+
+def test_zstd_roundtrip_reproduces_state_and_reimport_is_a_noop(source, target, tmp_path):
+    """A default (zstd) export reproduces the source exactly, and importing it
+    again changes nothing."""
+    out = _export_all(source, tmp_path)
+    assert codec.detect(out) == "zstd"
+
+    first = export_import.import_file(target, out)
+    assert first.messages_inserted == 6
+    _assert_matches_source(target, source)
+    assert _person_groups(target) == _person_groups(source)
+    assert _pull_states_by_folder(target) == {LAST_CALL: (42, 99)}
+    after_first = _counts(target)
+
+    second = export_import.import_file(target, out)
+    assert second.messages_inserted == 0
+    assert second.messages_skipped == 6
+    assert second.extractions_inserted == 0
+    assert second.scores_inserted == 0
+    assert _counts(target) == after_first
+    _assert_matches_source(target, source)
+
+
+def test_import_rejects_a_truncated_zstd_file(source, target, tmp_path):
+    """A cut-short zstd frame is an ExportImportError, not a CodecError leak."""
+    good = _export_all(source, tmp_path)
+    truncated = tmp_path / "truncated.jsonl.zst"
+    truncated.write_bytes(good.read_bytes()[: good.stat().st_size // 2])
+
+    _assert_import_of_path_fails_and_rolls_back(target, truncated)
+
+
+def test_import_rejects_zstd_magic_followed_by_garbage(target, tmp_path):
+    """Content that only looks like zstd fails as a bad file, not a crash."""
+    fake = tmp_path / "fake.jsonl.zst"
+    fake.write_bytes(codec.ZSTD_MAGIC + b"this is not a zstd frame" * 8)
+
+    _assert_import_of_path_fails_and_rolls_back(target, fake)
+
+
+def test_import_rejects_a_corrupt_gzip_file(source, target, tmp_path):
+    """The legacy gzip read path reports corruption as the same one exception type."""
+    good = tmp_path / "old.jsonl.gz"
+    _write_gzip_records(good, _valid_records(source, tmp_path))
+    truncated = tmp_path / "truncated.jsonl.gz"
+    truncated.write_bytes(good.read_bytes()[:60])
+
+    _assert_import_of_path_fails_and_rolls_back(target, truncated)
+
+
+def test_import_rejects_a_non_utf8_binary_file(target, tmp_path):
+    """Binary without a container magic is read as plain text and fails cleanly.
+
+    Nothing but zstd and gzip magic marks a file as compressed, so a binary file
+    reaches the UTF-8 decoder instead of the codec layer; the decode failure must
+    still be an ExportImportError with the target rolled back, not a
+    UnicodeDecodeError escaping to the caller.
+    """
+    junk = tmp_path / "photo.jsonl"
+    junk.write_bytes(_BINARY_JUNK)
+    assert codec.detect(junk) == "plain"  # no magic: not the CodecError path
+
+    err = _assert_import_of_path_fails_and_rolls_back(target, junk)
+    assert "not valid UTF-8" in str(err)  # the decode branch, not a broken container
+
+
+def test_import_of_a_corrupt_file_leaves_existing_rows_alone(source, target, tmp_path):
+    """Rollback protects data already in the target, not just an empty database."""
+    export_import.import_file(target, _export_all(source, tmp_path, "first.jsonl"))
+    before_messages = _messages_by_key(target)
+    before_counts = _counts(target)
+
+    good = _export_all(source, tmp_path, "second.jsonl")
+    truncated = tmp_path / "truncated.jsonl.zst"
+    truncated.write_bytes(good.read_bytes()[: good.stat().st_size // 2])
+
+    with pytest.raises(export_import.ExportImportError):
+        export_import.import_file(target, truncated)
+    assert _counts(target) == before_counts
+    assert _messages_by_key(target) == before_messages
+
+
+def test_import_missing_file_still_raises_file_not_found(target, tmp_path):
+    """A missing file stays distinguishable from a corrupt one."""
+    with pytest.raises(FileNotFoundError):
+        export_import.import_file(target, tmp_path / "nope.jsonl.zst")
+
+
+# ==============================================================================
 # CLI
 # ==============================================================================
 
@@ -1178,7 +1438,7 @@ def test_export_main_happy_path(tmp_path):
     out = tmp_path / "cli.jsonl"
     rc = export_main(["announce", "last-call", "-o", str(out), "--db", str(src)])
     assert rc == 0
-    records = _read_records(out)
+    records = _read_records(codec.compressed_path(out))
     assert records[0]["type"] == "header"
     assert len(_message_by_id(records)) == 6
 
@@ -1189,20 +1449,64 @@ def test_export_main_all_lists(tmp_path):
     out = tmp_path / "cli-all.jsonl"
     rc = export_main(["--all-lists", "-o", str(out), "--db", str(src)])
     assert rc == 0
-    assert {r["folder"] for r in _messages_of_type(_read_records(out), "list")} == {
+    records = _read_records(codec.compressed_path(out))
+    assert {r["folder"] for r in _messages_of_type(records, "list")} == {
         ANNOUNCE,
         LAST_CALL,
     }
 
 
-def test_export_main_gzip(tmp_path):
+def test_export_main_compresses_by_default(tmp_path):
+    """The default CLI run writes zstd to '<output>.zst'; the bare path is unused."""
     src = tmp_path / "src.db"
     _build_source_db(src)
-    out = tmp_path / "cli.jsonl.gz"
+    out = tmp_path / "cli.jsonl"
     rc = export_main(["--all-lists", "-o", str(out), "--db", str(src)])
     assert rc == 0
-    with open(out, "rb") as fh:
-        assert fh.read(2) == b"\x1f\x8b"
+
+    written = codec.compressed_path(out)
+    assert written.exists()
+    assert not out.exists()
+    with open(written, "rb") as fh:
+        assert fh.read(4) == codec.ZSTD_MAGIC
+
+
+def test_export_main_no_compress_writes_plain_to_the_given_path(tmp_path):
+    """--no-compress writes uncompressed JSON Lines and appends no suffix."""
+    src = tmp_path / "src.db"
+    _build_source_db(src)
+    out = tmp_path / "cli.jsonl"
+    rc = export_main(["--all-lists", "-o", str(out), "--db", str(src), "--no-compress"])
+    assert rc == 0
+
+    assert out.exists()
+    assert not codec.compressed_path(out).exists()
+    assert codec.detect(out) == "plain"
+    assert _read_records(out)[0]["type"] == "header"
+
+
+def test_export_main_logs_the_path_actually_written(tmp_path, caplog):
+    """The summary line names the compressed file on disk, not the -o argument."""
+    src = tmp_path / "src.db"
+    _build_source_db(src)
+    out = tmp_path / "cli.jsonl"
+    written = codec.compressed_path(out)
+
+    with caplog.at_level(logging.INFO, logger="mailing_list_ai_check.export"):
+        assert export_main(["--all-lists", "-o", str(out), "--db", str(src)]) == 0
+    assert f"path={written}" in caplog.text
+
+
+def test_export_main_no_compress_logs_the_given_path(tmp_path, caplog):
+    """Without compression the logged path is the one the caller asked for."""
+    src = tmp_path / "src.db"
+    _build_source_db(src)
+    out = tmp_path / "cli.jsonl"
+
+    with caplog.at_level(logging.INFO, logger="mailing_list_ai_check.export"):
+        assert export_main(["--all-lists", "-o", str(out), "--db", str(src), "--no-compress"]) == 0
+    assert f"path={out}" in caplog.text
+    assert f"path={out}{codec.COMPRESSED_SUFFIX}" not in caplog.text
 
 
 def test_export_main_rejects_names_and_all_lists(tmp_path):
@@ -1221,14 +1525,17 @@ def test_export_main_rejects_neither(tmp_path):
     assert exc.value.code == 2
 
 
-def test_import_main_happy_path(tmp_path):
+@pytest.mark.parametrize("extra_args", [[], ["--no-compress"]], ids=["zstd", "plain"])
+def test_import_main_happy_path(tmp_path, extra_args):
+    """The CLI reads back both the compressed and the uncompressed export."""
     src = tmp_path / "src.db"
     _build_source_db(src)
     out = tmp_path / "cli.jsonl"
-    export_main(["--all-lists", "-o", str(out), "--db", str(src)])
+    export_main(["--all-lists", "-o", str(out), "--db", str(src), *extra_args])
+    written = out if extra_args else codec.compressed_path(out)
 
     target = tmp_path / "target.db"
-    rc = import_main([str(out), "--db", str(target)])
+    rc = import_main([str(written), "--db", str(target)])
     assert rc == 0
     with Store(target) as t, Store(src) as s:
         assert _messages_by_key(t) == _messages_by_key(s)
@@ -1241,7 +1548,7 @@ def test_import_main_dry_run_writes_nothing(tmp_path):
     export_main(["--all-lists", "-o", str(out), "--db", str(src)])
 
     target = tmp_path / "target.db"
-    rc = import_main([str(out), "--db", str(target), "--dry-run"])
+    rc = import_main([str(codec.compressed_path(out)), "--db", str(target), "--dry-run"])
     assert rc == 0
     with Store(target) as t:
         assert _counts(t)["messages"] == 0
@@ -1255,3 +1562,114 @@ def test_import_main_returns_1_on_corrupt_file(tmp_path):
     assert rc == 1
     with Store(target) as t:
         assert _counts(t)["messages"] == 0
+
+
+def test_import_main_returns_1_on_a_corrupt_compressed_file(tmp_path):
+    """A broken container is as much a bad file as a broken record: rc 1, not a crash."""
+    bad = tmp_path / "corrupt.jsonl.zst"
+    bad.write_bytes(codec.ZSTD_MAGIC + b"not a zstd frame" * 8)
+    target = tmp_path / "target.db"
+    rc = import_main([str(bad), "--db", str(target)])
+    assert rc == 1
+    with Store(target) as t:
+        assert _counts(t)["messages"] == 0
+
+
+def test_import_main_returns_1_on_a_non_utf8_binary_file(tmp_path, caplog):
+    """A binary file the CLI is pointed at is a logged error, not a traceback."""
+    bad = tmp_path / "photo.jsonl"
+    bad.write_bytes(_BINARY_JUNK)
+    target = tmp_path / "target.db"
+
+    with caplog.at_level(logging.ERROR, logger="mailing_list_ai_check.import"):
+        rc = import_main([str(bad), "--db", str(target)])
+    assert rc == 1
+    assert "import failed" in caplog.text
+    assert "not valid UTF-8" in caplog.text  # the decode branch, not a broken container
+    with Store(target) as t:
+        assert _counts(t)["messages"] == 0
+
+
+# ==============================================================================
+# EXPORT -- streaming regression guard
+# ==============================================================================
+#
+# export_lists must write each message record as its row is read, so that peak
+# memory is a function of the largest single message and not of how much mail is
+# being exported. The guard below exports a synthetic database whose bodies
+# dominate it and asserts that the exporter's own peak allocation stays far
+# below the total body volume -- which it cannot do if the records are collected
+# before being written.
+#
+# Why tracemalloc, and not the alternatives:
+#
+# - tracemalloc counts bytes this interpreter allocates for Python objects. It
+#   is unaffected by wall-clock time, machine load, other processes, and the
+#   test session's history (reset_peak gives a clean baseline), so the bound
+#   below fails only on a real change in allocation behaviour. SQLite holds the
+#   source database in C memory it does not trace, which keeps the baseline
+#   small and the signal -- the row strings and record dicts crossing into
+#   Python -- undiluted.
+# - Peak RSS (resource.getrusage) is a process-lifetime high-water mark that
+#   cannot be reset, includes every allocator arena the rest of the suite has
+#   already touched, and is subject to the OS's paging decisions: on a loaded CI
+#   machine it is exactly the kind of measurement that flakes.
+# - "The output file grows before export_lists returns" needs a timing or
+#   ordering hook, and would fail on an implementation that streams correctly
+#   but buffers its writes a little more eagerly.
+# - Instrumenting the store cursor to prove no fetchall() of message rows binds
+#   the test to today's SQL calls rather than to the property that matters.
+#
+# Sizing: 120 bodies of 250,000 characters is ~30 MB of mail built in well under
+# a second and never written to disk uncompressed. Streaming holds roughly one
+# body at a time (measured ~1 MB peak); buffering would hold all of them. The
+# bound is a quarter of the body volume, an order of magnitude above the
+# streaming figure and well below the buffering one.
+
+_STREAM_MESSAGES = 120
+_STREAM_BODY_CHARS = 250_004  # a multiple of 4, the repeated unit's length
+_STREAM_TOTAL_CHARS = _STREAM_MESSAGES * _STREAM_BODY_CHARS
+_STREAM_PEAK_LIMIT = _STREAM_TOTAL_CHARS // 4
+
+
+def _build_bulky_source(store: Store) -> None:
+    """Populate ``store`` with many large-bodied messages and nothing else."""
+    lst = store.upsert_list("bulk", "Shared Folders/bulk")
+    for i in range(_STREAM_MESSAGES):
+        store.upsert_message(
+            message_id=f"<bulk{i}@example.org>",
+            list_id=lst.id,
+            address_id=None,
+            subject=f"Bulk {i}",
+            date="2026-04-01T00:00:00+00:00",
+            in_reply_to=None,
+            raw_body=f"{i:04d}" * (_STREAM_BODY_CHARS // 4),
+            uid=i,
+            fetched_at="2026-04-02T00:00:00+00:00",
+        )
+
+
+def test_export_streams_without_buffering_messages(tmp_path):
+    """Peak allocation during an export is independent of how much mail it holds."""
+    with Store(":memory:") as store:
+        _build_bulky_source(store)
+        gc.collect()
+
+        tracemalloc.start()
+        try:
+            baseline = tracemalloc.get_traced_memory()[0]
+            tracemalloc.reset_peak()
+            summary = export_import.export_lists(
+                store, None, tmp_path / "bulk.jsonl", all_lists=True
+            )
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+    assert summary.messages == _STREAM_MESSAGES
+    assert Path(summary.path).exists()
+    assert peak - baseline < _STREAM_PEAK_LIMIT, (
+        f"export allocated {peak - baseline} bytes at peak for "
+        f"{_STREAM_TOTAL_CHARS} bytes of message bodies; the exporter is "
+        f"buffering records instead of streaming them"
+    )

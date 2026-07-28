@@ -151,7 +151,7 @@ def _decode_part(part: EmailMessage) -> str | None:
     """
     try:
         content = part.get_content()
-    except (LookupError, ValueError, UnicodeDecodeError):
+    except LookupError, ValueError, UnicodeDecodeError:
         payload = part.get_payload(decode=True) or b""
         content = payload.decode("utf-8", errors="replace")
     return content if content else None
@@ -190,12 +190,12 @@ def _date_header_to_iso(msg: EmailMessage) -> str | None:
     dt = None
     try:
         dt = date_hdr.datetime  # type: ignore[attr-defined]
-    except (AttributeError, ValueError):
+    except AttributeError, ValueError:
         dt = None
     if dt is None:
         try:
             dt = parsedate_to_datetime(str(date_hdr))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             dt = None
     if dt is None:
         return None
