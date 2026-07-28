@@ -1,7 +1,7 @@
 """Tests for stale-extraction detection and repair.
 
-Three layers, in order: the ``extractions.pipeline_version`` column and the store
-methods that write it (migration 008), the
+Three layers, in order: the ``extractions.extraction_version`` column and the
+store methods that write it (migration 011), the
 :mod:`mailing_list_ai_check.staleness` operations over it (check / diff /
 reextract), and the four ``/api/staleness*`` endpoints the dashboard drives.
 
@@ -18,16 +18,21 @@ import pytest
 from mailing_list_ai_check import __version__
 from mailing_list_ai_check.cli import ScoreSummary, run_extract, run_score
 from mailing_list_ai_check.config import Config
+from mailing_list_ai_check.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.staleness import check, diff, reextract
-from mailing_list_ai_check.store import Store, extraction_generation, sha256_text
+from mailing_list_ai_check.store import Store, sha256_text
 from mailing_list_ai_check.webapp import create_app
 
 from seed import seed
 
-#: A version in an older extraction generation than the running one, and one that
-#: differs from it only in the patch component.
+#: An extraction generation older than the running one, and one newer than it
+#: (what a store written by a later build carries — never stale).
+OLD_GENERATION = EXTRACTION_VERSION - 1
+NEWER_GENERATION = EXTRACTION_VERSION + 1
+
+#: An app version unrelated to the running one, for the rows whose provenance
+#: stamp a test pins. The app version no longer bears on staleness at all.
 OLD_VERSION = "0.9.0"
-PATCH_VERSION = ".".join([*__version__.split(".")[:2], "999"])
 
 #: A body long enough to read like prose, with no quoting or furniture, so that
 #: extraction returns it unchanged and cleaning leaves it alone.
@@ -84,12 +89,13 @@ def score(store, extraction_id, text):
     )
 
 
-# --- migration 008 and the store methods --------------------------------------
+# --- migrations 008/011 and the store methods ---------------------------------
 
 
-def test_migration_adds_extraction_pipeline_version_column(store):
+def test_migration_adds_the_extraction_version_columns(store):
     cols = {row["name"] for row in store.conn.execute("PRAGMA table_info(extractions)").fetchall()}
     assert "pipeline_version" in cols
+    assert "extraction_version" in cols
 
 
 def test_migration_backfills_extraction_version_from_message(tmp_path):
@@ -104,52 +110,59 @@ def test_migration_backfills_extraction_version_from_message(tmp_path):
             pipeline_version="1.1.0",
         )
         # Rewind to pre-008 with the column gone, leaving only the message
-        # stamp. The timing columns (009/010) are dropped too so they re-apply.
+        # stamp. The timing columns (009/010) and extraction_version (011) are
+        # dropped too so they re-apply.
         s.conn.execute("DELETE FROM schema_version WHERE version >= 8")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
+        s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
         s.conn.execute("DROP INDEX idx_messages_timing")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.commit()
     with Store(db) as s:
-        assert s.extraction_for_message(message.id).pipeline_version == "1.1.0"
+        after = s.extraction_for_message(message.id)
+    # 008 recovers the app version from the message, and 011 maps it onto the
+    # generation that app version derived text with.
+    assert after.pipeline_version == "1.1.0"
+    assert after.extraction_version == 1
 
 
-def test_insert_extraction_stamps_the_running_version(store):
+def test_insert_extraction_stamps_the_running_versions(store):
     message = add_message(store)
     extraction = store.insert_extraction(
         message_id=message.id, extracted_text=BODY, method="m", status="ok"
     )
     assert extraction.pipeline_version == __version__
+    assert extraction.extraction_version == EXTRACTION_VERSION
 
 
 def test_extraction_version_counts_orders_oldest_generation_first(store):
-    for i, version in enumerate((__version__, OLD_VERSION, OLD_VERSION)):
+    for i, generation in enumerate((EXTRACTION_VERSION, OLD_GENERATION, OLD_GENERATION)):
         message = add_message(store, message_id=f"<v{i}@test>")
         extraction = store.insert_extraction(
             message_id=message.id,
             extracted_text=f"text {i}",
             method="m",
             status="ok",
-            pipeline_version=version,
+            extraction_version=generation,
         )
         # A NULL stamp only reaches the column through the migration backfill
-        # (insert_extraction's None means "use the running version"), so write it
-        # directly to get the unrecorded case into the tally.
+        # (insert_extraction's None means "use the running generation"), so write
+        # it directly to get the unrecorded case into the tally.
         if i == 1:
             store.conn.execute(
-                "UPDATE extractions SET pipeline_version = NULL WHERE id = ?", (extraction.id,)
+                "UPDATE extractions SET extraction_version = NULL WHERE id = ?", (extraction.id,)
             )
             store.conn.commit()
     assert store.extraction_version_counts() == [
         (None, 1),
-        (OLD_VERSION, 1),
-        (__version__, 1),
+        (OLD_GENERATION, 1),
+        (EXTRACTION_VERSION, 1),
     ]
 
 
-def test_set_extraction_version_leaves_the_text_alone(store):
+def test_set_extraction_version_writes_both_stamps_and_leaves_the_text_alone(store):
     message = add_message(store)
     extraction = store.insert_extraction(
         message_id=message.id,
@@ -157,11 +170,23 @@ def test_set_extraction_version_leaves_the_text_alone(store):
         method="m",
         status="ok",
         pipeline_version=OLD_VERSION,
+        extraction_version=OLD_GENERATION,
     )
     store.set_extraction_version(extraction.id)
     after = store.get_extraction(extraction.id)
     assert after.pipeline_version == __version__
+    assert after.extraction_version == EXTRACTION_VERSION
     assert after.extracted_text == BODY
+
+
+def test_set_extraction_version_honors_explicit_stamps(store):
+    message = add_message(store)
+    extraction = store.insert_extraction(
+        message_id=message.id, extracted_text=BODY, method="m", status="ok"
+    )
+    store.set_extraction_version(extraction.id, OLD_GENERATION, OLD_VERSION)
+    after = store.get_extraction(extraction.id)
+    assert (after.extraction_version, after.pipeline_version) == (OLD_GENERATION, OLD_VERSION)
 
 
 def test_replace_extraction_rewrites_the_row_and_restamps_the_message(store):
@@ -186,6 +211,7 @@ def test_replace_extraction_rewrites_the_row_and_restamps_the_message(store):
     assert after.method == "new"
     assert after.char_count == len("new text here")
     assert after.pipeline_version == __version__
+    assert after.extraction_version == EXTRACTION_VERSION
     assert after.created_at == extraction.created_at  # first-extraction time is kept
     assert store.get_message(message.id).pipeline_version == __version__
 
@@ -214,14 +240,6 @@ def test_delete_score_for_extraction(store):
     assert store.delete_score_for_extraction(extraction.id) is False
 
 
-def test_extraction_generation_ignores_the_patch_component():
-    assert extraction_generation("1.2.3") == (1, 2)
-    assert extraction_generation("1.2.99") == extraction_generation("1.2.0")
-    assert extraction_generation("1.3.0") > extraction_generation("1.2.99")
-    assert extraction_generation(None) == (0, 0)
-    assert extraction_generation("not-a-version") == (0, 0)
-
-
 # --- check() ------------------------------------------------------------------
 
 
@@ -230,6 +248,7 @@ def test_check_on_an_empty_store_is_not_stale(store):
     assert report.stale is False
     assert (report.total, report.stale_count, report.current_count) == (0, 0, 0)
     assert report.app_version == __version__
+    assert report.extraction_version == EXTRACTION_VERSION
 
 
 def test_check_is_not_stale_after_a_normal_extraction_run(store):
@@ -243,32 +262,52 @@ def test_check_is_not_stale_after_a_normal_extraction_run(store):
 def test_check_reports_an_older_generation_as_stale(store):
     message = extracted(store)
     extraction = store.extraction_for_message(message.id)
-    store.set_extraction_version(extraction.id, OLD_VERSION)
+    store.set_extraction_version(extraction.id, OLD_GENERATION)
 
     report = check(store)
     assert report.stale is True
     assert report.stale_count == 1
     assert report.total == 1
-    assert [(v.version, v.count, v.stale) for v in report.versions] == [(OLD_VERSION, 1, True)]
+    assert [(v.extraction_version, v.count, v.stale) for v in report.versions] == [
+        (OLD_GENERATION, 1, True)
+    ]
 
 
-def test_check_treats_a_missing_version_as_stale(store):
+def test_check_treats_a_missing_generation_as_stale(store):
     message = extracted(store)
     extraction = store.extraction_for_message(message.id)
     store.conn.execute(
-        "UPDATE extractions SET pipeline_version = NULL WHERE id = ?", (extraction.id,)
+        "UPDATE extractions SET extraction_version = NULL WHERE id = ?", (extraction.id,)
     )
     store.conn.commit()
     assert check(store).stale is True
 
 
-def test_check_ignores_a_patch_only_difference(store):
+def test_check_ignores_the_app_version(store):
+    """Only the generation stamp counts: an old app version is not staleness."""
     message = extracted(store)
     extraction = store.extraction_for_message(message.id)
-    store.set_extraction_version(extraction.id, PATCH_VERSION)
+    store.set_extraction_version(extraction.id, EXTRACTION_VERSION, OLD_VERSION)
     report = check(store)
     assert report.stale is False
     assert report.current_count == 1
+
+
+def test_check_does_not_offer_to_downgrade_a_newer_generation(store):
+    """A store written by a later build reads as current, never stale.
+
+    The comparison is ``<``, not ``!=``: text derived by a newer routine than
+    this build has is better than anything re-extraction here could produce, so
+    the check must not offer to overwrite it.
+    """
+    message = extracted(store)
+    extraction = store.extraction_for_message(message.id)
+    store.set_extraction_version(extraction.id, NEWER_GENERATION)
+    report = check(store)
+    assert report.stale is False
+    assert report.stale_count == 0
+    assert report.current_count == 1
+    assert [(v.extraction_version, v.stale) for v in report.versions] == [(NEWER_GENERATION, False)]
 
 
 # --- diff() -------------------------------------------------------------------
@@ -277,18 +316,19 @@ def test_check_ignores_a_patch_only_difference(store):
 def test_diff_stamps_unchanged_extractions_and_reports_nothing(store):
     message = extracted(store)
     extraction = store.extraction_for_message(message.id)
-    store.set_extraction_version(extraction.id, OLD_VERSION)
+    store.set_extraction_version(extraction.id, OLD_GENERATION)
 
     report = diff(store)
     assert report.differing == []
     assert (report.checked, report.unchanged, report.stamped) == (1, 1, 1)
     # The stamp is what stops a re-derivation that found nothing from prompting
     # again on the next start-up.
-    assert store.extraction_for_message(message.id).pipeline_version == __version__
+    after = store.extraction_for_message(message.id)
+    assert (after.extraction_version, after.pipeline_version) == (EXTRACTION_VERSION, __version__)
     assert check(store).stale is False
 
 
-def test_diff_stamps_nothing_when_versions_are_already_current(store):
+def test_diff_stamps_nothing_when_the_generation_is_already_current(store):
     extracted(store)
     report = diff(store)
     assert (report.checked, report.unchanged, report.stamped) == (1, 1, 0)
@@ -303,6 +343,7 @@ def test_diff_reports_a_changed_extraction_with_its_metadata(store):
         method="m",
         status="ok",
         pipeline_version=OLD_VERSION,
+        extraction_version=OLD_GENERATION,
     )
     score(store, extraction.id, "something else entirely")
 
@@ -318,6 +359,7 @@ def test_diff_reports_a_changed_extraction_with_its_metadata(store):
     assert row.from_address == "alice@example.org"
     assert row.from_display_name == "Alice Smith"
     assert row.pipeline_version == OLD_VERSION
+    assert row.extraction_version == OLD_GENERATION
     assert row.old_chars == len("something else entirely")
     assert row.new_chars == len(BODY)
     assert row.old_status == "ok"
@@ -368,6 +410,7 @@ def test_reextract_rewrites_a_changed_extraction_and_invalidates_its_score(store
     after = store.extraction_for_message(message.id)
     assert after.extracted_text == BODY
     assert after.pipeline_version == __version__
+    assert after.extraction_version == EXTRACTION_VERSION
     assert store.score_for_extraction(extraction.id) is None
 
 
@@ -397,11 +440,12 @@ def test_reextract_keeps_the_score_when_only_the_extracted_text_changed(store):
 def test_reextract_only_stamps_an_unchanged_extraction(store):
     message = extracted(store)
     extraction = store.extraction_for_message(message.id)
-    store.set_extraction_version(extraction.id, OLD_VERSION)
+    store.set_extraction_version(extraction.id, OLD_GENERATION)
 
     summary = reextract(store, [message.id])
     assert (summary.processed, summary.rewritten, summary.unchanged) == (1, 0, 1)
-    assert store.extraction_for_message(message.id).pipeline_version == __version__
+    after = store.extraction_for_message(message.id)
+    assert (after.extraction_version, after.pipeline_version) == (EXTRACTION_VERSION, __version__)
 
 
 def test_reextract_reports_a_no_longer_ok_extraction(store):
@@ -495,7 +539,7 @@ def seeded_db(tmp_path):
         seed(store)
         for message_pk in store.extracted_message_ids():
             extraction = store.extraction_for_message(message_pk)
-            store.set_extraction_version(extraction.id, OLD_VERSION)
+            store.set_extraction_version(extraction.id, OLD_GENERATION, OLD_VERSION)
     return path
 
 
@@ -506,13 +550,16 @@ def client(seeded_db):
     return app.test_client()
 
 
-def test_staleness_endpoint_reports_the_version_breakdown(client):
+def test_staleness_endpoint_reports_the_generation_breakdown(client):
     data = client.get("/api/staleness").get_json()
     assert data["stale"] is True
     assert data["app_version"] == __version__
+    assert data["extraction_version"] == EXTRACTION_VERSION
     assert data["stale_count"] == data["total"] > 0
     assert data["current_count"] == 0
-    assert data["versions"] == [{"version": OLD_VERSION, "count": data["total"], "stale": True}]
+    assert data["versions"] == [
+        {"extraction_version": OLD_GENERATION, "count": data["total"], "stale": True}
+    ]
 
 
 def test_staleness_check_lists_the_affected_messages(client):
@@ -532,7 +579,7 @@ def test_staleness_check_stamps_extractions_it_finds_unchanged(tmp_path):
     path = tmp_path / "unchanged.db"
     with Store(path) as store:
         message = extracted(store)
-        store.set_extraction_version(store.extraction_for_message(message.id).id, OLD_VERSION)
+        store.set_extraction_version(store.extraction_for_message(message.id).id, OLD_GENERATION)
     app = create_app(_config(path), frontend_dist=None)
     app.testing = True
     web = app.test_client()
@@ -554,9 +601,16 @@ def test_staleness_reextract_rewrites_only_the_given_messages(client, seeded_db)
 
     with Store(seeded_db) as store:
         for message_pk in chosen:
-            assert store.extraction_for_message(message_pk).pipeline_version == __version__
-        untouched = next(i for i in ids if i not in chosen)
-        assert store.extraction_for_message(untouched).pipeline_version == OLD_VERSION
+            after = store.extraction_for_message(message_pk)
+            assert (after.extraction_version, after.pipeline_version) == (
+                EXTRACTION_VERSION,
+                __version__,
+            )
+        untouched = store.extraction_for_message(next(i for i in ids if i not in chosen))
+        assert (untouched.extraction_version, untouched.pipeline_version) == (
+            OLD_GENERATION,
+            OLD_VERSION,
+        )
 
 
 @pytest.mark.parametrize(

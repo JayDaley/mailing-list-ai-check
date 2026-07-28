@@ -1,10 +1,13 @@
 # Export / import design
 
 > **Includes the app/pipeline versioning scheme** (see "Versioning" below):
-> the app carries a semantic version, every message records the pipeline
-> version that last processed it, exports carry both, and imports from a later
-> pipeline version refresh a message's extraction/score without touching the
-> message itself.
+> the app carries a semantic version, every message records the app version
+> that last processed it, exports carry both, and imports from a later pipeline
+> version refresh a message's extraction/score without touching the message
+> itself. The routine that derives extracted text carries a separate number,
+> `extraction.EXTRACTION_VERSION`; each exported extraction carries the
+> generation that produced its text, and the importer preserves it rather than
+> claiming the importing build's.
 
 Move everything related to a list's messages — the messages themselves, what
 was extracted from each, and what Pangram was sent and returned — between
@@ -50,13 +53,18 @@ The app uses [semantic versioning](https://semver.org/), starting at
 reads it dynamically (`dynamic = ["version"]` +
 `[tool.setuptools.dynamic]`), so the two can never drift.
 
-Bump policy (also recorded in `CLAUDE.md` and the README):
+Bump policy (also recorded in `CLAUDE.md` and the README) is ordinary semantic
+versioning: **major** for a breaking change, **minor** for a feature or any
+other user-visible change, **patch** for a fix or an internal change. No
+component of the app version is reserved for extraction changes.
 
-- **minor** (1.0.0 → 1.1.0): any change to extraction or post-extraction
-  processing — `extraction.py`, `cleaning.py`, `html_text.py`, or the
-  scoring pipeline logic — i.e. anything that could change what text is
-  derived from a message or what is sent to Pangram.
-- **patch** (1.0.0 → 1.0.1): every other change, for now.
+The routine that derives extracted text carries its own integer generation,
+`extraction.EXTRACTION_VERSION`, incremented by hand whenever a change to
+`extraction.py`, `cleaning.py` or `html_text.py` could alter the derived text or
+an extraction's status. Every `extractions` row records the generation that
+produced its text (`extractions.extraction_version`, migration 011), and that is
+the value the staleness check compares. `extractions.pipeline_version` remains as
+provenance: the app version that wrote the row.
 
 ### Per-message pipeline version
 
@@ -85,6 +93,20 @@ never lexically. An unparsable or missing version compares as `(0, 0, 0)`.
 - This is a breaking format change, so `FORMAT_VERSION` is **2**; version-1
   files are rejected (none exist in the wild — the format shipped
   unreleased).
+- The extraction generation was added to version 2 **additively**, leaving
+  `FORMAT_VERSION` at 2: each embedded `extraction` object carries
+  `"extraction_version"` (may be null), and the `header` carries the exporting
+  build's `EXTRACTION_VERSION` for diagnostics only — a store can hold text from
+  several generations at once, so the per-extraction value is the authoritative
+  one. A bump was avoided because neither direction needs rejecting: new code
+  reading an older file finds the key absent and infers the generation from the
+  message's `pipeline_version` (`>= 1.2.0` is generation 2, anything earlier is
+  generation 1, unknown stays null — `store.extraction_version_for_app_version`,
+  the same mapping migration 011 applies locally), and older code reading a newer
+  file accepts the unchanged `format_version` and ignores the key, because every
+  record handler reads only the keys it names and no handler validates a record
+  against a closed key list. Removing a key, or changing the meaning of an
+  existing one, is still a `FORMAT_VERSION` bump.
 - Compression is not part of the format and is not format-versioned. The
   records, their field order and `FORMAT_VERSION` are the same whether the
   file is zstd-compressed, gzip-compressed or plain; the container is chosen
@@ -107,9 +129,13 @@ applies). But its derived data may now be refreshed:
    - score equality: `text_sha256`, all three fractions, `label`,
      `detector_version`, `raw_response`.
    If everything (including presence/absence on both sides) is equal, the
-   later pipeline has validated exactly what the target already holds, so the
-   message's `pipeline_version` is advanced to the file's value (counted as
-   `versions_bumped`) and nothing else changes. If anything differs,
+   later pipeline has validated exactly what the target already holds, so only
+   version stamps move (counted as `versions_bumped`): the message's
+   `pipeline_version` is advanced to the file's value, and the target
+   extraction's `extraction_version` is raised to the file record's generation
+   when that is higher. The latter write is a maximum, so a file of an earlier or
+   unknown generation leaves the stamp alone, and `extractions.pipeline_version`
+   is not touched. If anything differs,
    **replace** the target's derived state with
    the file's: delete the existing extraction row (the score cascades),
    insert the file's extraction (pointer-reconstructed and hash-verified as
@@ -122,6 +148,21 @@ applies). But its derived data may now be refreshed:
 
 `ImportSummary` gains `extractions_updated: int = 0`,
 `scores_updated: int = 0` and `versions_bumped: int = 0`.
+
+### Version stamps on an imported extraction
+
+An `extractions` row written by the importer takes both of its version stamps
+from the file, never from the importing build:
+
+- `pipeline_version` is the file message's `pipeline_version` (the release that
+  produced the derived state), so an imported row carries the same provenance it
+  had in the source database.
+- `extraction_version` is the record's own `extraction_version` when it has one,
+  and otherwise the generation inferred from that same `pipeline_version`.
+
+Stamping the importing build's values instead would claim that this build's
+routine produced text it never derived, and would hide genuinely older text from
+the staleness check.
 
 ## File format
 
@@ -141,7 +182,8 @@ Persons have no natural key, so each gets a file-scoped synthetic key
 
 ```jsonc
 {"type": "header", "format": "mlac-export", "format_version": 2,
- "app_version": "1.0.0", "exported_at": "<UTC ISO-8601>",
+ "app_version": "1.0.0", "extraction_version": 2,   // exporting build's, diagnostics only
+ "exported_at": "<UTC ISO-8601>",
  "schema_version": 7, "folders": ["ietf.announce"]}
 
 {"type": "list", "name": "announce", "folder": "ietf.announce",
@@ -163,6 +205,8 @@ Persons have no natural key, so each gets a file-scoped synthetic key
 
  "extraction": {                         // null when the message has no extraction row
    "method": "reply_parser", "char_count": 42, "status": "ok", "created_at": "…",
+   "extraction_version": 2,              // generation that derived the text; absent
+                                         // in files written before the key existed
    "text": {"kind": "span", "start": 0, "length": 42},   // see "Text pointers"
    "sha256": "<sha256 of extracted_text>",
    "score": {                            // null when the extraction has no score row
@@ -244,6 +288,45 @@ Peak resident memory is therefore a function of the compressor's buffer sizes
 rather than of the file's size. Measured on a 430 MB export, peak RSS fell from
 480.8 MB to 29.8 MB and no longer tracks the export's size.
 
+The dashboard's download path is bounded the same way. `GET /api/export` builds
+the export into a temporary file and then streams that file to the client in
+64 KB chunks instead of reading it into a single response body; measured on a
+400 MB export, the peak resident memory the response adds fell from about 400 MB
+to about 0.2 MB. The temporary file is opened and immediately unlinked, so the
+bytes stay readable through the open descriptor while no name survives any exit
+path — success, an export error, a HEAD request whose body is never iterated, or
+a client that disconnects part-way through. `Content-Length` is still sent: the
+export is complete before the response is constructed, so its size is final.
+
+### Cost at scale
+
+An import runs as one transaction by design, and that choice was re-measured
+against a 100,000-message database rather than relaxed:
+
+- An import takes about 45 seconds and holds the write lock for about 27 seconds
+  of that. `Store.__init__` sets `PRAGMA busy_timeout = 120000`, so a concurrent
+  writer waits rather than failing; the previous 30-second timeout left about
+  three seconds of margin, so a store roughly 15% larger would have failed a
+  concurrent writer outright with `database is locked`.
+- Readers are never blocked. They read the pre-import WAL snapshot throughout;
+  maximum measured reader latency during an import was 2.5 ms.
+- The WAL grows to roughly the size of the resulting database (2–3 GB at 100,000
+  messages) and stays at that size until the last connection closes, because a
+  checkpoint alone only rewinds the file. `PRAGMA journal_size_limit = 67108864`
+  caps what a completed checkpoint leaves behind at 64 MB. An explicit truncating
+  checkpoint is deliberately not issued: one was measured blocking for 32 seconds
+  while a reader held an open transaction.
+- Free disk of about 2.5x the final database size is required during an import.
+- `--dry-run` costs the same as a real import: it performs the identical work and
+  rolls back. The rollback itself takes about 7 ms.
+
+Splitting the transaction was investigated and rejected. Savepoints free no WAL
+bytes, and checkpointing mid-transaction is not possible, so the only real option
+is batching into separate transactions. That would reduce peak WAL from 2.19 GB
+to 1.11 GB, at the cost of atomicity, and it would still not make a malformed
+file resumable — a partially applied import would have to be identified and
+undone by hand.
+
 ## Export semantics
 
 - Lists are selected by `lists.name` (`--all-lists` = every list that has at
@@ -286,7 +369,9 @@ Per record type:
   `raw_body` is compared with the file's; a difference is logged as a warning
   and counted (`body_mismatches`) — never overwritten.
   For inserted messages: extraction text is reconstructed from its pointer,
-  verified against `sha256`, and inserted; then the score, if present.
+  verified against `sha256`, and inserted with both version stamps taken from
+  the file (see "Version stamps on an imported extraction"); then the score, if
+  present.
 - **trailer** — must be last; its counts must equal the records actually seen,
   else the file is truncated/corrupt → error (rollback).
 
@@ -322,13 +407,15 @@ class ImportSummary:
     body_mismatches: int = 0
     extractions_inserted: int = 0
     scores_inserted: int = 0
+    extractions_updated: int = 0
+    scores_updated: int = 0
+    versions_bumped: int = 0
     dry_run: bool = False
 
     def as_line(self) -> str: ...
 
-class ImportError_(Exception): ...   # module-specific error (name TBD by implementer,
-                                     # e.g. ExportImportError), raised for every
-                                     # validation failure described above
+class ExportImportError(Exception): ...   # module-specific error, raised for every
+                                          # validation failure described above
 
 def export_lists(
     store: Store, list_names: Sequence[str] | None, out_path: str | Path,

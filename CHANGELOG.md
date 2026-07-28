@@ -37,6 +37,32 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.3.0] - 2026-07-28
+
+Summary: Give the text-extraction routine its own version number, so staleness detection no longer depends on the app's semantic version, and stream the dashboard's export download.
+
+- Add `EXTRACTION_VERSION`, a hand-incremented integer in `extraction.py` identifying the routine that derives extracted text (`extraction.py`, `cleaning.py` and `html_text.py` together), currently 2.
+- Add schema migration 011 (schema version 11): a nullable `extractions.extraction_version` column recording the generation that produced each extraction's text, backfilled from `pipeline_version` — a 1.2.x stamp maps to generation 2, any other non-NULL stamp to generation 1, and NULL stays NULL.
+- Back up the database before opening it with this release for the first time: migration 011 rewrites a column, and migrations are one-way with no downgrade path.
+- Compare `extraction_version` rather than the app version in `staleness.check`, using `<` instead of `!=` so an older app opening a store written by a newer routine reads it as current instead of offering to downgrade the text.
+- Keep `extractions.pipeline_version` as provenance of the release that wrote the row, and leave `messages.pipeline_version` unchanged.
+- Replace `store.extraction_generation` with `store.extraction_version_for_app_version`, mapping an app version onto the generation it derived text with.
+- Stamp `extraction_version` on insert and on re-extraction in `Store.insert_extraction`, `Store.replace_extraction` and `Store.set_extraction_version`, and group `Store.extraction_version_counts` by it.
+- Add `tests/test_extraction_version.py`, pinning the routine's output over the whole fixture corpus to a SHA-256 digest so a behaviour change cannot land without an `EXTRACTION_VERSION` increment and a re-recorded digest in the same commit.
+- Return `extraction_version` from `GET /api/staleness`, in each per-generation count, and on each row of `POST /api/staleness/check`.
+- Report the extraction routine's version alongside the app version in the dashboard's stale-data prompt.
+- Change the app's version bump policy to ordinary semantic versioning, with no component reserved for extraction changes.
+- Carry the extraction generation in the export format additively at `FORMAT_VERSION` 2: `extraction_version` on each embedded extraction, plus the exporting build's value in the header for diagnostics.
+- Take an imported extraction's `pipeline_version` and `extraction_version` from the file rather than the importing build, inferring the generation from the file's app version for exports written before the field existed.
+- Fix imported extractions being written with no `pipeline_version`, which left every imported row reading as stale.
+- Raise an existing extraction's `extraction_version` to the file's when a later-version import finds the derived data already identical, never lowering it.
+- Stream `GET /api/export` from the finished temporary file in 64 KB chunks instead of reading it into memory, cutting the peak resident memory a 400 MB export download adds from about 400 MB to about 0.2 MB while still sending `Content-Length`.
+- Unlink the export's temporary file while its descriptor is still open, so no exit path — an export error, a HEAD request, or a client disconnecting mid-download — can leave it behind.
+- Raise the connection busy timeout from 30 to 120 seconds, measured against an import of 100,000 messages holding the write lock for about 27 seconds.
+- Set `PRAGMA journal_size_limit = 67108864`, capping the WAL file a completed checkpoint leaves behind at 64 MB after an import grows it to roughly the size of the database.
+- Document the import's cost at scale in docs/export-import.md, including why the single-transaction import was kept.
+- Correct the `ImportSummary` definition in the public API block of docs/export-import.md, which was missing `extractions_updated`, `scores_updated` and `versions_bumped`, and name the error class `ExportImportError` instead of the placeholder `ImportError_`.
+
 ## [1.2.10] - 2026-07-28
 
 Summary: Prepare export/import for databases of 100,000 messages and more — compress exports with zstd by default, detect an import file's container from its content rather than its name, and stream export records so peak memory no longer tracks export size.

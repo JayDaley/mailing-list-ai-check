@@ -24,7 +24,7 @@ import os
 import re
 import tempfile
 from bisect import bisect_right
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -783,7 +783,7 @@ def score() -> Any:
 #
 # Three endpoints back the dashboard's start-up staleness prompt, in the order
 # the user meets them: /staleness reports whether any stored extraction predates
-# the current extraction routine (a version comparison, cheap enough to run on
+# the current extraction routine (a generation comparison, cheap enough to run on
 # every dashboard load); /staleness/check re-derives every extraction and reports
 # the ones that actually differ (local work only, nothing paid, no text
 # rewritten); then /staleness/reextract and /staleness/rescore rewrite and
@@ -816,6 +816,9 @@ def _serialize_diff(diff: ExtractionDiff) -> dict[str, Any]:
 
     ``id`` is the message primary key (as in :func:`_serialize_message_row`), so
     the client can pass it straight back to :func:`staleness_reextract`.
+    ``extraction_version`` is the generation of the routine that produced the
+    stored text (``None`` when unrecorded), and ``pipeline_version`` the app
+    version that wrote the row; the two move independently.
     """
     return {
         "id": diff.message_id,
@@ -824,6 +827,7 @@ def _serialize_diff(diff: ExtractionDiff) -> dict[str, Any]:
         "subject": diff.subject,
         "from": {"address": diff.from_address, "display_name": diff.from_display_name},
         "pipeline_version": diff.pipeline_version,
+        "extraction_version": diff.extraction_version,
         "old_chars": diff.old_chars,
         "new_chars": diff.new_chars,
         "old_status": diff.old_status,
@@ -840,8 +844,11 @@ def staleness() -> Any:
 
     One grouped query over ``extractions`` — no text is re-derived and no row is
     written. Returns the :class:`~mailing_list_ai_check.staleness.StalenessReport`
-    fields: ``app_version``, ``stale``, ``stale_count``, ``current_count``,
-    ``total``, and per-version counts in ``versions``.
+    fields: ``app_version``, ``extraction_version`` (the generation of the running
+    extraction routine, which moves independently of the app version), ``stale``,
+    ``stale_count``, ``current_count``, ``total``, and per-generation counts in
+    ``versions`` (each ``{extraction_version, count, stale}``, with a ``None``
+    generation for extractions written before the stamp existed).
     """
     return jsonify(asdict(check_staleness(get_store())))
 
@@ -853,10 +860,12 @@ def staleness_check() -> Any:
     Local work only: extraction and cleaning are re-run over every message that
     has an extraction, no extracted text is rewritten, no score is touched and
     Pangram is never called. Extractions that come out identical are stamped with
-    the running version (``stamped``), which is what clears a false staleness
-    report for good. Returns ``app_version``, ``checked``, ``unchanged``,
-    ``stamped``, ``differing`` (the count) and ``messages`` (the affected rows,
-    by message id).
+    the running extraction generation (``stamped``), which is what clears a false
+    staleness report for good. Returns ``app_version``, ``checked``,
+    ``unchanged``, ``stamped``, ``differing`` (the count) and ``messages`` (the
+    affected rows, by message id, each carrying both the ``pipeline_version`` and
+    the ``extraction_version`` of the stored extraction — see
+    :func:`_serialize_diff`).
     """
     report = diff_extractions(get_store())
     return jsonify(
@@ -1531,6 +1540,22 @@ def _export_slug(list_name: str | None) -> str:
     return slug or "list"
 
 
+#: Bytes read from the finished export file per streamed chunk. Peak memory for
+#: a download is this, not the export size.
+_EXPORT_CHUNK_BYTES = 64 * 1024
+
+
+def _unlink_quietly(path: str) -> bool:
+    """Remove ``path``; return whether it is gone. Never raises."""
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return True
+    except OSError:  # pragma: no cover - e.g. a platform holding an open file
+        return False
+    return True
+
+
 @api_bp.get("/export")
 def export() -> Any:
     """Download a list's messages and pipeline state as a zstd JSON Lines export.
@@ -1540,10 +1565,43 @@ def export() -> Any:
     is nothing to export — an empty database, or no list has any message — the
     response is a 404. The file is built via
     :func:`mailing_list_ai_check.export_import.export_lists` into a temporary
-    ``.jsonl.zst`` file that is always removed before returning, and served as an
-    ``application/zstd`` attachment named
+    ``.jsonl.zst`` file and served as an ``application/zstd`` attachment named
     ``mlac-export-<slug>-<YYYYMMDD>.jsonl.zst``. A local database read only — no
     IMAP or Pangram calls, and message bodies are never logged.
+
+    Streaming and temp-file lifetime
+    --------------------------------
+    The body is streamed from the finished file in ``_EXPORT_CHUNK_BYTES`` chunks,
+    so peak memory is one chunk rather than the whole export (~220 MB at the
+    100k-message scale). The file therefore has to outlive this function: the
+    generator runs after the view returns, which is exactly when a ``finally``
+    here would already have deleted it.
+
+    The file is instead opened and then unlinked immediately, before the response
+    is handed back. The open descriptor keeps the bytes readable while the name is
+    already gone, so no exit path — success, an error during the export, a HEAD
+    request whose body is never iterated, or a client that disconnects half way
+    through — can leave a temporary file behind, and the unlink happens exactly
+    once.
+
+    Releasing the descriptor is then hung off two hooks, because neither covers
+    every path alone. PEP 3333 requires the server to call ``close()`` on the
+    response iterable however the request ends, including an early disconnect;
+    werkzeug turns that into ``Response.close()``, which closes the body iterable
+    and then runs the :meth:`~werkzeug.wrappers.Response.call_on_close` callbacks.
+    The callback is what covers a body that never starts — werkzeug serves HEAD
+    and 304 responses by dropping the iterable unstarted, so closing the generator
+    does not run its ``finally``. The generator's ``finally`` in turn covers a body
+    iterable closed on its own, which is what
+    :meth:`~werkzeug.wrappers.Response.get_data` does when anything buffers the
+    response. Both are idempotent, and the callback also retries the unlink for
+    platforms that refuse to remove a file while it is open.
+
+    :func:`flask.send_file` is deliberately not used: it re-opens by name (the
+    name is gone), offers no cleanup hook for the temporary file, and its
+    ``direct_passthrough`` hand-off to ``wsgi.file_wrapper`` would put the body
+    outside our control while adding range/conditional handling that a file which
+    exists for exactly one request cannot honour.
     """
     store = get_store()
     list_name = request.args.get("list") or None
@@ -1555,6 +1613,7 @@ def export() -> Any:
     fd, tmp_path = tempfile.mkstemp(suffix=".jsonl.zst")
     os.close(fd)
     written_path = tmp_path
+    fh = None
     try:
         try:
             if list_name is None:
@@ -1569,23 +1628,49 @@ def export() -> Any:
         if summary.lists == 0:
             raise ApiError("nothing to export", 404)
 
-        with open(written_path, "rb") as fh:
-            data = fh.read()
-    finally:
+        fh = open(written_path, "rb")
+        size = os.fstat(fh.fileno()).st_size
+    except BaseException:
+        if fh is not None:  # pragma: no cover - only a failing fstat gets here
+            fh.close()
         for path in {tmp_path, written_path}:
-            try:
-                os.unlink(path)
-            except OSError:  # pragma: no cover - best-effort cleanup
-                pass
+            _unlink_quietly(path)
+        raise
+
+    # Unlink while the descriptor is open, so the bytes stay readable through
+    # ``fh`` under a name that no longer exists. Whatever survives that (a
+    # platform that refuses to remove an open file) is retried in ``release``.
+    pending = {path for path in (tmp_path, written_path) if not _unlink_quietly(path)}
+
+    def release() -> None:
+        """Drop the descriptor, and any name the unlink above could not remove."""
+        fh.close()
+        for leftover in tuple(pending):
+            if _unlink_quietly(leftover):
+                pending.discard(leftover)
+
+    def stream() -> Iterator[bytes]:
+        try:
+            while chunk := fh.read(_EXPORT_CHUNK_BYTES):
+                yield chunk
+        finally:
+            release()
 
     filename = (
         f"mlac-export-{_export_slug(list_name)}-{datetime.now().strftime('%Y%m%d')}.jsonl.zst"
     )
-    return Response(
-        data,
+    # The size is final: the export is complete and the file is already unlinked,
+    # so nothing can change it and Content-Length cannot go stale.
+    response = Response(
+        stream(),
         mimetype="application/zstd",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(size),
+        },
     )
+    response.call_on_close(release)
+    return response
 
 
 @api_bp.post("/import")

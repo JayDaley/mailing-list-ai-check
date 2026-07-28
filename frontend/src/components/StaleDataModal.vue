@@ -5,7 +5,7 @@
 //
 // Four steps, in one modal:
 //
-//   1. intro    — what the version check found (GET /api/staleness, done by the
+//   1. intro    — what the generation check found (GET /api/staleness, done by the
 //                 shell and passed in as `info`), and the offer to look.
 //   2. checking — POST /api/staleness/check re-derives every stored extraction
 //                 locally. Nothing is rewritten and nothing is paid for; rows
@@ -58,8 +58,13 @@ const costCount = computed(
 
 const staleCount = computed(() => props.info?.stale_count ?? 0)
 const totalCount = computed(() => props.info?.total ?? 0)
+// The extraction generations the report counts as stale. `??` rather than `||`,
+// so a legitimate generation 0 is reported as 0 and not as 'unrecorded'; only a
+// null stamp (an extraction written before the column existed) is unrecorded.
 const staleVersions = computed(() =>
-  (props.info?.versions || []).filter((v) => v.stale).map((v) => v.version || 'unrecorded'),
+  (props.info?.versions || [])
+    .filter((v) => v.stale)
+    .map((v) => v.extraction_version ?? 'unrecorded'),
 )
 
 function senderName(row) {
@@ -97,7 +102,7 @@ async function runCheck() {
       differing: res?.differing ?? 0,
     }
     step.value = 'results'
-    // The check stamps every unchanged extraction with the running version, so
+    // The check stamps every unchanged extraction with the running generation, so
     // the shell's report is out of date the moment it returns.
     emit('refresh')
   } catch (err) {
@@ -256,10 +261,15 @@ function statusIcon(status) {
           <p class="sd-body">
             The extraction routine has changed since some stored messages were processed.
             {{ fmtInt(staleCount) }} of {{ fmtInt(totalCount) }} extracted
-            {{ staleCount === 1 ? 'message was' : 'messages were' }} derived by an earlier version
-            (<span class="mono">{{ staleVersions.join(', ') }}</span
-            >); the current version is <span class="mono">{{ info?.app_version }}</span
-            >.
+            {{ staleCount === 1 ? 'message was' : 'messages were' }} derived by an earlier
+            extraction routine<template v-if="staleVersions.length">
+              ({{ staleVersions.length === 1 ? 'version' : 'versions' }}
+              <span class="mono">{{ staleVersions.join(', ') }}</span
+              >)</template
+            >; the current extraction routine is version
+            <span class="mono">{{ info?.extraction_version }}</span> (app
+            <span class="mono">{{ info?.app_version }}</span
+            >).
           </p>
           <p class="sd-body">
             The check below re-runs the current extraction and post-processing over every stored

@@ -1,18 +1,22 @@
 """Detection and repair of extractions derived by an older extraction routine.
 
-A change to extraction or post-extraction processing is a minor version bump, and
-every ``extractions`` row records the app version that produced its text
-(``extractions.pipeline_version``). Comparing that stamp's extraction generation —
-its ``(major, minor)`` pair — with the running version is therefore a cheap test
-for "this text may not be what the current routine would produce".
-:func:`check` performs exactly that test and nothing else; it is what the
-dashboard runs at start-up.
+The routine that derives an extraction's text carries its own generation number,
+:data:`~mailing_list_ai_check.extraction.EXTRACTION_VERSION`, incremented by hand
+whenever that routine changes; every ``extractions`` row records the generation
+that produced its text (``extractions.extraction_version``). A row whose stamp is
+lower than the running value may therefore hold text the current routine would
+not produce. :func:`check` performs exactly that comparison and nothing else; it
+is what the dashboard runs at start-up. The app's semantic version plays no part:
+releases that do not touch the pipeline leave the generation alone. The
+comparison is ``<`` rather than ``!=`` on purpose, so a store written by a *newer*
+routine and opened by an older app reads as current instead of offering to
+downgrade text that is better than what this build can derive.
 
-The version stamp decides only whether to offer the check, never the answer.
+The generation stamp decides only whether to offer the check, never the answer.
 :func:`diff` re-derives every stored extraction with the current routine and
 compares the result against what is stored, so the affected set is measured
 rather than inferred. Rows that come out identical are stamped with the running
-version — they are provably current whatever their old stamp said — and drop out
+generation — they are provably current whatever their old stamp said — and drop out
 of the report, which is also what stops a store with no real differences from
 being reported stale again on the next start-up. :func:`reextract` then rewrites
 only the rows the caller passes in.
@@ -40,32 +44,33 @@ from dataclasses import dataclass, field
 
 from . import __version__
 from .cleaning import clean_for_scoring
-from .extraction import extract_new_text
+from .extraction import EXTRACTION_VERSION, extract_new_text
 from .html_text import split_html_parts
-from .store import Extraction, Message, Store, extraction_generation
+from .store import Extraction, Message, Store
 
 # --- reports ------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class VersionCount:
-    """How many extractions carry one ``pipeline_version``, and whether it is old."""
+class GenerationCount:
+    """How many extractions carry one generation stamp, and whether it is old."""
 
-    version: str | None
+    extraction_version: int | None
     count: int
     stale: bool
 
 
 @dataclass(frozen=True)
 class StalenessReport:
-    """The result of :func:`check` — a version comparison, no text re-derived."""
+    """The result of :func:`check` — a generation comparison, no text re-derived."""
 
     app_version: str
+    extraction_version: int
     stale: bool
     stale_count: int
     current_count: int
     total: int
-    versions: list[VersionCount] = field(default_factory=list)
+    versions: list[GenerationCount] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -80,6 +85,7 @@ class ExtractionDiff:
     from_address: str | None
     from_display_name: str | None
     pipeline_version: str | None
+    extraction_version: int | None
     old_chars: int
     new_chars: int
     old_status: str
@@ -185,26 +191,27 @@ def _rederive(store: Store, message: Message, extraction: Extraction) -> _Rederi
 def check(store: Store) -> StalenessReport:
     """Report whether any stored extraction predates the current routine.
 
-    A version comparison over one grouped query — no message is read and no text
-    is re-derived, so this is cheap enough to run on every dashboard load. An
-    extraction is counted stale when its ``pipeline_version`` belongs to an older
-    extraction generation than the running version (see
-    :func:`~mailing_list_ai_check.store.extraction_generation`); a store with no
+    A generation comparison over one grouped query — no message is read and no
+    text is re-derived, so this is cheap enough to run on every dashboard load.
+    An extraction is counted stale when its ``extraction_version`` is lower than
+    the running :data:`~mailing_list_ai_check.extraction.EXTRACTION_VERSION`
+    (NULL counts as 0, older than every generation, and a stamp *above* the
+    running value is not stale — see the module docstring); a store with no
     extractions at all is never stale.
     """
-    current = extraction_generation(__version__)
-    versions: list[VersionCount] = []
+    versions: list[GenerationCount] = []
     stale_count = 0
     current_count = 0
-    for version, count in store.extraction_version_counts():
-        is_stale = extraction_generation(version) < current
-        versions.append(VersionCount(version=version, count=count, stale=is_stale))
+    for generation, count in store.extraction_version_counts():
+        is_stale = (generation or 0) < EXTRACTION_VERSION
+        versions.append(GenerationCount(extraction_version=generation, count=count, stale=is_stale))
         if is_stale:
             stale_count += count
         else:
             current_count += count
     return StalenessReport(
         app_version=__version__,
+        extraction_version=EXTRACTION_VERSION,
         stale=stale_count > 0,
         stale_count=stale_count,
         current_count=current_count,
@@ -218,10 +225,10 @@ def diff(store: Store) -> DiffReport:
 
     Walks every message that has an extraction, re-runs extraction and cleaning
     (:func:`_rederive`), and compares both the extracted and the cleaned text
-    against what is stored. Rows that match are stamped with the running version
-    and counted in ``unchanged``; the rest are returned in ``differing``, ordered
-    by message id. The only write is that version stamp: no text is rewritten, no
-    score is touched, and Pangram is never called.
+    against what is stored. Rows that match are stamped with the running
+    generation and counted in ``unchanged``; the rest are returned in
+    ``differing``, ordered by message id. The only write is that stamp: no text
+    is rewritten, no score is touched, and Pangram is never called.
     """
     differing: list[ExtractionDiff] = []
     checked = unchanged = stamped = 0
@@ -236,7 +243,7 @@ def diff(store: Store) -> DiffReport:
 
         if not rederived.changed:
             unchanged += 1
-            if extraction.pipeline_version != __version__:
+            if extraction.extraction_version != EXTRACTION_VERSION:
                 store.set_extraction_version(extraction.id)
                 stamped += 1
             continue
@@ -253,6 +260,7 @@ def diff(store: Store) -> DiffReport:
                 from_address=address.email if address else None,
                 from_display_name=address.display_name if address else None,
                 pipeline_version=extraction.pipeline_version,
+                extraction_version=extraction.extraction_version,
                 old_chars=len(extraction.extracted_text),
                 new_chars=len(rederived.text),
                 old_status=extraction.status,
@@ -278,7 +286,7 @@ def reextract(store: Store, message_ids: Sequence[int]) -> ReextractSummary:
     For each message with an extraction row: re-derive it, and
 
     - if neither the extracted nor the cleaned text changed, only stamp the
-      version (counted in ``unchanged``);
+      generation (counted in ``unchanged``);
     - otherwise rewrite the extraction in place
       (:meth:`~mailing_list_ai_check.store.Store.replace_extraction`), and when
       the cleaned text changed, delete any score for it — that verdict was
@@ -300,7 +308,7 @@ def reextract(store: Store, message_ids: Sequence[int]) -> ReextractSummary:
 
         if not rederived.changed:
             summary.unchanged += 1
-            if extraction.pipeline_version != __version__:
+            if extraction.extraction_version != EXTRACTION_VERSION:
                 store.set_extraction_version(extraction.id)
             continue
 

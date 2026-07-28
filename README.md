@@ -218,15 +218,18 @@ from the sender-set `Date:` header, so the interval depends on the senders'
 clocks. The classification is recomputed after every pull, extract, re-extract
 and import.
 
-### Re-processing text derived by an older version
+### Re-processing text derived by an older extraction routine
 
-Every extraction records the app version that produced its text. A change to
-extraction or post-extraction processing is a minor version bump, so an
-extraction whose recorded version belongs to an earlier `major.minor` generation
-may hold text the current routine would not produce.
+The routine that derives an author's new text carries its own version number,
+separate from the app's. It is incremented whenever a change could alter the
+extracted text, the text sent to Pangram, or an extraction's status, and every
+extraction records the number of the routine that produced its text. An
+extraction recorded against a lower number may hold text the current routine
+would not produce. A release that does not change the routine leaves the number
+alone, so upgrading the app does not by itself make stored text out of date.
 
-The dashboard compares those versions on load. When any extraction predates the
-running version it opens a prompt reporting how many, and offers to identify the
+The dashboard compares those numbers on load. When any extraction predates the
+running routine it opens a prompt reporting how many, and offers to identify the
 affected messages:
 
 - **Show affected messages** re-runs the current extraction and post-processing
@@ -235,16 +238,21 @@ affected messages:
   to Pangram. Messages whose text would change are listed in a table with a
   total, showing the character counts before and after and what moved (the
   extracted text, the text that gets scored, or the extraction status).
-  Extractions that come out identical are stamped with the running version, which
-  is what stops the same prompt appearing again.
+  Extractions that come out identical are stamped with the running routine's
+  number, which is what stops the same prompt appearing again.
 - **Run process ($)** re-extracts the listed messages and re-scores them. A
   message keeps its stored score unless the *scored* text changed, since only
   then was the verdict reached on text that no longer exists; each message that
   does need a new verdict is one paid Pangram call unless its new text is already
   in the score cache. Both stages report their counts as they run.
 - **Not now** leaves everything untouched. An alert icon then sits beside the ⓘ
-  button for as long as any extraction predates the running version; it reopens
+  button for as long as any extraction predates the running routine; it reopens
   the same prompt.
+
+An extraction recorded against a *higher* number than the running routine — a
+database written by a newer version of the app, then opened by an older one — is
+not reported, so an older build never offers to replace text it cannot
+reproduce.
 
 ### Exporting and importing lists
 
@@ -289,7 +297,11 @@ transaction, rolled back on any error), and `--dry-run` runs the identical path
 but rolls back, so its report is exact. Exports carry the app version that
 produced them; when an imported message was processed by a **later** pipeline
 version than the target's copy, its extraction and score are refreshed from the
-file (the message body itself is never overwritten).
+file (the message body itself is never overwritten). Each exported extraction
+also carries the version of the extraction routine that produced its text, and an
+imported extraction keeps that number rather than being credited to the importing
+build; for files written before the field existed it is inferred from the app
+version in the file.
 
 Export and import are also available from the dashboard's **Messages** pane, via
 its Export and Import buttons.
@@ -340,11 +352,18 @@ secrets out of commits:
 
 The app follows [semantic versioning](https://semver.org/); the current version
 lives in `mailing_list_ai_check.__version__` (`pyproject.toml` reads it
-dynamically). The minor version is bumped for any change to extraction or
-post-extraction processing (anything that could change the derived text or what
-is sent to Pangram), and the patch version for every other change. Each message
-records the pipeline version that last processed it, and importing an export
-made by a later version refreshes that message's extraction and score data.
+dynamically). The major version is bumped for a breaking change, the minor
+version for a new feature or any other user-visible change (a raised Python floor
+included), and the patch version for a fix or an internal change. Each message
+records the app version that last processed it, and importing an export made by a
+later version refreshes that message's extraction and score data.
+
+The text-extraction routine carries a separate version number of its own,
+incremented whenever a change could alter the extracted text, the text sent to
+Pangram, or an extraction's status. It is what the dashboard compares to detect
+stored text derived by an older routine (see "Re-processing text derived by an
+older extraction routine"), so an app release that leaves the routine alone never
+marks stored text out of date.
 
 ## License
 

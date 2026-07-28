@@ -13,20 +13,24 @@ import io
 import json
 import os
 import tempfile
+import tracemalloc
 from collections import Counter
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from conftest import FakeFolder, FakeImapConn, make_raw
 
-from mailing_list_ai_check import codec
+from mailing_list_ai_check import __version__, codec
 from mailing_list_ai_check.cli import ScoreSummary
 from mailing_list_ai_check.config import Config
+from mailing_list_ai_check.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.fetcher import FetchSummary
 from mailing_list_ai_check.imap_client import ImapClient
+from mailing_list_ai_check.staleness import ExtractionDiff
 from mailing_list_ai_check.store import Store
 from mailing_list_ai_check.webapp import DEV_CORS_ORIGIN, api as webapp_api, create_app
 
@@ -997,6 +1001,13 @@ def test_export_body_is_really_zstd(client):
     assert resp.data[:4] == codec.ZSTD_MAGIC
 
 
+def test_export_declares_the_exact_body_length(client):
+    """``Content-Length`` is the finished file's size, so it can never be wrong."""
+    resp = client.get("/api/export")
+    assert resp.status_code == 200
+    assert int(resp.headers["Content-Length"]) == len(resp.data)
+
+
 def test_export_single_list(client):
     resp = client.get("/api/export?list=announce")
     assert resp.status_code == 200
@@ -1145,11 +1156,13 @@ def test_import_accepts_an_uncompressed_upload(client, tmp_path):
     assert resp.get_json()["messages_inserted"] == 15
 
 
-# --- /api/export temp-file hygiene --------------------------------------------
+# --- /api/export streaming and temp-file hygiene ------------------------------
 #
-# The endpoint builds the export in a temporary file and must remove it on every
-# exit path. Redirecting :mod:`tempfile` at an empty directory makes any leftover
-# directly observable.
+# The endpoint builds the export in a temporary file and streams it back in
+# chunks, and must leave behind neither the file nor an open descriptor on any
+# exit path. Redirecting :mod:`tempfile` at an empty directory makes a leftover
+# file directly observable; shadowing ``open`` in the endpoint's module makes a
+# leftover descriptor observable.
 
 
 @pytest.fixture
@@ -1159,6 +1172,32 @@ def temp_dir(tmp_path, monkeypatch):
     path.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(path))
     return path
+
+
+@pytest.fixture
+def opened_files(monkeypatch):
+    """Collects the file objects the endpoint opens, so closure can be asserted.
+
+    ``api.py`` resolves the builtin through its own module globals, so binding the
+    name there intercepts the single ``open`` call the export makes.
+    """
+    handles = []
+    real_open = open
+
+    def _spy(*args, **kwargs):
+        fh = real_open(*args, **kwargs)
+        handles.append(fh)
+        return fh
+
+    monkeypatch.setattr(webapp_api, "open", _spy, raising=False)
+    return handles
+
+
+@pytest.fixture
+def small_chunks(monkeypatch):
+    """Shrink the streamed chunk to 16 bytes, so the seeded export spans many."""
+    monkeypatch.setattr(webapp_api, "_EXPORT_CHUNK_BYTES", 16)
+    return 16
 
 
 def test_export_leaves_no_temp_file_on_success(client, temp_dir):
@@ -1186,6 +1225,123 @@ def test_export_leaves_no_temp_file_when_the_export_fails(client, temp_dir, monk
     monkeypatch.setattr(webapp_api, "export_lists", _boom)
     with pytest.raises(RuntimeError):
         client.get("/api/export")
+    assert os.listdir(temp_dir) == []
+
+
+def test_export_unlinks_the_file_before_the_body_is_streamed(client, temp_dir, small_chunks):
+    """The name is gone as soon as the view returns; the open descriptor serves it.
+
+    Nothing later in the download can therefore leak a file, whatever the client
+    or the server does with the response.
+    """
+    resp = client.get("/api/export")
+    assert os.listdir(temp_dir) == []  # already unlinked, body not read yet
+    assert resp.data[:4] == codec.ZSTD_MAGIC
+    assert os.listdir(temp_dir) == []
+
+
+def test_export_streams_the_body_in_chunks(client, temp_dir, small_chunks):
+    """The body arrives as many bounded chunks, not one buffer of the whole file."""
+    resp = client.get("/api/export")
+    chunks = list(resp.response)
+    resp.close()
+    assert len(chunks) > 1
+    assert max(len(chunk) for chunk in chunks) <= small_chunks
+    assert b"".join(chunks)[:4] == codec.ZSTD_MAGIC
+    assert os.listdir(temp_dir) == []
+
+
+def test_export_releases_the_file_when_the_client_disconnects(
+    client, temp_dir, opened_files, small_chunks
+):
+    """Abandoning the download part-way still closes the descriptor.
+
+    Closing the response iterable without exhausting it is what a WSGI server
+    does on an early disconnect (PEP 3333), and is what the generator's
+    ``finally`` exists for.
+    """
+    resp = client.get("/api/export")
+    first = next(iter(resp.response))
+    assert len(first) == small_chunks  # genuinely mid-stream, not buffered
+    (handle,) = opened_files
+    assert not handle.closed
+
+    resp.close()  # the disconnect
+    assert handle.closed
+    assert os.listdir(temp_dir) == []
+
+
+def test_export_releases_the_file_when_the_body_is_never_read(client, temp_dir, opened_files):
+    """A response closed without the body ever starting still releases everything.
+
+    Werkzeug serves a HEAD request by dropping the body iterable unstarted, so the
+    generator's ``finally`` never runs and only the ``call_on_close`` callback can
+    close the descriptor.
+    """
+    resp = client.head("/api/export")
+    assert resp.status_code == 200
+    assert resp.headers["Content-Length"] != "0"
+    (handle,) = opened_files
+
+    resp.close()
+    assert handle.closed
+    assert os.listdir(temp_dir) == []
+
+
+def test_export_releases_the_file_when_the_body_is_buffered(client, temp_dir, opened_files):
+    """Reading the body through the response object also releases the descriptor.
+
+    :meth:`werkzeug.wrappers.Response.get_data` — reachable from any hook that
+    inspects a response body — collapses the iterable and closes it directly,
+    without running the ``call_on_close`` callbacks; the generator's ``finally``
+    is what covers that path. The view is called inside a request context because
+    the WSGI layer never hands the inner response object to a client.
+    """
+    with client.application.test_request_context("/api/export"):
+        resp = webapp_api.export()
+        assert resp.get_data()[:4] == codec.ZSTD_MAGIC
+
+    (handle,) = opened_files
+    assert handle.closed
+    assert os.listdir(temp_dir) == []
+
+
+def test_export_peak_memory_does_not_track_the_export_size(client, temp_dir, monkeypatch):
+    """Streaming a 32 MB export allocates chunks, not 32 MB.
+
+    ``export_lists`` is replaced by one that writes a large file, because the
+    property under test is about size and the seeded database is a few kilobytes.
+    The endpoint reads only ``.lists`` and ``.path`` off the summary. Peak Python
+    allocation is measured, not sampled RSS, so the result is exact and stable;
+    the whole request is inside the traced window because the test client pulls
+    the first chunk eagerly, and the stand-in exporter writes in small blocks so
+    that building the file cannot dominate the measurement.
+    """
+    size = 32 * 1024 * 1024
+    block_size = 64 * 1024
+
+    def _big_export(store, lists, path, all_lists=False):
+        with open(path, "wb") as fh:
+            for _ in range(size // block_size):
+                fh.write(b"\0" * block_size)
+        return SimpleNamespace(lists=1, path=path)
+
+    monkeypatch.setattr(webapp_api, "export_lists", _big_export)
+
+    tracemalloc.start()
+    try:
+        resp = client.get("/api/export")
+        streamed = sum(len(chunk) for chunk in resp.response)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    resp.close()
+
+    assert streamed == size
+    assert int(resp.headers["Content-Length"]) == size
+    # Measured at ~0.35 MB; the bound is loose enough not to be a tripwire on
+    # unrelated per-request allocation, and still far below a buffered body.
+    assert peak < size // 16
     assert os.listdir(temp_dir) == []
 
 
@@ -1966,3 +2122,101 @@ def test_summary_timing_distribution(client, db_path):
     _recompute_timing(db_path)
     body = client.get("/api/summary").get_json()
     assert body["timing_distribution"] == {"normal": 1}
+
+
+# --- /api/staleness shape ------------------------------------------------------
+#
+# The dashboard reads the extraction generation, not the app version: the report
+# carries a top-level ``extraction_version`` and keys each entry of ``versions``
+# by ``extraction_version``. The old ``version`` key is gone, and a client that
+# still looked for it would silently render every group as unrecorded.
+
+
+def test_staleness_report_is_keyed_by_extraction_generation(client):
+    body = client.get("/api/staleness").get_json()
+    assert body["app_version"] == __version__
+    assert body["extraction_version"] == EXTRACTION_VERSION
+    # The seeded extractions are written by the running routine.
+    assert body["stale"] is False
+    assert body["versions"] == [
+        {"extraction_version": EXTRACTION_VERSION, "count": body["total"], "stale": False}
+    ]
+
+
+def test_staleness_report_groups_old_and_unrecorded_generations(client, db_path):
+    """Every group is identified by its generation stamp, NULL included."""
+    with Store(db_path) as store:
+        ids = [
+            store.extraction_for_message(message_id).id
+            for message_id in store.extracted_message_ids()
+        ]
+        assert len(ids) >= 2
+        store.set_extraction_version(ids[0], extraction_version=EXTRACTION_VERSION - 1)
+        store.conn.execute(
+            "UPDATE extractions SET extraction_version = NULL WHERE id = ?", (ids[1],)
+        )
+        store.conn.commit()
+
+    body = client.get("/api/staleness").get_json()
+    assert body["stale"] is True
+    assert body["stale_count"] == 2
+    groups = {entry["extraction_version"]: entry for entry in body["versions"]}
+    assert groups[None] == {"extraction_version": None, "count": 1, "stale": True}
+    assert groups[EXTRACTION_VERSION - 1] == {
+        "extraction_version": EXTRACTION_VERSION - 1,
+        "count": 1,
+        "stale": True,
+    }
+    assert groups[EXTRACTION_VERSION]["stale"] is False
+    # No entry carries the withdrawn key.
+    assert all("version" not in entry for entry in body["versions"])
+
+
+def test_serialize_diff_carries_both_version_stamps():
+    """An affected-message row reports the generation and the app version."""
+    diff = ExtractionDiff(
+        message_id=7,
+        extraction_id=9,
+        list_name="announce",
+        date="2026-01-01T00:00:00+00:00",
+        subject="Intro to draft",
+        from_address="alice@example.org",
+        from_display_name="Alice",
+        pipeline_version="1.0.5",
+        extraction_version=1,
+        old_chars=100,
+        new_chars=120,
+        old_status="ok",
+        new_status="ok",
+        text_changed=True,
+        scored_text_changed=False,
+        scored=True,
+    )
+    row = webapp_api._serialize_diff(diff)
+    assert row["pipeline_version"] == "1.0.5"
+    assert row["extraction_version"] == 1
+    assert row["id"] == 7
+
+    # An extraction written before the stamp existed reports it as null.
+    unrecorded = webapp_api._serialize_diff(replace(diff, extraction_version=None))
+    assert unrecorded["extraction_version"] is None
+
+
+def test_staleness_check_rows_report_the_stored_generation(client, db_path):
+    """The rows from /staleness/check carry the same two stamps."""
+    with Store(db_path) as store:
+        extraction_id = store.extraction_for_message(store.extracted_message_ids()[0]).id
+        store.replace_extraction(
+            extraction_id,
+            extracted_text="text the current routine would not produce",
+            method="manual",
+            status="ok",
+            extraction_version=EXTRACTION_VERSION - 1,
+            pipeline_version="1.0.5",
+        )
+
+    body = client.post("/api/staleness/check").get_json()
+    assert body["differing"] >= 1
+    row = next(m for m in body["messages"] if m["extraction_version"] is not None)
+    assert row["extraction_version"] == EXTRACTION_VERSION - 1
+    assert row["pipeline_version"] == "1.0.5"

@@ -65,6 +65,11 @@ The final ``text`` is the survivors ``rstrip``-ed, runs of 2+ blank lines
 collapsed to one, and blank edges trimmed — the same conventions as stage 1's
 tail. The shared sign-off predicates live in :mod:`extraction` (stage 1 needs
 them for its sign-off *boundary*); this module imports them, never the reverse.
+
+Any change here that can alter the cleaned text — a whitespace-only difference
+included — requires incrementing
+:data:`~mailing_list_ai_check.extraction.EXTRACTION_VERSION`, because that stamp
+is how stored extractions are recognized as derived by an older routine.
 """
 
 from __future__ import annotations

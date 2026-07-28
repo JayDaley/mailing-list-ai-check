@@ -53,7 +53,14 @@ from typing import Any
 
 from . import __version__
 from .codec import CodecError, compressed_path, open_read_text, open_write_text
-from .store import EXTRACTION_STATUSES, Store, sha256_text, version_key
+from .extraction import EXTRACTION_VERSION
+from .store import (
+    EXTRACTION_STATUSES,
+    Store,
+    extraction_version_for_app_version,
+    sha256_text,
+    version_key,
+)
 
 log = logging.getLogger("mailing_list_ai_check.export_import")
 
@@ -62,6 +69,18 @@ log = logging.getLogger("mailing_list_ai_check.export_import")
 #: Version 2 added the header ``app_version`` and per-message ``pipeline_version``
 #: fields; version-1 files are rejected (the format shipped unreleased, so none
 #: exist in the wild).
+#:
+#: Version 2 is extended additively rather than bumped: the extraction generation
+#: (``extraction_version``, in the header and on each embedded extraction) was
+#: added to it in place. A bump would have rejected every file already written,
+#: and nothing needs rejecting in either direction. New code reading an old file
+#: finds the key absent and falls back to inference from ``pipeline_version``
+#: (see :func:`~.store.extraction_version_for_app_version`); old code reading a
+#: new file accepts the unchanged ``format_version`` at the header and then
+#: ignores the key, because every handler reads only the keys it names —
+#: ``type`` is the sole field checked against a fixed set (:data:`_RECORD_RANK`),
+#: and no handler validates a record against a closed key list. Any *removal* or
+#: change of meaning in an existing key is still a bump.
 FORMAT_NAME = "mlac-export"
 FORMAT_VERSION = 2
 
@@ -115,9 +134,10 @@ class ImportSummary:
     never overwritten). ``extractions_updated`` / ``scores_updated`` count
     skipped messages whose derived state was refreshed from a later
     ``pipeline_version``; ``versions_bumped`` counts skipped messages whose
-    derived state already matched a later-version file, so only their
-    ``pipeline_version`` stamp was advanced (no other message column is ever
-    modified). ``dry_run`` is true when the run rolled back instead of
+    derived state already matched a later-version file, so only version stamps
+    moved — the message's ``pipeline_version`` and, when the file's generation is
+    higher, the extraction's ``extraction_version`` (no other message column is
+    ever modified). ``dry_run`` is true when the run rolled back instead of
     committing.
     """
 
@@ -200,6 +220,22 @@ def _resolve_pointer(pointer: Any, raw_body: str | None) -> str:
             raise ExportImportError(f"malformed inline pointer: {pointer!r}")
         return value
     raise ExportImportError(f"unknown extraction text pointer kind: {kind!r}")
+
+
+def _file_generation(extraction: dict[str, Any], pipeline_version: str | None) -> int | None:
+    """The extraction generation an imported ``extraction`` record stands for.
+
+    The record's own ``extraction_version`` when it carries one — the routine
+    named there is the one that produced the text, whatever the importing build
+    runs. Files written before the key existed are inferred from the message
+    record's ``pipeline_version`` by the same mapping migration 011 applies
+    locally (:func:`~.store.extraction_version_for_app_version`), which returns
+    ``None`` only when the app version is unknown too.
+    """
+    generation = extraction.get("extraction_version")
+    if generation is not None:
+        return generation
+    return extraction_version_for_app_version(pipeline_version)
 
 
 # --- Export -------------------------------------------------------------------
@@ -358,6 +394,10 @@ def export_lists(
                 "format": FORMAT_NAME,
                 "format_version": FORMAT_VERSION,
                 "app_version": __version__,
+                # Diagnostics only: the generation the exporting build runs. The
+                # authoritative value is the per-extraction one below, because a
+                # store can hold text from several generations at once.
+                "extraction_version": EXTRACTION_VERSION,
                 "exported_at": _utcnow_iso(),
                 "schema_version": schema_version,
                 "folders": folders,
@@ -431,6 +471,7 @@ def export_lists(
                         "method": ext["method"],
                         "char_count": ext["char_count"],
                         "status": ext["status"],
+                        "extraction_version": ext["extraction_version"],
                         "created_at": ext["created_at"],
                         "text": _text_pointer(ext["extracted_text"], m["raw_body"]),
                         "sha256": sha256_text(ext["extracted_text"]),
@@ -736,6 +777,7 @@ class _Importer:
                         "UPDATE messages SET pipeline_version = ? WHERE id = ?",
                         (file_version, existing["id"]),
                     )
+                    self._advance_generation(existing["id"], extraction, file_version)
                     self.versions_bumped += 1
                 else:
                     self._refresh_derived(
@@ -745,10 +787,17 @@ class _Importer:
 
         self.messages_inserted += 1
         if extraction is not None:
-            self._insert_extraction(cur.lastrowid, extraction, raw_body, lineno)
+            self._insert_extraction(
+                cur.lastrowid, extraction, raw_body, record.get("pipeline_version"), lineno
+            )
 
     def _write_extraction(
-        self, message_pk: int, extraction: dict[str, Any], raw_body: str | None, lineno: int
+        self,
+        message_pk: int,
+        extraction: dict[str, Any],
+        raw_body: str | None,
+        pipeline_version: str | None,
+        lineno: int,
     ) -> bool:
         """Insert one extraction (and its score when present) for ``message_pk``.
 
@@ -756,6 +805,13 @@ class _Importer:
         stored ``sha256``, and writes the ``extractions`` row plus an embedded
         ``scores`` row if any. Returns ``True`` when a score row was inserted.
         Touches no summary counters — the caller records inserted/updated counts.
+
+        Both version columns are written from the file, never from the importing
+        build: ``pipeline_version`` is the message record's stamp (the release
+        that produced this derived state), and ``extraction_version`` is
+        :func:`_file_generation` of the record. Stamping the running
+        :data:`~.extraction.EXTRACTION_VERSION` here would claim this build's
+        routine produced text it never saw.
         """
         status = extraction.get("status")
         if status not in EXTRACTION_STATUSES:
@@ -776,8 +832,9 @@ class _Importer:
             char_count = len(text)
         cur = self.conn.execute(
             "INSERT INTO extractions("
-            "message_id, extracted_text, method, char_count, status, created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?)",
+            "message_id, extracted_text, method, char_count, status, created_at, "
+            "pipeline_version, extraction_version"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 message_pk,
                 text,
@@ -785,6 +842,8 @@ class _Importer:
                 char_count,
                 status,
                 extraction["created_at"],
+                pipeline_version,
+                _file_generation(extraction, pipeline_version),
             ),
         )
 
@@ -811,11 +870,18 @@ class _Importer:
         return False
 
     def _insert_extraction(
-        self, message_pk: int, extraction: dict[str, Any], raw_body: str | None, lineno: int
+        self,
+        message_pk: int,
+        extraction: dict[str, Any],
+        raw_body: str | None,
+        pipeline_version: str | None,
+        lineno: int,
     ) -> None:
         """Insert the extraction (and score) for a freshly inserted message,
         counting them under ``extractions_inserted`` / ``scores_inserted``."""
-        score_inserted = self._write_extraction(message_pk, extraction, raw_body, lineno)
+        score_inserted = self._write_extraction(
+            message_pk, extraction, raw_body, pipeline_version, lineno
+        )
         self.extractions_inserted += 1
         if score_inserted:
             self.scores_inserted += 1
@@ -867,6 +933,36 @@ class _Importer:
                     return False
         return True
 
+    def _advance_generation(
+        self, message_pk: int, extraction: dict[str, Any] | None, file_version: str | None
+    ) -> None:
+        """Raise the target extraction's generation to the file's, never lower it.
+
+        Only reached from the version-bump branch, where :meth:`_derived_matches`
+        has already established that the file's text hash, method, status and
+        character count equal the target's — so a file of a later generation has
+        demonstrated that its routine produces exactly the text the target holds,
+        and the target's stamp can adopt it without re-deriving anything. The
+        write is a maximum, so a file of an *earlier* generation (or one whose
+        generation is unknown) leaves the stamp alone; ``extractions.pipeline_version``
+        is provenance of the row as written and is not touched here.
+        """
+        if extraction is None:
+            return
+        generation = _file_generation(extraction, file_version)
+        if generation is None:
+            return
+        target = self.conn.execute(
+            "SELECT id, extraction_version FROM extractions WHERE message_id = ?", (message_pk,)
+        ).fetchone()
+        if target is None:  # pragma: no cover - _derived_matches saw a row
+            return
+        if (target["extraction_version"] or 0) < generation:
+            self.conn.execute(
+                "UPDATE extractions SET extraction_version = ? WHERE id = ?",
+                (generation, target["id"]),
+            )
+
     def _refresh_derived(
         self,
         message_pk: int,
@@ -880,7 +976,9 @@ class _Importer:
         Deletes the existing extraction (its score cascades away), inserts the
         file's extraction and score when present — a ``None`` extraction just
         clears the old derived data — and stamps the message's
-        ``pipeline_version`` with the file's later value. Records
+        ``pipeline_version`` with the file's later value. The new extraction row
+        takes both of its own version stamps from the file too (see
+        :meth:`_write_extraction`). Records
         ``extractions_updated`` once, and ``scores_updated`` when the score state
         changed (a score was inserted or an existing one removed).
         """
@@ -897,7 +995,9 @@ class _Importer:
         self.conn.execute("DELETE FROM extractions WHERE message_id = ?", (message_pk,))
         file_has_score = False
         if extraction is not None:
-            file_has_score = self._write_extraction(message_pk, extraction, raw_body, lineno)
+            file_has_score = self._write_extraction(
+                message_pk, extraction, raw_body, file_version, lineno
+            )
 
         self.extractions_updated += 1
         if file_has_score or target_had_score:

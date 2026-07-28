@@ -79,26 +79,54 @@ them, and what depends on them.
 ## Versioning
 
 The app uses [semantic versioning](https://semver.org/); the current version is
-**1.2.10**. The single source of truth is `mailing_list_ai_check.__version__`
+**1.3.0**. The single source of truth is `mailing_list_ai_check.__version__`
 (in `__init__.py`); `pyproject.toml` reads it dynamically, so the two never
 drift.
 
-Bump policy (for now):
+Bump policy — ordinary semantic versioning, with no component reserved for any
+one subsystem:
 
-- **minor** — any change to extraction or post-extraction processing
-  (`extraction.py`, `cleaning.py`, `html_text.py`, the scoring pipeline logic —
-  anything that could change the derived text or what is sent to Pangram).
-- **patch** — every other change.
+- **major** — a breaking change.
+- **minor** — a new feature, or any other user-visible change, including a
+  raised Python floor.
+- **patch** — a bug fix, or an internal change with no user-visible effect.
 
-Each message records the pipeline version that last processed it
-(`messages.pipeline_version`), stamped on insert and re-stamped whenever its
-extraction or score is written. Each extraction separately records the version
-that produced its text (`extractions.pipeline_version`), stamped on insert and
-rewritten only on re-extraction — scoring never touches it. Because a minor bump
-is what an extraction change gets, comparing that stamp's `(major, minor)` pair
-with the running version is how the app detects text derived by an older routine
-(see `staleness.py`); keep the bump policy above exact, or that detection is
-wrong.
+Extraction changes are not tied to the app version; they carry their own number
+(see "Extraction version" below).
+
+## Extraction version
+
+`EXTRACTION_VERSION` (an `int` in `extraction.py`) identifies the routine that
+derives an extraction's text: `extraction.py`, `cleaning.py` and `html_text.py`
+taken together. It is independent of the app version and is incremented
+separately.
+
+- Increment it by one, by hand, in the same commit as any change to those three
+  modules that could alter the extracted text, the cleaned text sent to Pangram,
+  or an extraction's status — a whitespace-only difference included. Do not
+  increment it for comments, docstrings, type annotations or refactors that keep
+  every output byte identical.
+- It only ever increases. `staleness.check()` compares a stored stamp with the
+  running value using `<`, so an older app opening a store written by a newer
+  routine reads that store as current instead of offering to re-derive text it
+  cannot reproduce.
+- `tests/test_extraction_version.py` pins the routine's output over the fixture
+  corpus as a single SHA-256. An increment requires re-recording `EXPECTED_DIGEST`
+  and `DIGEST_EXTRACTION_VERSION` in that file in the same commit; the test fails
+  otherwise, and it also fails when the output moves without an increment.
+- Two generations exist: **1** (initial release) and **2** (from v1.2.0).
+
+Version stamps in the database:
+
+- `messages.pipeline_version` — the app version that last ran a pipeline stage
+  end-to-end against the message; stamped on insert and re-stamped whenever its
+  extraction or score is written.
+- `extractions.pipeline_version` — the app version that wrote the extraction row.
+  Provenance only: it names the release, and scoring never touches it.
+- `extractions.extraction_version` — the generation of the routine that produced
+  the text (migration 011, nullable, backfilled from `pipeline_version`). This is
+  the only value the staleness check compares (see `staleness.py`); NULL reads as
+  older than every generation.
 
 ## Changelog — maintain it
 

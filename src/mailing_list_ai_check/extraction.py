@@ -93,6 +93,28 @@ c. **Oracle assist** — the plain body is fine: the normal plain pipeline runs,
 
 The word-count "too short" gate is deliberately **not** applied here — that is
 the scoring stage's job, and it applies to the stage-2 *cleaned* text.
+
+Generation stamp (:data:`EXTRACTION_VERSION`)
+---------------------------------------------
+:data:`EXTRACTION_VERSION` identifies the routine that derives an extraction's
+text. It is stamped on every ``extractions`` row
+(``extractions.extraction_version``) and is the only input to the start-up
+staleness check (:mod:`staleness`), which reports a row stale when its stamp is
+*lower* than the running value. It is independent of the app's semantic version:
+releases that do not touch the pipeline leave it alone.
+
+Bump it by one — by hand, in the same commit — whenever a change to this module,
+:mod:`cleaning` or :mod:`html_text` can alter the derived text or what is sent to
+Pangram, including a whitespace-only difference. Do not bump it for comments,
+docstrings, type annotations or refactors that provably keep every output byte
+identical; ``tests/test_extraction_version.py`` pins the composite output of the
+whole fixture corpus to a digest and fails when it moves, so a change that needs
+a bump cannot land silently. The value only ever increases: ordering is what
+lets an older app read a store written by a newer one as "not stale" rather than
+offering to downgrade good text.
+
+Known generations: **1** initial release; **2** the localized quote-header and
+custom signature-block rules (v1.2.0).
 """
 
 from __future__ import annotations
@@ -104,6 +126,14 @@ from dataclasses import dataclass
 from email_reply_parser import EmailReplyParser
 
 from .html_text import split_html_parts
+
+# --- generation stamp -----------------------------------------------------------
+
+#: The generation of the text-deriving routine (this module, :mod:`cleaning` and
+#: :mod:`html_text` together). Hand-incremented; see the module docstring for
+#: when and why. Stamped on every ``extractions`` row and compared with ``<`` by
+#: :mod:`staleness`, so it must only ever increase.
+EXTRACTION_VERSION: int = 2
 
 # --- result -------------------------------------------------------------------
 

@@ -33,6 +33,11 @@ document never raises. Two public entry points:
   and ``signature_text`` as a stage-2 signature-stripping hint.
 
 Container rules (see :func:`split_html_parts`).
+
+Any change here that can alter the text stage 1 or stage 2 derives — a
+whitespace-only difference included — requires incrementing
+:data:`~mailing_list_ai_check.extraction.EXTRACTION_VERSION`, because that stamp
+is how stored extractions are recognized as derived by an older routine.
 """
 
 from __future__ import annotations

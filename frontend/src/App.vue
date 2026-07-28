@@ -36,7 +36,7 @@ const headerStat = computed(() => {
 })
 
 // Stored text may predate the current extraction routine (GET /api/staleness —
-// a version comparison, no text re-derived). The report is fetched once at
+// an extraction-generation comparison, no text re-derived). The report is fetched once at
 // start-up and re-fetched after the modal acts, since both the check and a
 // re-processing run change it. While it says stale, the header shows the alert
 // button; the modal itself is opened once, unprompted, on the first such load.

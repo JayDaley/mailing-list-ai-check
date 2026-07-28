@@ -32,8 +32,9 @@ from pathlib import Path
 
 import pytest
 
-from mailing_list_ai_check import __version__, codec, export_import
+from mailing_list_ai_check import __version__, codec, export_import, staleness
 from mailing_list_ai_check.cli import export_main, import_main
+from mailing_list_ai_check.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.store import Store, sha256_text
 
 # --- fixture data -------------------------------------------------------------
@@ -322,6 +323,26 @@ def _extractions_by_key(store: Store) -> dict[tuple[str, str], dict]:
     return {(r["folder"], r["message_id"]): dict(r) for r in rows}
 
 
+def _extraction_versions_by_key(
+    store: Store,
+) -> dict[tuple[str, str], tuple[str | None, int | None]]:
+    """Map each extraction to its ``(pipeline_version, extraction_version)`` stamps.
+
+    Kept apart from :func:`_extractions_by_key` so the tests that compare whole
+    extraction rows for equality are not also asserting on version stamps.
+    """
+    rows = store.conn.execute(
+        "SELECT l.folder AS folder, m.message_id AS message_id, "
+        "e.pipeline_version AS pipeline_version, e.extraction_version AS extraction_version "
+        "FROM extractions e JOIN messages m ON m.id = e.message_id "
+        "JOIN lists l ON l.id = m.list_id"
+    ).fetchall()
+    return {
+        (r["folder"], r["message_id"]): (r["pipeline_version"], r["extraction_version"])
+        for r in rows
+    }
+
+
 def _scores_by_key(store: Store) -> dict[tuple[str, str], dict]:
     rows = store.conn.execute(
         "SELECT l.folder AS folder, m.message_id AS message_id, s.fraction_ai AS fraction_ai, "
@@ -472,6 +493,40 @@ def test_export_message_records_carry_pipeline_version(source, tmp_path):
     for rec in msgs.values():
         assert "pipeline_version" in rec
         assert rec["pipeline_version"] == __version__
+
+
+def test_export_extraction_records_carry_extraction_version(source, tmp_path):
+    """Every embedded extraction carries the generation of the routine that derived
+    it, and the header repeats the exporting build's generation for diagnostics."""
+    out = tmp_path / "gen.jsonl"
+    summary = export_import.export_lists(source, None, out, all_lists=True)
+    records = _read_records(summary.path)
+
+    assert records[0]["extraction_version"] == EXTRACTION_VERSION
+
+    extractions = [
+        r["extraction"] for r in _messages_of_type(records, "message") if r["extraction"]
+    ]
+    assert len(extractions) == 5
+    # The fixture rows were all written by the running routine.
+    for ext in extractions:
+        assert ext["extraction_version"] == EXTRACTION_VERSION
+
+
+def test_export_carries_the_generation_of_each_extraction(source, tmp_path):
+    """The per-extraction value is the row's own stamp, not the running one: a file
+    can hold several generations at once."""
+    source.conn.execute(
+        "UPDATE extractions SET extraction_version = 1 WHERE message_id = "
+        "(SELECT id FROM messages WHERE message_id = ?)",
+        (M1,),
+    )
+    out = tmp_path / "mixed.jsonl"
+    summary = export_import.export_lists(source, None, out, all_lists=True)
+    msgs = _message_by_id(_read_records(summary.path))
+
+    assert msgs[M1]["extraction"]["extraction_version"] == 1
+    assert msgs[M2]["extraction"]["extraction_version"] == EXTRACTION_VERSION
 
 
 def test_export_single_list_only_that_lists_data(source, tmp_path):
@@ -880,11 +935,14 @@ def _seed_versioned(
     status="ok",
     ext_created_at="2026-03-02T00:00:00+00:00",
     score=None,
+    extraction_version=None,
 ):
     """Put the single message (folder ``VF``, id ``VMID``) into ``store``.
 
     Every pipeline stage is stamped with ``pipeline_version`` so the message row
     ends up holding exactly that version regardless of which stage ran last.
+    ``extraction_version`` sets the extraction's generation independently of it;
+    the default leaves the store's own stamp (the running generation) in place.
     """
     lst = store.upsert_list("vtest", VF)
     m = store.upsert_message(
@@ -907,6 +965,7 @@ def _seed_versioned(
             status=status,
             created_at=ext_created_at,
             pipeline_version=pipeline_version,
+            extraction_version=extraction_version,
         )
         if score is not None:
             store.insert_score(extraction_id=ext.id, pipeline_version=pipeline_version, **score)
@@ -1161,6 +1220,163 @@ def test_import_dry_run_over_update_reports_counts_without_writing(target, tmp_p
     assert _messages_by_key(target) == msgs_before
     assert _extractions_by_key(target) == ext_before
     assert _scores_by_key(target) == sc_before
+
+
+# ==============================================================================
+# IMPORT -- extraction generation stamps
+# ==============================================================================
+#
+# An imported extraction is stamped with the versions the *file* reports, never
+# with the importing build's: ``pipeline_version`` from the message record, and
+# ``extraction_version`` from the extraction record, falling back to what that
+# release's routine must have been when the file predates the field.
+
+
+def _without_extraction_version(path, tmp_path, name):
+    """Rewrite an export as a pre-generation file: every ``extraction_version``
+    key removed (header and extractions), everything else untouched."""
+    records = _read_records(path)
+    for rec in records:
+        rec.pop("extraction_version", None)
+        if rec.get("type") == "message" and rec.get("extraction") is not None:
+            rec["extraction"].pop("extraction_version", None)
+    out = tmp_path / name
+    _write_records(out, records)
+    return out
+
+
+def test_import_stamps_version_columns_on_inserted_extractions(source, target, tmp_path):
+    """A plain import into a fresh database leaves no NULL version stamp behind.
+
+    The regression this guards: the insert omitted both columns, so every
+    imported extraction landed with no provenance and no generation, and the
+    staleness check reported the whole import as stale the moment it finished.
+    """
+    out = _export_all(source, tmp_path, "stamp.jsonl")
+    export_import.import_file(target, out)
+
+    stamps = _extraction_versions_by_key(target)
+    assert len(stamps) == 5
+    for pipeline_version, generation in stamps.values():
+        assert pipeline_version == __version__
+        assert generation == EXTRACTION_VERSION
+
+    report = staleness.check(target)
+    assert report.stale is False
+    assert (report.stale_count, report.current_count) == (0, 5)
+
+
+def test_import_infers_generation_2_from_a_recent_pre_generation_file(target, tmp_path):
+    """Old file, no ``extraction_version``: a 1.2.x release derived generation-2 text."""
+    versioned = _versioned_file(tmp_path, "old12.jsonl", pipeline_version="1.2.3")
+    old = _without_extraction_version(versioned, tmp_path, "old12.plain.jsonl")
+
+    export_import.import_file(target, old)
+    assert _extraction_versions_by_key(target)[(VF, VMID)] == ("1.2.3", 2)
+
+
+def test_import_infers_generation_1_from_an_old_pre_generation_file(target, tmp_path):
+    """Old file from a pre-1.2 release: generation 1, and so stale on arrival."""
+    versioned = _versioned_file(tmp_path, "old10.jsonl", pipeline_version="1.0.5")
+    old = _without_extraction_version(versioned, tmp_path, "old10.plain.jsonl")
+
+    export_import.import_file(target, old)
+    assert _extraction_versions_by_key(target)[(VF, VMID)] == ("1.0.5", 1)
+    assert staleness.check(target).stale is True
+
+
+def test_import_of_pre_generation_file_without_a_version_stamps_null(target, tmp_path):
+    """Nothing known about the file's routine -> NULL rather than a guess."""
+    versioned = _versioned_file(tmp_path, "oldnull.jsonl", pipeline_version="1.2.3")
+    records = _read_records(versioned)
+    for rec in records:
+        rec.pop("extraction_version", None)
+        if rec.get("type") == "message":
+            # A message row written before either version column existed.
+            rec["pipeline_version"] = None
+            rec["extraction"].pop("extraction_version", None)
+    old = tmp_path / "oldnull.plain.jsonl"
+    _write_records(old, records)
+
+    export_import.import_file(target, old)
+    assert _extraction_versions_by_key(target)[(VF, VMID)] == (None, None)
+
+
+def test_import_roundtrips_the_files_generation_exactly(target, tmp_path):
+    """The extraction's own value is authoritative — here it contradicts what the
+    message's 1.2.x ``pipeline_version`` would have implied, and it wins."""
+    out = _versioned_file(tmp_path, "gen1.jsonl", pipeline_version="1.2.3", extraction_version=1)
+
+    export_import.import_file(target, out)
+    assert _extraction_versions_by_key(target)[(VF, VMID)] == ("1.2.3", 1)
+
+    # Generation 1 is older than the running routine, so it does not arrive current.
+    report = staleness.check(target)
+    assert report.stale is True
+    assert report.stale_count == 1
+
+
+def test_import_refresh_stamps_the_replacing_files_versions(target, tmp_path):
+    """The refresh path stamps the file's generation on the row it writes."""
+    _seed_versioned(
+        target,
+        pipeline_version="1.0.0",
+        extracted_text=TEXT_A,
+        method="reply_parser",
+        extraction_version=1,
+    )
+    out = _versioned_file(
+        tmp_path,
+        "refreshgen.jsonl",
+        pipeline_version="2.0.0",
+        extracted_text=TEXT_B,
+        method="custom",
+        extraction_version=2,
+    )
+
+    summary = export_import.import_file(target, out)
+    assert summary.extractions_updated == 1
+    assert _extraction_versions_by_key(target)[(VF, VMID)] == ("2.0.0", 2)
+
+
+def test_import_version_bump_advances_the_extraction_generation(target, tmp_path):
+    """Identical derived data from a later, later-generation file: the file's routine
+    has demonstrated it produces what the target holds, so the generation advances."""
+    common = dict(extracted_text=TEXT_A, method="reply_parser", score=V_SCORE_A)
+    _seed_versioned(target, pipeline_version="1.0.0", extraction_version=1, **common)
+    out = _versioned_file(
+        tmp_path, "bumpgen.jsonl", pipeline_version="2.0.0", extraction_version=2, **common
+    )
+
+    summary = export_import.import_file(target, out)
+    assert summary.versions_bumped == 1
+    assert summary.extractions_updated == 0
+    # Only the generation moves; the row's own provenance stamp is left as written.
+    assert _extraction_versions_by_key(target)[(VF, VMID)] == ("1.0.0", 2)
+
+
+def test_import_version_bump_never_regresses_the_extraction_generation(target, tmp_path):
+    """A later file of an *earlier* generation cannot pull the target's stamp back."""
+    common = dict(extracted_text=TEXT_A, method="reply_parser", score=V_SCORE_A)
+    _seed_versioned(target, pipeline_version="1.0.0", extraction_version=3, **common)
+    out = _versioned_file(
+        tmp_path, "bumpdown.jsonl", pipeline_version="2.0.0", extraction_version=1, **common
+    )
+
+    summary = export_import.import_file(target, out)
+    assert summary.versions_bumped == 1
+    assert _extraction_versions_by_key(target)[(VF, VMID)] == ("1.0.0", 3)
+
+
+def test_import_version_bump_with_no_extraction_on_either_side(target, tmp_path):
+    """The bump branch also runs when neither side has an extraction; nothing to stamp."""
+    _seed_versioned(target, pipeline_version="1.0.0", extraction=False)
+    out = _versioned_file(tmp_path, "bumpnoext.jsonl", pipeline_version="2.0.0", extraction=False)
+
+    summary = export_import.import_file(target, out)
+    assert summary.versions_bumped == 1
+    assert _extraction_versions_by_key(target) == {}
+    assert _messages_by_key(target)[(VF, VMID)]["pipeline_version"] == "2.0.0"
 
 
 # ==============================================================================

@@ -8,10 +8,12 @@ import sqlite3
 import pytest
 
 from mailing_list_ai_check import __version__
+from mailing_list_ai_check.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.store import (
     EXTRACTION_STATUSES,
     Store,
     apply_migrations,
+    extraction_version_for_app_version,
     sha256_text,
     version_key,
 )
@@ -61,8 +63,8 @@ def test_migrations_are_idempotent(tmp_path):
             "v"
         ]
         row_count_after = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert version_before == version_after == 10
-    assert row_count_before == row_count_after == 10
+    assert version_before == version_after == 11
+    assert row_count_before == row_count_after == 11
 
 
 def test_reopening_database_is_a_noop(tmp_path):
@@ -74,7 +76,7 @@ def test_reopening_database_is_a_noop(tmp_path):
         rows = s.conn.execute("SELECT COUNT(*) AS c FROM lists").fetchone()["c"]
         version = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
     assert rows == 1
-    assert version == 10
+    assert version == 11
 
 
 def test_migration_003_rebadges_assisted_dominated_mixed(store):
@@ -113,7 +115,7 @@ def test_migration_003_rebadges_assisted_dominated_mixed(store):
             raw_response={"prediction_short": "Mixed"},
         )
     # Rewind to pre-003 and re-apply so the backfill runs over the rows. Drop
-    # the columns/indexes added by 004/005/006/007/008/009/010 too so those
+    # the columns/indexes added by 004/005/006/007/008/009/010/011 too so those
     # migrations re-apply cleanly alongside 003.
     store.conn.execute("DELETE FROM schema_version WHERE version >= 3")
     store.conn.execute("ALTER TABLE messages DROP COLUMN raw_html")
@@ -121,6 +123,7 @@ def test_migration_003_rebadges_assisted_dominated_mixed(store):
     store.conn.execute("DROP INDEX idx_messages_message_id")
     store.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
     store.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
+    store.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
     store.conn.execute("DROP INDEX idx_messages_timing")
     store.conn.execute("ALTER TABLE messages DROP COLUMN timing")
     store.conn.execute("DROP INDEX idx_messages_timing_cpm")
@@ -141,8 +144,8 @@ def test_migration_004_adds_raw_html_column(store):
 def test_migration_004_present_on_migrated_db(tmp_path):
     # A database rewound to pre-004 gains the raw_html column on re-open/migrate.
     # last_message_at (005), the message_id index (006), the two
-    # pipeline_version columns (007/008) and the two timing columns (009/010)
-    # are dropped too so they re-apply cleanly.
+    # pipeline_version columns (007/008), the two timing columns (009/010) and
+    # extraction_version (011) are dropped too so they re-apply cleanly.
     db = tmp_path / "migrated.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 4")
@@ -151,6 +154,7 @@ def test_migration_004_present_on_migrated_db(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_message_id")
         s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
+        s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
         s.conn.execute("DROP INDEX idx_messages_timing")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
@@ -160,7 +164,7 @@ def test_migration_004_present_on_migrated_db(tmp_path):
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "raw_html" in cols
-    assert version == 10
+    assert version == 11
 
 
 def test_migration_005_adds_last_message_at_column(store):
@@ -170,9 +174,9 @@ def test_migration_005_adds_last_message_at_column(store):
 
 def test_migration_005_present_on_migrated_db(tmp_path):
     # A database rewound to pre-005 gains the last_message_at column on migrate.
-    # The message_id index (006), the two pipeline_version columns (007/008)
-    # and the two timing columns (009/010) are dropped too so they re-apply
-    # cleanly.
+    # The message_id index (006), the two pipeline_version columns (007/008),
+    # the two timing columns (009/010) and extraction_version (011) are dropped
+    # too so they re-apply cleanly.
     db = tmp_path / "migrated005.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 5")
@@ -180,6 +184,7 @@ def test_migration_005_present_on_migrated_db(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_message_id")
         s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
+        s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
         s.conn.execute("DROP INDEX idx_messages_timing")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
@@ -189,19 +194,20 @@ def test_migration_005_present_on_migrated_db(tmp_path):
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(lists)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "last_message_at" in cols
-    assert version == 10
+    assert version == 11
 
 
 def test_migration_006_present_on_migrated_db(tmp_path):
     # A database rewound to pre-006 gains the message_id index on migrate. The
-    # two pipeline_version columns (007/008) and the two timing columns
-    # (009/010) are dropped too so they re-apply cleanly.
+    # two pipeline_version columns (007/008), the two timing columns (009/010)
+    # and extraction_version (011) are dropped too so they re-apply cleanly.
     db = tmp_path / "migrated006.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 6")
         s.conn.execute("DROP INDEX idx_messages_message_id")
         s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
+        s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
         s.conn.execute("DROP INDEX idx_messages_timing")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
@@ -214,7 +220,7 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         }
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "idx_messages_message_id" in indexes
-    assert version == 10
+    assert version == 11
 
 
 def test_expected_indexes_exist(store):
@@ -784,13 +790,14 @@ def test_migration_007_adds_pipeline_version_column(store):
 
 def test_migration_007_present_on_migrated_db(tmp_path):
     # A database rewound to pre-007 gains the messages.pipeline_version column on
-    # migrate; extractions.pipeline_version (008) and the two timing columns
-    # (009/010) are dropped too so they re-apply.
+    # migrate; extractions.pipeline_version (008), the two timing columns
+    # (009/010) and extraction_version (011) are dropped too so they re-apply.
     db = tmp_path / "migrated007.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 7")
         s.conn.execute("ALTER TABLE messages DROP COLUMN pipeline_version")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
+        s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
         s.conn.execute("DROP INDEX idx_messages_timing")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
@@ -800,7 +807,7 @@ def test_migration_007_present_on_migrated_db(tmp_path):
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "pipeline_version" in cols
-    assert version == 10
+    assert version == 11
 
 
 def test_message_pipeline_version_roundtrips(store):
@@ -898,3 +905,100 @@ def test_version_key_none_and_unparsable_sort_oldest():
     assert version_key("1.2.3.4") == (0, 0, 0)
     # Every real version outranks the (0, 0, 0) floor.
     assert version_key("1.0.0") > version_key(None)
+
+
+# --- extraction_version (migration 011) ---------------------------------------
+
+
+def test_migration_011_adds_extraction_version_column(store):
+    cols = {row["name"] for row in store.conn.execute("PRAGMA table_info(extractions)").fetchall()}
+    assert "extraction_version" in cols
+    # pipeline_version stays alongside it as provenance.
+    assert "pipeline_version" in cols
+
+
+def test_insert_extraction_stamps_the_running_extraction_version(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    m = _add_message(store, lst.id, addr.id, message_id="<gen@x>").message
+    ext = store.insert_extraction(message_id=m.id, extracted_text="x", method="m", status="ok")
+    assert ext.extraction_version == EXTRACTION_VERSION
+    assert store.get_extraction(ext.id).extraction_version == EXTRACTION_VERSION
+
+
+def test_insert_extraction_honors_an_explicit_extraction_version(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    m = _add_message(store, lst.id, addr.id, message_id="<gen2@x>").message
+    ext = store.insert_extraction(
+        message_id=m.id, extracted_text="x", method="m", status="ok", extraction_version=1
+    )
+    assert ext.extraction_version == 1
+
+
+def test_replace_extraction_restamps_the_extraction_version(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    m = _add_message(store, lst.id, addr.id, message_id="<gen3@x>").message
+    ext = store.insert_extraction(
+        message_id=m.id, extracted_text="x", method="m", status="ok", extraction_version=1
+    )
+    after = store.replace_extraction(ext.id, extracted_text="y", method="m", status="ok")
+    assert after.extraction_version == EXTRACTION_VERSION
+
+
+def _rewound_to_pre_011(db):
+    """Drop the extraction_version column and rewind the schema version past it."""
+    with Store(db) as s:
+        s.conn.execute("DELETE FROM schema_version WHERE version >= 11")
+        s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
+        s.conn.commit()
+
+
+@pytest.mark.parametrize(
+    "pipeline_version, expected",
+    [
+        ("1.2.0", 2),
+        ("1.2.9", 2),
+        ("1.2.10", 2),  # the two-digit patch a lexical comparison would misplace
+        ("1.1.0", 1),
+        ("1.0.5", 1),
+        ("0.9.0", 1),
+        ("garbage", 1),
+        (None, None),
+    ],
+)
+def test_migration_011_backfills_from_the_pipeline_version(tmp_path, pipeline_version, expected):
+    """Each pre-011 stamp maps onto the generation that produced its text.
+
+    1.2.0 is the release that changed extraction, so 1.2.x is generation 2 and
+    everything older generation 1. A row with no stamp at all stays NULL, which
+    the staleness check reads as older than every generation.
+    """
+    db = tmp_path / "backfill011.db"
+    with Store(db) as s:
+        lst = s.upsert_list("announce", "Shared Folders/announce")
+        addr = s.upsert_address("a@x.org")
+        m = _add_message(s, lst.id, addr.id, message_id="<bf@x>").message
+        ext = s.insert_extraction(message_id=m.id, extracted_text="x", method="m", status="ok")
+        s.conn.execute(
+            "UPDATE extractions SET pipeline_version = ? WHERE id = ?",
+            (pipeline_version, ext.id),
+        )
+        s.conn.commit()
+    _rewound_to_pre_011(db)
+    with Store(db) as s:
+        assert s.get_extraction(ext.id).extraction_version == expected
+        # The provenance stamp is left exactly as it was.
+        assert s.get_extraction(ext.id).pipeline_version == pipeline_version
+
+
+def test_extraction_version_for_app_version_matches_the_migration():
+    assert extraction_version_for_app_version("1.2.0") == 2
+    assert extraction_version_for_app_version("1.2.10") == 2
+    assert extraction_version_for_app_version("1.10.0") == 2
+    assert extraction_version_for_app_version("2.0.0") == 2
+    assert extraction_version_for_app_version("1.1.0") == 1
+    assert extraction_version_for_app_version("1.0.5") == 1
+    assert extraction_version_for_app_version("garbage") == 1
+    assert extraction_version_for_app_version(None) is None
