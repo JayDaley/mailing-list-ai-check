@@ -37,6 +37,23 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.4.0] - 2026-07-30
+
+Summary: Score with the Pangram 4 detector and surface its per-window humanizer verdicts.
+
+- Pin the Pangram detector generation to `pangram-4` on every submit; the API's own default still routes to Pangram 3 until that generation is deprecated.
+- Add a `model` parameter to `PangramClient` for overriding the requested detector generation.
+- Report the Pangram 4 per-window `is_humanized` and `humanizer_score` fields from the message detail endpoint and show them in the dashboard's window table and hover popover.
+- Update the end-of-run spend estimate to the Pangram 4 realtime price of $0.05 per 100 words.
+- Add an `app_settings` table (migration 012) and `GET`/`PUT /api/settings` for persistent app settings.
+- Add a "Use Pangram v3 (old)" switch to the dashboard header that stores the detector selection and routes scoring to Pangram 3.
+- Add a `--model` option to `mail-ai-score` that overrides the stored detector selection for one run.
+- Filter the score cache by detector generation so a cached verdict from one generation is never served to a run requesting another.
+- Show a one-time notice when a database holds Pangram 3 verdicts, stating the default detector and price change and offering to keep using v3, re-score the old verdicts, or decide later.
+- Add `GET`/`PUT /api/pangram/notice` and `POST /api/pangram/retest` backing the upgrade notice.
+- Generalize the header warning icon to cycle through active warnings (stale extractions, Pangram upgrade notice).
+- Price the end-of-run spend estimate by the active detector generation ($0.05 per 100 words for Pangram 4, $0.05 per 1,000 for Pangram 3).
+
 ## [1.3.0] - 2026-07-28
 
 Summary: Give the text-extraction routine its own version number, so staleness detection no longer depends on the app's semantic version, and stream the dashboard's export download.

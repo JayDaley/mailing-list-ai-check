@@ -63,8 +63,8 @@ def test_migrations_are_idempotent(tmp_path):
             "v"
         ]
         row_count_after = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert version_before == version_after == 11
-    assert row_count_before == row_count_after == 11
+    assert version_before == version_after == 12
+    assert row_count_before == row_count_after == 12
 
 
 def test_reopening_database_is_a_noop(tmp_path):
@@ -76,7 +76,7 @@ def test_reopening_database_is_a_noop(tmp_path):
         rows = s.conn.execute("SELECT COUNT(*) AS c FROM lists").fetchone()["c"]
         version = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
     assert rows == 1
-    assert version == 11
+    assert version == 12
 
 
 def test_migration_003_rebadges_assisted_dominated_mixed(store):
@@ -115,8 +115,8 @@ def test_migration_003_rebadges_assisted_dominated_mixed(store):
             raw_response={"prediction_short": "Mixed"},
         )
     # Rewind to pre-003 and re-apply so the backfill runs over the rows. Drop
-    # the columns/indexes added by 004/005/006/007/008/009/010/011 too so those
-    # migrations re-apply cleanly alongside 003.
+    # the columns/indexes added by 004/005/006/007/008/009/010/011 and the table
+    # added by 012 too so those migrations re-apply cleanly alongside 003.
     store.conn.execute("DELETE FROM schema_version WHERE version >= 3")
     store.conn.execute("ALTER TABLE messages DROP COLUMN raw_html")
     store.conn.execute("ALTER TABLE lists DROP COLUMN last_message_at")
@@ -128,6 +128,7 @@ def test_migration_003_rebadges_assisted_dominated_mixed(store):
     store.conn.execute("ALTER TABLE messages DROP COLUMN timing")
     store.conn.execute("DROP INDEX idx_messages_timing_cpm")
     store.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
+    store.conn.execute("DROP TABLE app_settings")
     apply_migrations(store.conn)
     labels = [
         row["label"]
@@ -144,8 +145,9 @@ def test_migration_004_adds_raw_html_column(store):
 def test_migration_004_present_on_migrated_db(tmp_path):
     # A database rewound to pre-004 gains the raw_html column on re-open/migrate.
     # last_message_at (005), the message_id index (006), the two
-    # pipeline_version columns (007/008), the two timing columns (009/010) and
-    # extraction_version (011) are dropped too so they re-apply cleanly.
+    # pipeline_version columns (007/008), the two timing columns (009/010),
+    # extraction_version (011) and the app_settings table (012) are dropped too
+    # so they re-apply cleanly.
     db = tmp_path / "migrated.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 4")
@@ -159,12 +161,13 @@ def test_migration_004_present_on_migrated_db(tmp_path):
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
+        s.conn.execute("DROP TABLE app_settings")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "raw_html" in cols
-    assert version == 11
+    assert version == 12
 
 
 def test_migration_005_adds_last_message_at_column(store):
@@ -175,8 +178,8 @@ def test_migration_005_adds_last_message_at_column(store):
 def test_migration_005_present_on_migrated_db(tmp_path):
     # A database rewound to pre-005 gains the last_message_at column on migrate.
     # The message_id index (006), the two pipeline_version columns (007/008),
-    # the two timing columns (009/010) and extraction_version (011) are dropped
-    # too so they re-apply cleanly.
+    # the two timing columns (009/010), extraction_version (011) and the
+    # app_settings table (012) are dropped too so they re-apply cleanly.
     db = tmp_path / "migrated005.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 5")
@@ -189,18 +192,20 @@ def test_migration_005_present_on_migrated_db(tmp_path):
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
+        s.conn.execute("DROP TABLE app_settings")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(lists)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "last_message_at" in cols
-    assert version == 11
+    assert version == 12
 
 
 def test_migration_006_present_on_migrated_db(tmp_path):
     # A database rewound to pre-006 gains the message_id index on migrate. The
-    # two pipeline_version columns (007/008), the two timing columns (009/010)
-    # and extraction_version (011) are dropped too so they re-apply cleanly.
+    # two pipeline_version columns (007/008), the two timing columns (009/010),
+    # extraction_version (011) and the app_settings table (012) are dropped too
+    # so they re-apply cleanly.
     db = tmp_path / "migrated006.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 6")
@@ -212,6 +217,7 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
+        s.conn.execute("DROP TABLE app_settings")
         s.conn.commit()
     with Store(db) as s:
         indexes = {
@@ -220,7 +226,7 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         }
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "idx_messages_message_id" in indexes
-    assert version == 11
+    assert version == 12
 
 
 def test_expected_indexes_exist(store):
@@ -733,6 +739,96 @@ def test_insert_score_accepts_raw_json_string(store):
     assert score.raw_response == '{"already":"json"}'
 
 
+def _scored(store, *, text, message_id, detector_version):
+    """Seed a message + extraction + score for ``text`` and return the score."""
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    m = _add_message(store, lst.id, addr.id, message_id=message_id).message
+    ext = store.insert_extraction(message_id=m.id, extracted_text=text, method="m", status="ok")
+    return store.insert_score(
+        extraction_id=ext.id,
+        text_sha256=sha256_text(text),
+        label="AI",
+        detector_version=detector_version,
+    )
+
+
+def test_score_cache_filters_on_the_detector_generation(store):
+    _scored(store, text="some text", message_id="<gen@x>", detector_version="3.3.2")
+    digest = sha256_text("some text")
+
+    # A Pangram 3 verdict serves a generation-3 lookup and no other.
+    assert store.find_score_by_text_sha256(digest, generation="3") is not None
+    assert store.find_score_by_text_sha256(digest, generation="4") is None
+    # No generation given: any verdict matches (the pre-existing behaviour).
+    assert store.find_score_by_text_sha256(digest) is not None
+
+
+def test_score_cache_generation_ignores_rows_without_a_version(store):
+    _scored(store, text="unversioned", message_id="<nover@x>", detector_version=None)
+    digest = sha256_text("unversioned")
+    assert store.find_score_by_text_sha256(digest) is not None
+    assert store.find_score_by_text_sha256(digest, generation="3") is None
+    assert store.find_score_by_text_sha256(digest, generation="4") is None
+
+
+def test_scores_outside_generation_lists_messages_and_word_counts(store):
+    old = _scored(store, text="one two three", message_id="<old@x>", detector_version="3.3.2")
+    new = _scored(store, text="four five", message_id="<new@x>", detector_version="4.0")
+    none = _scored(store, text="six", message_id="<none@x>", detector_version=None)
+
+    old_message = store.conn.execute(
+        "SELECT message_id AS m FROM extractions WHERE id = ?", (old.extraction_id,)
+    ).fetchone()["m"]
+    none_message = store.conn.execute(
+        "SELECT message_id AS m FROM extractions WHERE id = ?", (none.extraction_id,)
+    ).fetchone()["m"]
+    new_message = store.conn.execute(
+        "SELECT message_id AS m FROM extractions WHERE id = ?", (new.extraction_id,)
+    ).fetchone()["m"]
+
+    # Against generation 4: the 3.3.2 row and the unversioned row are outside it.
+    rows = store.scores_outside_generation("4")
+    assert rows == sorted([(old_message, 3), (none_message, 1)])
+    # Against generation 3: the 4.0 row and the unversioned row are.
+    rows = store.scores_outside_generation("3")
+    assert rows == sorted([(new_message, 2), (none_message, 1)])
+
+
+# --- settings -----------------------------------------------------------------
+
+
+def test_migration_012_creates_app_settings(store):
+    tables = {
+        row["name"]
+        for row in store.conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    assert "app_settings" in tables
+    columns = {row["name"] for row in store.conn.execute("PRAGMA table_info(app_settings)")}
+    assert columns == {"key", "value"}
+
+
+def test_settings_round_trip(store):
+    assert store.get_setting("pangram_model") is None  # unset reads as None
+    store.set_setting("pangram_model", "default")
+    assert store.get_setting("pangram_model") == "default"
+    # A second write replaces the value rather than failing on the primary key.
+    store.set_setting("pangram_model", "pangram-4")
+    assert store.get_setting("pangram_model") == "pangram-4"
+    # Keys are independent.
+    store.set_setting("pangram_upgrade_notice", "later")
+    assert store.get_setting("pangram_upgrade_notice") == "later"
+    assert store.get_setting("pangram_model") == "pangram-4"
+
+
+def test_settings_persist_across_reopen(tmp_path):
+    db = tmp_path / "settings.db"
+    with Store(db) as s:
+        s.set_setting("pangram_model", "default")
+    with Store(db) as s:
+        assert s.get_setting("pangram_model") == "default"
+
+
 # --- persons ------------------------------------------------------------------
 
 
@@ -791,7 +887,8 @@ def test_migration_007_adds_pipeline_version_column(store):
 def test_migration_007_present_on_migrated_db(tmp_path):
     # A database rewound to pre-007 gains the messages.pipeline_version column on
     # migrate; extractions.pipeline_version (008), the two timing columns
-    # (009/010) and extraction_version (011) are dropped too so they re-apply.
+    # (009/010), extraction_version (011) and the app_settings table (012) are
+    # dropped too so they re-apply.
     db = tmp_path / "migrated007.db"
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 7")
@@ -802,12 +899,13 @@ def test_migration_007_present_on_migrated_db(tmp_path):
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
+        s.conn.execute("DROP TABLE app_settings")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "pipeline_version" in cols
-    assert version == 11
+    assert version == 12
 
 
 def test_message_pipeline_version_roundtrips(store):
@@ -948,10 +1046,14 @@ def test_replace_extraction_restamps_the_extraction_version(store):
 
 
 def _rewound_to_pre_011(db):
-    """Drop the extraction_version column and rewind the schema version past it."""
+    """Drop the extraction_version column and rewind the schema version past it.
+
+    The app_settings table (012) goes with it so that migration re-applies too.
+    """
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 11")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
+        s.conn.execute("DROP TABLE app_settings")
         s.conn.commit()
 
 

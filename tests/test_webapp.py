@@ -325,6 +325,8 @@ def test_window_details_positions_windows_in_the_extracted_text():
                 "ai_assistance_score": 0.02,
                 "confidence": "High",
                 "word_count": 3,
+                "is_humanized": False,
+                "humanizer_score": 0.0,
             },
             {
                 # Leading whitespace is trimmed off, so the marker lands on the
@@ -336,6 +338,8 @@ def test_window_details_positions_windows_in_the_extracted_text():
                 "ai_assistance_score": 0.91,
                 "confidence": "Medium",
                 "word_count": 3,
+                "is_humanized": True,
+                "humanizer_score": 0.87,
             },
         ],
     }
@@ -348,11 +352,15 @@ def test_window_details_positions_windows_in_the_extracted_text():
     assert first["ai_assistance_score"] == 0.02
     assert first["confidence"] == "High"
     assert first["label"] == "Human Written"
+    assert first["is_humanized"] is False
+    assert first["humanizer_score"] == 0.0
 
     assert second["index"] == 2
     assert second["start"] == {"line": 2, "col": 0}
     assert second["end"] == {"line": 2, "col": 17}
     assert second["chars"] == 17
+    assert second["is_humanized"] is True
+    assert second["humanizer_score"] == 0.87
 
 
 def test_window_details_reports_scores_when_a_window_cannot_be_located():
@@ -769,8 +777,9 @@ def test_pull_happy_path_with_scoring(db_path, monkeypatch):
         return ScoreSummary(scored=3, cache_hits=1, too_short=1, api_calls=3)
 
     class FakePangram:
-        def __init__(self, key):
+        def __init__(self, key, *, model=None):
             calls["pangram_key"] = key
+            calls["pangram_model"] = model
 
     monkeypatch.setattr(webapp_api, "open_client", lambda *a, **k: _FakeImapClient())
     monkeypatch.setattr(webapp_api, "resolve_folders", fake_resolve_folders)
@@ -1512,7 +1521,7 @@ def _fake_pipeline(monkeypatch, calls, *, scored=False):
         return ScoreSummary(scored=2, cache_hits=1, too_short=0, api_calls=2)
 
     monkeypatch.setattr(webapp_api, "run_score", fake_score)
-    monkeypatch.setattr(webapp_api, "PangramClient", lambda key: None)
+    monkeypatch.setattr(webapp_api, "PangramClient", lambda key, *, model=None: None)
 
 
 def test_pull_range_new_with_cursor_advances_pull_state(tmp_path, monkeypatch):
@@ -1798,8 +1807,9 @@ def test_score_happy_path_with_key(db_path, monkeypatch):
         return ScoreSummary(scored=3, cache_hits=1, too_short=1, api_calls=3)
 
     class FakePangram:
-        def __init__(self, key):
+        def __init__(self, key, *, model=None):
             calls["pangram_key"] = key
+            calls["pangram_model"] = model
 
     monkeypatch.setattr(webapp_api, "run_score", fake_run_score)
     monkeypatch.setattr(webapp_api, "PangramClient", FakePangram)
@@ -1847,6 +1857,250 @@ def test_score_skips_without_api_key(db_path, monkeypatch):
 )
 def test_score_validation_400(client, payload):
     resp = client.post("/api/score", json=payload)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+# --- /api/settings + the Pangram detector generation --------------------------
+#
+# The stored ``pangram_model`` setting decides which detector every scoring run
+# selects, and which stored verdicts the upgrade notice counts as out of date.
+# Scoring is faked at the api boundary throughout, so no test calls Pangram.
+
+
+def _set_detector_version(db_path: Path, message_key: str, version: str, seeded) -> int:
+    """Stamp the score of ``message_key``'s extraction with ``version``.
+
+    Returns the message primary key, so a test can name it in a request.
+    """
+    message_pk = seeded.messages[message_key]
+    with Store(db_path) as store:
+        store.conn.execute(
+            "UPDATE scores SET detector_version = ? WHERE extraction_id = "
+            "(SELECT id FROM extractions WHERE message_id = ?)",
+            (version, message_pk),
+        )
+        store.conn.commit()
+    return message_pk
+
+
+@pytest.fixture
+def seeded(db_path):
+    """The seeded message primary keys, by their spec key (``m1`` … ``m15``)."""
+    with Store(db_path) as store:
+        messages = {
+            f"m{i}": store.find_message_by_message_id(f"<m{i}@test>").id for i in range(1, 16)
+        }
+    return SimpleNamespace(messages=messages)
+
+
+def test_settings_default_to_pangram_4(client):
+    assert client.get("/api/settings").get_json() == {"pangram_model": "pangram-4"}
+
+
+def test_settings_put_persists_the_model(client):
+    resp = client.put("/api/settings", json={"pangram_model": "default"})
+    assert resp.status_code == 200
+    assert resp.get_json() == {"pangram_model": "default"}
+    # A later request reads the stored value.
+    assert client.get("/api/settings").get_json() == {"pangram_model": "default"}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},  # missing key
+        {"pangram_model": "pangram-5"},  # not an accepted selector
+        {"pangram_model": None},
+        {"pangram_model": 4},
+        {"detector": "pangram-4"},  # unknown key
+        {"pangram_model": "default", "extra": 1},  # unknown key alongside a valid one
+    ],
+)
+def test_settings_put_validation_400(client, payload):
+    resp = client.put("/api/settings", json=payload)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+    # Nothing was written.
+    assert client.get("/api/settings").get_json() == {"pangram_model": "pangram-4"}
+
+
+def test_score_stage_uses_the_stored_model(db_path, monkeypatch):
+    calls: dict = {}
+
+    def fake_run_score(store, client, *, limit=None, **kwargs):
+        return ScoreSummary(scored=1, cache_hits=0, too_short=0, api_calls=1)
+
+    class FakePangram:
+        def __init__(self, key, *, model=None):
+            calls["model"] = model
+
+    monkeypatch.setattr(webapp_api, "run_score", fake_run_score)
+    monkeypatch.setattr(webapp_api, "PangramClient", FakePangram)
+
+    c = _pull_client(db_path)
+    assert c.put("/api/settings", json={"pangram_model": "default"}).status_code == 200
+    assert c.post("/api/score", json={"limit": 5}).status_code == 200
+    assert calls["model"] == "default"
+
+    # Switching back selects Pangram 4 for the next run.
+    assert c.put("/api/settings", json={"pangram_model": "pangram-4"}).status_code == 200
+    assert c.post("/api/score", json={"limit": 5}).status_code == 200
+    assert calls["model"] == "pangram-4"
+
+
+# --- /api/pangram/notice ------------------------------------------------------
+
+
+def test_notice_pending_when_old_generation_scores_exist(client, db_path):
+    body = client.get("/api/pangram/notice").get_json()
+    # Every seeded score carries a pre-4 detector version.
+    assert body["state"] == "pending"
+    assert body["old_scores"] == 9
+    with Store(db_path) as store:
+        expected = [message_id for message_id, _ in store.scores_outside_generation("4")]
+    assert body["message_ids"] == expected
+    # The scored extractions hold 39 words between them, at $0.05 per 100.
+    assert body["estimated_words"] == 39
+    assert body["estimated_cost_v4"] == 0.02
+
+
+def test_notice_dismissed_on_a_database_with_nothing_to_retest(tmp_path):
+    db = tmp_path / "fresh.db"
+    with Store(db):
+        pass
+    app = create_app(_config(db), frontend_dist=None)
+    app.testing = True
+    body = app.test_client().get("/api/pangram/notice").get_json()
+    assert body == {
+        "state": "dismissed",
+        "old_scores": 0,
+        "message_ids": [],
+        "estimated_words": 0,
+        "estimated_cost_v4": 0.0,
+    }
+
+
+def test_notice_counts_only_scores_outside_the_selected_generation(client, db_path, seeded):
+    _set_detector_version(db_path, "m1", "4.0", seeded)
+    body = client.get("/api/pangram/notice").get_json()
+    assert body["old_scores"] == 8
+    assert seeded.messages["m1"] not in body["message_ids"]
+
+    # Selecting Pangram 3 turns the same row into the out-of-date one.
+    client.put("/api/settings", json={"pangram_model": "default"})
+    ids = client.get("/api/pangram/notice").get_json()["message_ids"]
+    assert seeded.messages["m1"] in ids
+
+
+@pytest.mark.parametrize("state", ["later", "dismissed"])
+def test_notice_put_persists_the_state(client, state):
+    resp = client.put("/api/pangram/notice", json={"state": state})
+    assert resp.status_code == 200
+    assert resp.get_json()["state"] == state
+    # The counts come back with it, and the state survives the next read.
+    assert resp.get_json()["old_scores"] == 9
+    assert client.get("/api/pangram/notice").get_json()["state"] == state
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},  # missing state
+        {"state": "pending"},  # resolved, never settable
+        {"state": "nope"},
+        {"state": None},
+    ],
+)
+def test_notice_put_validation_400(client, payload):
+    resp = client.put("/api/pangram/notice", json=payload)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+    assert client.get("/api/pangram/notice").get_json()["state"] == "pending"
+
+
+# --- /api/pangram/retest ------------------------------------------------------
+
+
+def test_retest_drops_only_old_generation_scores_and_rescores(db_path, seeded, monkeypatch):
+    current = _set_detector_version(db_path, "m1", "4.0", seeded)
+    old = seeded.messages["m3"]
+
+    calls: dict = {}
+
+    def fake_run_score(store, client, *, limit=None, **kwargs):
+        calls["limit"] = limit
+        calls["message_ids"] = kwargs.get("message_ids")
+        return ScoreSummary(scored=1, cache_hits=0, too_short=0, api_calls=1)
+
+    class FakePangram:
+        def __init__(self, key, *, model=None):
+            calls["model"] = model
+
+    monkeypatch.setattr(webapp_api, "run_score", fake_run_score)
+    monkeypatch.setattr(webapp_api, "PangramClient", FakePangram)
+
+    resp = _pull_client(db_path).post("/api/pangram/retest", json={"ids": [current, old]})
+    assert resp.status_code == 200
+    assert resp.get_json() == {
+        "scored": 1,
+        "cache_hits": 0,
+        "api_calls": 1,
+        "too_short": 0,
+        "scoring_skipped": False,
+        "invalidated": 1,
+    }
+    assert calls["limit"] == 2
+    assert calls["message_ids"] == {current, old}
+    assert calls["model"] == "pangram-4"
+
+    with Store(db_path) as store:
+        # The Pangram 4 verdict survived; the older one was dropped, which puts
+        # its extraction back in the scoring queue.
+        assert store.score_for_extraction(store.extraction_for_message(current).id) is not None
+        assert store.score_for_extraction(store.extraction_for_message(old).id) is None
+
+
+def test_retest_ignores_messages_without_a_score(db_path, seeded, monkeypatch):
+    monkeypatch.setattr(
+        webapp_api,
+        "run_score",
+        lambda store, client, **kwargs: ScoreSummary(scored=0, cache_hits=0, api_calls=0),
+    )
+    monkeypatch.setattr(webapp_api, "PangramClient", lambda key, *, model=None: None)
+
+    # m13 is extracted but unscored; m12 has no extraction row at all.
+    ids = [seeded.messages["m13"], seeded.messages["m12"]]
+    body = _pull_client(db_path).post("/api/pangram/retest", json={"ids": ids}).get_json()
+    assert body["invalidated"] == 0
+
+
+def test_retest_skips_scoring_without_an_api_key(db_path, seeded, monkeypatch):
+    def _must_not_call(*a, **k):
+        raise AssertionError("run_score must not run without an API key")
+
+    monkeypatch.setattr(webapp_api, "run_score", _must_not_call)
+
+    ids = [seeded.messages["m3"]]
+    resp = _pull_client(db_path, pangram_key="").post("/api/pangram/retest", json={"ids": ids})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["scoring_skipped"] is True
+    # The out-of-date verdict is still dropped, so a later run re-scores it.
+    assert body["invalidated"] == 1
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},  # missing ids
+        {"ids": []},  # empty
+        {"ids": [1, "two"]},  # non-int
+        {"ids": list(range(1001))},  # above the cap
+    ],
+)
+def test_retest_validation_400(client, payload):
+    resp = client.post("/api/pangram/retest", json=payload)
     assert resp.status_code == 400
     assert "error" in resp.get_json()
 

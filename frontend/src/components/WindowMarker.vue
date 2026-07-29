@@ -44,6 +44,12 @@ const lines = computed(() => {
   const score = Number.isFinite(s) ? s.toFixed(2) : '—'
   const out = [`Window ${w.index}`, `${score} (${w.confidence || '—'})`]
   if (w.label) out.push(w.label)
+  // Detector v4 only: a window scored under v3 carries no humanizer verdict,
+  // and one that is not humanized adds no line.
+  if (w.is_humanized) {
+    const h = Number(w.humanizer_score)
+    out.push(`humanized (${Number.isFinite(h) ? h.toFixed(2) : '—'})`)
+  }
   const size = []
   if (w.chars != null) size.push(`${fmtInt(w.chars)} chars`)
   if (w.word_count != null) size.push(`${fmtInt(w.word_count)} words`)

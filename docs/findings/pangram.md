@@ -1,5 +1,14 @@
 # Pangram AI-detection API — Phase 0 spike findings (task 0.3)
 
+> **Superseded in part (2026-07-30):** this document records the Pangram 3
+> contract as verified during the Phase 0 spike. From app version 1.4.0 the
+> client pins `model: "pangram-4"` on every submit (the API's own default
+> still routes to Pangram 3 until that generation is deprecated). Pangram 4
+> keeps the same endpoints, auth, and response field set; it adds per-window
+> `is_humanized` and `humanizer_score` fields, may normalize the returned
+> `text` (window offsets index the returned text, not the submitted text),
+> and prices realtime calls at $0.05 per 100 words rather than per 1,000.
+
 > **Live verification DONE (2026-07-21)** — `spikes/pangram/verify_api.py` ran
 > against the live service with a real key (3 samples, within the 10-call
 > testing cap). The documented contract held exactly: endpoint

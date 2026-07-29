@@ -88,6 +88,18 @@ THREAD_GRAPH_MAX_LIMIT = 500
 _IN_CHUNK = 400
 
 
+# --- Settings keys ------------------------------------------------------------
+
+#: Settings key holding the Pangram detector selector every scoring run sends
+#: (see :data:`mailing_list_ai_check.pangram.MODEL_GENERATIONS` for the accepted
+#: values). Absent means the client default, Pangram 4.
+SETTING_PANGRAM_MODEL = "pangram_model"
+#: Settings key holding the state of the dashboard's Pangram-upgrade notice:
+#: "pending", "later" or "dismissed". Absent means the state has never been set
+#: and the reader resolves it from the stored scores.
+SETTING_PANGRAM_NOTICE = "pangram_upgrade_notice"
+
+
 # --- Schema migrations --------------------------------------------------------
 
 _MIGRATION_001 = """
@@ -292,6 +304,20 @@ UPDATE extractions SET extraction_version = 1
 WHERE extraction_version IS NULL AND pipeline_version IS NOT NULL;
 """
 
+# Persistent application settings: a small key/value table for choices the user
+# makes in the dashboard that must survive a restart, such as which Pangram
+# detector generation to score with (``pangram_model``) and whether the upgrade
+# notice has been dismissed (``pangram_upgrade_notice``). Values are stored as
+# text; each caller knows its own key's vocabulary. An absent key means "not
+# set" and every reader supplies its own default, so a fresh database needs no
+# seed rows.
+_MIGRATION_012 = """
+CREATE TABLE app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
@@ -304,6 +330,7 @@ MIGRATIONS: list[tuple[int, str]] = [
     (9, _MIGRATION_009),
     (10, _MIGRATION_010),
     (11, _MIGRATION_011),
+    (12, _MIGRATION_012),
 ]
 
 #: The migrations whose backfill runs in Python (see :meth:`Store.__init__`).
@@ -1581,18 +1608,49 @@ class Store:
 
     # -- scores ---------------------------------------------------------------
 
-    def find_score_by_text_sha256(self, text_sha256: str) -> Score | None:
+    def find_score_by_text_sha256(
+        self, text_sha256: str, generation: str | None = None
+    ) -> Score | None:
         """Return any existing score for identical text (the Pangram cache).
 
         Lets the scorer reuse a verdict for text it has already paid to classify,
         keyed on the SHA-256 of the extracted text — never score identical text
         twice.
+
+        ``generation``, when given, restricts the match to verdicts produced by
+        that detector generation: rows whose ``detector_version`` starts with
+        ``"<generation>."`` (Pangram stamps "4.0", "3.3.2", …). Two generations
+        disagree about the same text, so serving a Pangram 3 verdict for a
+        Pangram 4 run — or the reverse — would record a result the selected
+        detector never produced. A row with no recorded version matches no
+        generation. The default ``None`` matches any row.
         """
-        row = self.conn.execute(
-            "SELECT * FROM scores WHERE text_sha256 = ? ORDER BY id LIMIT 1",
-            (text_sha256,),
-        ).fetchone()
+        sql = "SELECT * FROM scores WHERE text_sha256 = ?"
+        params: list[Any] = [text_sha256]
+        if generation is not None:
+            sql += " AND detector_version LIKE ? || '.%'"
+            params.append(generation)
+        row = self.conn.execute(sql + " ORDER BY id LIMIT 1", params).fetchone()
         return Score.from_row(row) if row else None
+
+    def scores_outside_generation(self, generation: str) -> list[tuple[int, int]]:
+        """Return ``(message_id, word_count)`` for scores of another generation.
+
+        A score belongs to ``generation`` when its ``detector_version`` starts
+        with ``"<generation>."``; every other row — including one with no
+        recorded version — holds a verdict the selected detector would derive
+        differently, and is what the dashboard offers to re-test. ``word_count``
+        is the whitespace-split length of the scored extraction's text, which
+        the caller turns into a spend estimate. Rows come back in message order.
+        """
+        rows = self.conn.execute(
+            "SELECT e.message_id AS message_id, e.extracted_text AS extracted_text "
+            "FROM scores s JOIN extractions e ON e.id = s.extraction_id "
+            "WHERE s.detector_version IS NULL OR s.detector_version NOT LIKE ? || '.%' "
+            "ORDER BY e.message_id",
+            (generation,),
+        )
+        return [(row["message_id"], _word_count(row["extracted_text"])) for row in rows]
 
     def insert_score(
         self,
@@ -1658,6 +1716,28 @@ class Store:
         cur = self.conn.execute("DELETE FROM scores WHERE extraction_id = ?", (extraction_id,))
         self.conn.commit()
         return cur.rowcount > 0
+
+    # -- settings -------------------------------------------------------------
+
+    def get_setting(self, key: str) -> str | None:
+        """Return the stored value for ``key``, or ``None`` when it is not set.
+
+        Callers supply their own default for an unset key; the table holds only
+        settings a user has explicitly chosen.
+        """
+        row = self.conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Store ``value`` for ``key``, replacing any existing value.
+
+        Validation of the value belongs to the caller, which owns the key's
+        vocabulary; this layer stores whatever text it is given.
+        """
+        self.conn.execute(
+            "INSERT OR REPLACE INTO app_settings(key, value) VALUES (?, ?)", (key, value)
+        )
+        self.conn.commit()
 
     # -- persons --------------------------------------------------------------
 

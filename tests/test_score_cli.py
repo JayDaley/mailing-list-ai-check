@@ -21,10 +21,17 @@ WORDS_10 = " ".join(f"word{i}" for i in range(10))
 
 
 class FakeClient:
-    """Stand-in for PangramClient: canned result, counts calls, optional error."""
+    """Stand-in for PangramClient: canned result, counts calls, optional error.
 
-    def __init__(self, *, fail=False):
+    ``model`` and ``version`` move together, as they do for the real client: the
+    default selector returns a Pangram 3 verdict ("3.3.2"), ``pangram-4`` a
+    Pangram 4 one ("4.0"). The score cache is filtered on that generation.
+    """
+
+    def __init__(self, *, fail=False, model="default", version="3.3.2"):
         self.calls = 0
+        self.model = model
+        self.version = version
         self._fail = fail
 
     def predict(self, text):
@@ -36,7 +43,7 @@ class FakeClient:
             fraction_ai_assisted=0.1,
             fraction_human=0.0,
             prediction_short="AI",
-            version="3.3.2",
+            version=self.version,
             raw={"stage": "STAGE_SUCCESS", "fraction_ai": 0.9},
         )
 
@@ -196,6 +203,39 @@ def test_cache_hit_skips_api(store):
     assert n == 2
 
 
+def test_cache_hit_requires_the_same_detector_generation(store):
+    # The first extraction is scored by the default (Pangram 3) selector; the
+    # second holds identical text but is run with a Pangram 4 client, so the
+    # cached 3.3.2 verdict must not be served — the text is scored again.
+    _seed_extraction(store, text=WORDS_60, message_id="<g1@x>")
+    v3 = FakeClient()
+    cli.run_score(store, v3, limit=10)
+
+    _seed_extraction(store, text=WORDS_60, message_id="<g2@x>")
+    v4 = FakeClient(model="pangram-4", version="4.0")
+    summary = cli.run_score(store, v4, limit=10)
+
+    assert summary.cache_hits == 0
+    assert summary.scored == 1
+    assert v4.calls == 1
+    versions = [
+        row["detector_version"]
+        for row in store.conn.execute("SELECT detector_version FROM scores ORDER BY id")
+    ]
+    assert versions == ["3.3.2", "4.0"]
+
+
+def test_cache_hit_within_the_same_generation_still_skips_the_api(store):
+    # Same text, same generation: the second extraction is served from the cache.
+    _seed_extraction(store, text=WORDS_60, message_id="<g3@x>")
+    _seed_extraction(store, text=WORDS_60, message_id="<g4@x>")
+    client = FakeClient(model="pangram-4", version="4.0")
+    summary = cli.run_score(store, client, limit=10)
+    assert summary.scored == 1
+    assert summary.cache_hits == 1
+    assert client.calls == 1
+
+
 def test_limit_caps_api_calls(store):
     for i in range(5):
         _seed_extraction(store, text=f"{WORDS_60} unique{i}", message_id=f"<u{i}@x>")
@@ -253,7 +293,21 @@ def test_summary_line_format(store):
     assert "scored=3" in line
     assert "cache_hits=1" in line
     assert "words_sent=180" in line
-    assert "est_spend=$0.0090" in line
+    # 180 words at the Pangram 4 realtime price of $0.05 per 100 words.
+    assert "est_spend=$0.0900" in line
+
+
+def test_spend_estimate_uses_the_active_generation_price(store):
+    # A Pangram 3 run (the "default" selector) estimates at $0.05 per 1,000
+    # words, a Pangram 4 run at $0.05 per 100 — run_score stamps the summary
+    # with the active generation's price.
+    _seed_extraction(store, text=WORDS_60, message_id="<p3@x>")
+    summary = cli.run_score(store, FakeClient(model="default"), limit=10)
+    assert summary.estimated_spend == pytest.approx(60 / 1000 * 0.05)
+
+    _seed_extraction(store, text=WORDS_60 + " extra", message_id="<p4@x>")
+    summary = cli.run_score(store, FakeClient(model="pangram-4", version="4.0"), limit=10)
+    assert summary.estimated_spend == pytest.approx(61 / 100 * 0.05)
 
 
 # --- score_main arg handling --------------------------------------------------
@@ -283,6 +337,67 @@ def test_score_main_dry_run_works_without_key(monkeypatch, tmp_path):
     with Store(db) as store:
         _seed_extraction(store, text=WORDS_60, message_id="<nokeydry@x>")
     assert cli.score_main(["--db", str(db), "--dry-run"]) == 0
+
+
+def _recording_client(monkeypatch, built):
+    """Replace cli.PangramClient with a FakeClient that records its arguments."""
+
+    def _build(api_key, *, model=None, **kwargs):
+        built.append({"api_key": api_key, "model": model})
+        return FakeClient(model=model, version="4.0" if model == "pangram-4" else "3.3.2")
+
+    monkeypatch.setattr(cli, "PangramClient", _build)
+
+
+def test_score_main_uses_the_stored_model_setting(monkeypatch, tmp_path):
+    monkeypatch.setenv("PANGRAM_API_KEY", "test-key")
+    db = tmp_path / "setting.db"
+    with Store(db) as store:
+        _seed_extraction(store, text=WORDS_60, message_id="<setting@x>")
+        store.set_setting("pangram_model", "default")
+
+    built: list[dict] = []
+    _recording_client(monkeypatch, built)
+    assert cli.score_main(["--db", str(db)]) == 0
+    assert built == [{"api_key": "test-key", "model": "default"}]
+
+
+def test_score_main_defaults_to_pangram_4_without_a_setting(monkeypatch, tmp_path):
+    monkeypatch.setenv("PANGRAM_API_KEY", "test-key")
+    db = tmp_path / "nosetting.db"
+    with Store(db) as store:
+        _seed_extraction(store, text=WORDS_60, message_id="<nosetting@x>")
+
+    built: list[dict] = []
+    _recording_client(monkeypatch, built)
+    assert cli.score_main(["--db", str(db)]) == 0
+    assert built == [{"api_key": "test-key", "model": "pangram-4"}]
+
+
+def test_score_main_model_flag_overrides_the_setting(monkeypatch, tmp_path):
+    monkeypatch.setenv("PANGRAM_API_KEY", "test-key")
+    db = tmp_path / "override.db"
+    with Store(db) as store:
+        _seed_extraction(store, text=WORDS_60, message_id="<override@x>")
+        store.set_setting("pangram_model", "default")
+
+    built: list[dict] = []
+    _recording_client(monkeypatch, built)
+    assert cli.score_main(["--db", str(db), "--model", "pangram-4"]) == 0
+    assert built == [{"api_key": "test-key", "model": "pangram-4"}]
+    with Store(db) as store:
+        version = store.conn.execute("SELECT detector_version AS v FROM scores").fetchone()["v"]
+    # The flag is a per-run override; the stored setting is left as it was.
+    assert version == "4.0"
+    with Store(db) as store:
+        assert store.get_setting("pangram_model") == "default"
+
+
+def test_score_main_rejects_an_unknown_model(monkeypatch):
+    monkeypatch.setenv("PANGRAM_API_KEY", "test-key")
+    with pytest.raises(SystemExit) as exc:
+        cli.score_main(["--model", "pangram-5"])
+    assert exc.value.code == 2
 
 
 def test_score_main_dry_run_end_to_end(monkeypatch, tmp_path):

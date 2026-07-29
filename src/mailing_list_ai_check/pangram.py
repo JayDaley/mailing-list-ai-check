@@ -4,6 +4,9 @@ Implements the live-verified async contract from ``docs/findings/pangram.md``:
 submit a single text with ``POST /task`` (returns HTTP 200 + ``{task_id}``),
 then poll ``GET /task/{task_id}`` until ``stage`` is terminal
 (``STAGE_SUCCESS`` / ``STAGE_FAILED``). Auth is the ``x-api-key`` header.
+Every submit names the detector generation explicitly (``model``, default
+``pangram-4``) because an omitted ``model`` still routes to Pangram 3 until
+that generation is deprecated.
 
 The client owns its HTTP layer deliberately (rather than using ``pangram-sdk``)
 so it can add behaviour the SDK lacks and the findings doc requires: retry with
@@ -36,6 +39,31 @@ TASK_URL = f"{API_BASE}/task/{{task_id}}"
 
 SUCCESS_STAGE = "STAGE_SUCCESS"
 FAILED_STAGE = "STAGE_FAILED"
+
+#: Detector generation requested on every submit. The API resolves an omitted
+#: ``model`` to ``"default"``, which still routes to Pangram 3 until that
+#: generation is deprecated (announced for 2026-09-30), so v4 must be named
+#: explicitly. ``GET /models`` lists the selectors an API key may use.
+DEFAULT_MODEL = "pangram-4"
+
+#: The detector generation each accepted ``model`` selector resolves to, as the
+#: leading component of the ``version`` a response stamps (Pangram 4 returns
+#: "4.0", Pangram 3 returned "3.3.2"), which is what ``scores.detector_version``
+#: holds. ``"default"`` maps to generation 3 only until Pangram 3 is deprecated
+#: (announced for 2026-09-30); after that the API resolves it to a later
+#: generation and this mapping must be revisited.
+MODEL_GENERATIONS = {"pangram-4": "4", "default": "3"}
+
+
+def generation_for_model(model: str) -> str | None:
+    """Return the detector generation ``model`` selects, or ``None`` if unknown.
+
+    An unknown selector yields ``None`` rather than a guess, so callers that key
+    the score cache on the generation fall back to not filtering at all instead
+    of silently matching the wrong verdicts.
+    """
+    return MODEL_GENERATIONS.get(model)
+
 
 #: HTTP status codes accepted from ``POST /task`` (live returns 200; the SDK/v3
 #: migration notes mention 202 — accept both defensively).
@@ -87,8 +115,11 @@ class PangramResult:
     """The fields Phase 4 surfaces from a successful classification.
 
     ``raw`` is the full parsed JSON response (including ``headline``,
-    ``prediction``, ``num_*_segments`` and the ``windows`` array), stored
-    verbatim so nothing is lost.
+    ``prediction``, ``num_*_segments`` and the ``windows`` array — with the
+    per-window ``is_humanized``/``humanizer_score`` fields Pangram 4 added),
+    stored verbatim so nothing is lost. Note that Pangram 4 may normalize the
+    submitted text before inference; ``raw["text"]`` is that normalized text
+    and window offsets index into it, not into the submitted string.
     """
 
     fraction_ai: float | None
@@ -141,12 +172,16 @@ class PangramClient:
         Read from ``Config.load().pangram_api_key`` by the caller. Never logged.
     session:
         A :class:`requests.Session` to reuse; a fresh one is created if omitted.
+    model:
+        The detector generation sent with every submit (default
+        :data:`DEFAULT_MODEL`, i.e. Pangram 4).
     """
 
     def __init__(
         self,
         api_key: str,
         *,
+        model: str = DEFAULT_MODEL,
         session: requests.Session | None = None,
         http_timeout: float = DEFAULT_HTTP_TIMEOUT,
         overall_timeout: float = DEFAULT_OVERALL_TIMEOUT,
@@ -158,6 +193,7 @@ class PangramClient:
         if not api_key:
             raise ValueError("api_key must be a non-empty string")
         self._api_key = api_key
+        self.model = model
         self.session = session or requests.Session()
         self.http_timeout = http_timeout
         self.overall_timeout = overall_timeout
@@ -182,7 +218,7 @@ class PangramClient:
             "POST",
             SUBMIT_URL,
             expected=_SUBMIT_OK,
-            json={"text": text, "public_dashboard_link": False},
+            json={"text": text, "model": self.model, "public_dashboard_link": False},
         )
         self._last_submit_at = time.monotonic()
         task_id = self._json(resp).get("task_id")

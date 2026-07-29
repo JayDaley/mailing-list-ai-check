@@ -146,7 +146,14 @@ Requires `PANGRAM_API_KEY`. Extractions under 50 words are marked `too_short`
 and never sent. Identical text is served from the score cache without an API
 call. `--limit N` caps Pangram API calls per run (cache hits are free and
 uncapped) and **defaults to 10** to limit accidental spending — pass a larger
-value for production runs. Pangram costs roughly **$0.05 per 1,000 words**.
+value for production runs. Scoring uses the Pangram 4 detector by default,
+which costs roughly **$0.05 per 100 words** on realtime API calls (Pangram 3
+cost $0.05 per 1,000 words). The detector can be changed with `--model
+{pangram-4,default}` for one run (`default` routes to Pangram 3 until Pangram
+deprecates it), or persistently with the dashboard's "Use Pangram v3 (old)"
+header switch; the switch's setting applies to both the dashboard and the CLI.
+A database holding Pangram 3 verdicts shows a one-time notice in the dashboard
+offering to keep using v3 and to re-score the old verdicts.
 
 ### `mail-ai-web` — the dashboard
 

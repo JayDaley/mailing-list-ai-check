@@ -32,8 +32,14 @@ from .fetcher import (
 )
 from .html_text import split_html_parts
 from .imap_client import ImapClient
-from .pangram import PangramClient, PangramError
-from .store import Store, sha256_text
+from .pangram import (
+    DEFAULT_MODEL,
+    MODEL_GENERATIONS,
+    PangramClient,
+    PangramError,
+    generation_for_model,
+)
+from .store import SETTING_PANGRAM_MODEL, Store, sha256_text
 
 log = logging.getLogger("mailing_list_ai_check.pull")
 extract_log = logging.getLogger("mailing_list_ai_check.extract")
@@ -47,8 +53,11 @@ SCORE_MIN_WORDS = 50
 #: Default API-call cap per run. Deliberately small so an accidental run can't
 #: spend; a production run must pass an explicit larger ``--limit``.
 DEFAULT_SCORE_LIMIT = 10
-#: Realtime Pangram price, for the end-of-run spend estimate ($/1000 words).
-_PRICE_PER_1K_WORDS = 0.05
+#: Realtime Pangram price per 100 words by detector generation, for the
+#: end-of-run spend estimate: Pangram 4 is $0.05 per 100 words, Pangram 3 was
+#: $0.05 per 1,000. Unknown generations use the Pangram 4 price.
+_PRICE_PER_100_WORDS = {"4": 0.05, "3": 0.005}
+_DEFAULT_PRICE_PER_100_WORDS = _PRICE_PER_100_WORDS["4"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -439,11 +448,13 @@ class ScoreSummary:
     failed: int = 0
     api_calls: int = 0
     words_sent: int = 0
+    #: Set by :func:`run_score` from the active detector generation.
+    price_per_100_words: float = _DEFAULT_PRICE_PER_100_WORDS
 
     @property
     def estimated_spend(self) -> float:
         """Rough realtime cost of the words actually sent this run (USD)."""
-        return self.words_sent / 1000 * _PRICE_PER_1K_WORDS
+        return self.words_sent / 100 * self.price_per_100_words
 
     def as_line(self) -> str:
         return (
@@ -475,6 +486,17 @@ def build_score_parser() -> argparse.ArgumentParser:
         help=(
             f"cap on Pangram API calls this run (cache hits are free and uncapped); "
             f"default {DEFAULT_SCORE_LIMIT}. Pass a larger value for production runs."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        choices=sorted(MODEL_GENERATIONS),
+        help=(
+            "detector generation to score with, overriding the stored dashboard "
+            "setting for this run: 'pangram-4' is Pangram 4, 'default' is the "
+            "API's default selector, which resolves to Pangram 3 until that "
+            "generation is deprecated. Without this flag the stored setting "
+            f"applies, or {DEFAULT_MODEL} when none is stored."
         ),
     )
     parser.add_argument(
@@ -521,8 +543,15 @@ def run_score(
     ``message_ids``, when given, restricts the run to the extractions of those
     messages; the rest of the scoring queue is left untouched. The default
     ``None`` scores the whole queue.
+
+    The score cache is consulted per detector generation: only a verdict from
+    the generation ``client`` selects (``DEFAULT_MODEL``'s in a dry run, where
+    there is no client) can be reused, so a stored Pangram 3 verdict never
+    stands in for a Pangram 4 run or the reverse.
     """
     summary = ScoreSummary()
+    generation = generation_for_model(client.model if client is not None else DEFAULT_MODEL)
+    summary.price_per_100_words = _PRICE_PER_100_WORDS.get(generation, _DEFAULT_PRICE_PER_100_WORDS)
 
     # One pass over every unscored ok extraction (min_words=0 yields all); the
     # short-text gate is applied here on the *cleaned* word count so it never
@@ -543,7 +572,7 @@ def run_score(
                 store.update_extraction_status(extraction.id, "too_short")
             continue
 
-        cached = store.find_score_by_text_sha256(sha256_text(text))
+        cached = store.find_score_by_text_sha256(sha256_text(text), generation=generation)
         if cached is not None:
             summary.cache_hits += 1
             if not dry_run:
@@ -618,8 +647,11 @@ def score_main(argv: Sequence[str] | None = None) -> int:
             "PANGRAM_API_KEY is not set. Add it to .env (see .env.example) to score messages;"
             " pulling and extraction work without it."
         )
-    client = None if args.dry_run else PangramClient(config.pangram_api_key)
     with Store(db_path) as store:
+        # --model wins for this run; otherwise the dashboard's stored choice,
+        # falling back to the client default when nothing has been chosen.
+        model = args.model or store.get_setting(SETTING_PANGRAM_MODEL) or DEFAULT_MODEL
+        client = None if args.dry_run else PangramClient(config.pangram_api_key, model=model)
         summary = run_score(
             store,
             client,

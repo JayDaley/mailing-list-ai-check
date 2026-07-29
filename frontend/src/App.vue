@@ -1,9 +1,9 @@
 <script setup>
 // App shell: the 40px header bar + the single-screen dashboard below it. The
 // header holds the brand, an ⓘ button that opens the documentation drawer, an
-// alert button (only while stored text may be out of date), an unfiltered stat
-// line (total messages · lists · db size) and the global Anonymous toggle. The
-// dashboard itself is the routed view.
+// alert button (only while a warning is active), an unfiltered stat line (total
+// messages · lists · db size), the Pangram-v3 switch and the global Anonymous
+// toggle. The dashboard itself is the routed view.
 import { ref, computed, onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 
@@ -11,11 +11,14 @@ import { get } from './api'
 import { fmtInt } from './lib/format'
 import { useUiStore } from './stores/ui'
 import { useFiltersStore } from './stores/filters'
+import { useSettingsStore } from './stores/settings'
 import DocsDrawer from './components/DocsDrawer.vue'
 import StaleDataModal from './components/StaleDataModal.vue'
+import PangramUpgradeModal from './components/PangramUpgradeModal.vue'
 
 const ui = useUiStore()
 const filters = useFiltersStore()
+const settings = useSettingsStore()
 
 // Unfiltered header stat, fetched once. `total`/`db_size_bytes` come from the
 // summary (with no filters); `nlists` from /api/lists.
@@ -54,6 +57,62 @@ async function loadStaleness() {
   }
 }
 
+// The Pangram upgrade notice (GET /api/pangram/notice): whether the user has
+// answered the change of default detector, and what re-testing the stored
+// Pangram 3 verdicts would involve. It counts as a warning while it is
+// unanswered ("pending") or deferred ("later").
+const notice = ref(null)
+const pangramOpen = ref(false)
+const noticeActive = computed(
+  () => notice.value?.state === 'pending' || notice.value?.state === 'later',
+)
+
+async function loadNotice() {
+  try {
+    notice.value = await get('/pangram/notice')
+  } catch {
+    // As with the staleness report: no report, no prompt and no alert icon.
+    notice.value = null
+  }
+}
+
+// --- the header's alert icon -------------------------------------------------
+//
+// One button stands for every active warning. Clicking it opens one warning's
+// modal, and successive clicks cycle through them, so a second warning is never
+// unreachable and two modals are never open at once.
+const WARNING_LABELS = {
+  stale: 'Stored text may be out of date',
+  pangram: 'The default Pangram detector changed to Pangram 4',
+}
+
+const warnings = computed(() => {
+  const keys = []
+  if (isStale.value) keys.push('stale')
+  if (noticeActive.value) keys.push('pangram')
+  return keys
+})
+const warningLabel = computed(() => warnings.value.map((k) => WARNING_LABELS[k]).join('; '))
+
+// Index of the warning the next click opens. It is taken modulo the current
+// list, so a warning that resolves cannot leave the cycle pointing past the end.
+const warningIndex = ref(0)
+
+function openWarning(key) {
+  const list = warnings.value
+  const i = list.indexOf(key)
+  if (i < 0) return
+  warningIndex.value = (i + 1) % list.length
+  if (key === 'stale') staleOpen.value = true
+  else pangramOpen.value = true
+}
+
+function openNextWarning() {
+  const list = warnings.value
+  if (!list.length) return
+  openWarning(list[warningIndex.value % list.length])
+}
+
 onMounted(async () => {
   try {
     const [summary, lists] = await Promise.all([get('/summary'), get('/lists')])
@@ -63,9 +122,22 @@ onMounted(async () => {
   } catch {
     // The stat line is decorative; leave it blank if the fetch fails.
   }
-  await loadStaleness()
-  if (isStale.value) staleOpen.value = true
+  await Promise.all([loadStaleness(), loadNotice(), settings.load()])
+  // At most one modal opens unprompted. The stale prompt takes precedence; an
+  // unanswered Pangram notice then stays reachable through the alert icon.
+  if (isStale.value) openWarning('stale')
+  else if (notice.value?.state === 'pending') openWarning('pangram')
 })
+
+// The header switch chooses the detector new scoring uses. A failed write rolls
+// the store back, so the switch returns to what the server last reported.
+async function onTogglePangramV3(event) {
+  try {
+    await settings.setUsePangramV3(event.target.checked)
+  } catch {
+    // Leave the switch reflecting the store; nothing else depends on it here.
+  }
+}
 
 // Turning anonymous mode on hides the sender-identifying UI, so any active
 // person or address filter must be cleared. Clear through the store actions so
@@ -95,17 +167,26 @@ const docsOpen = ref(false)
       i
     </button>
     <button
-      v-if="isStale"
+      v-if="warnings.length"
       type="button"
       class="alert-btn"
-      title="Stored text may be out of date"
-      aria-label="Stored text may be out of date"
-      @click="staleOpen = true"
+      :title="warningLabel"
+      :aria-label="warningLabel"
+      @click="openNextWarning"
     >
       !
     </button>
     <span class="header-stat">{{ headerStat }}</span>
     <span class="header-spacer"></span>
+    <label class="hdr-toggle">
+      Use Pangram v3 (old)
+      <input
+        type="checkbox"
+        class="hdr-checkbox"
+        :checked="settings.usingPangramV3"
+        @change="onTogglePangramV3"
+      />
+    </label>
     <label class="anon-toggle">
       Anonymous
       <input
@@ -126,5 +207,12 @@ const docsOpen = ref(false)
     :info="staleness"
     @close="staleOpen = false"
     @refresh="loadStaleness"
+  />
+
+  <PangramUpgradeModal
+    :open="pangramOpen"
+    :notice="notice"
+    @close="pangramOpen = false"
+    @refresh="loadNotice"
   />
 </template>

@@ -15,12 +15,15 @@ import requests
 
 from mailing_list_ai_check import pangram
 from mailing_list_ai_check.pangram import (
+    DEFAULT_MODEL,
+    MODEL_GENERATIONS,
     PangramClient,
     PangramError,
     PangramResult,
     PangramTaskFailed,
     PangramTimeout,
     PangramTransportError,
+    generation_for_model,
 )
 
 
@@ -61,9 +64,16 @@ SUCCESS_BODY = {
     "fraction_ai_assisted": 0.0,
     "fraction_human": 0.0,
     "prediction_short": "AI",
-    "version": "3.3.2",
+    "version": "4.0",
     "headline": "AI Generated",
-    "windows": [{"label": "AI-Generated", "word_count": 60}],
+    "windows": [
+        {
+            "label": "AI-Generated",
+            "word_count": 60,
+            "is_humanized": False,
+            "humanizer_score": 0.02,
+        }
+    ],
 }
 
 
@@ -100,9 +110,53 @@ def test_submit_and_poll_success():
     assert result.fraction_ai_assisted == 0.0
     assert result.fraction_human == 0.0
     assert result.prediction_short == "AI"
-    assert result.version == "3.3.2"
-    # full raw JSON is preserved, including windows.
+    assert result.version == "4.0"
+    # full raw JSON is preserved, including windows and the v4 humanizer fields.
     assert result.raw["windows"][0]["word_count"] == 60
+    assert result.raw["windows"][0]["is_humanized"] is False
+    assert result.raw["windows"][0]["humanizer_score"] == 0.02
+
+
+def test_submit_pins_v4_model_by_default():
+    # The server still resolves an omitted model to Pangram 3, so every submit
+    # must name the generation explicitly.
+    session = FakeSession([FakeResponse(200, {"task_id": "t"}), FakeResponse(200, SUCCESS_BODY)])
+    client = PangramClient("k", session=session, min_submit_interval=0)
+    client.predict("text")
+    _method, _url, kwargs = session.calls[0]
+    assert kwargs["json"] == {
+        "text": "text",
+        "model": "pangram-4",
+        "public_dashboard_link": False,
+    }
+
+
+def test_model_override_is_sent():
+    session = FakeSession([FakeResponse(200, {"task_id": "t"}), FakeResponse(200, SUCCESS_BODY)])
+    client = PangramClient("k", session=session, min_submit_interval=0, model="default")
+    client.predict("text")
+    assert session.calls[0][2]["json"]["model"] == "default"
+
+
+# --- detector generations -------------------------------------------------
+
+
+def test_generation_for_model_maps_each_selector():
+    # The generation is the leading component of the version a response stamps:
+    # Pangram 4 returns "4.0", the default selector (Pangram 3) returned "3.3.2".
+    assert generation_for_model("pangram-4") == "4"
+    assert generation_for_model("default") == "3"
+    assert generation_for_model(DEFAULT_MODEL) == "4"
+    assert SUCCESS_BODY["version"].startswith(generation_for_model("pangram-4") + ".")
+
+
+def test_generation_for_model_unknown_selector_is_none():
+    assert generation_for_model("pangram-5") is None
+    assert generation_for_model("") is None
+
+
+def test_model_generations_covers_every_accepted_selector():
+    assert set(MODEL_GENERATIONS) == {"pangram-4", "default"}
 
 
 # --- label derivation -----------------------------------------------------
@@ -321,3 +375,8 @@ def test_live_predict():
         result = client.predict(text)
         assert result.prediction_short is not None
         assert 0.0 <= (result.fraction_ai or 0.0) <= 1.0
+        # The submit pins model=pangram-4; the verdict must come from it.
+        assert (result.version or "").startswith("4.")
+        for window in result.raw.get("windows", []):
+            assert "is_humanized" in window
+            assert "humanizer_score" in window

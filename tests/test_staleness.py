@@ -110,8 +110,8 @@ def test_migration_backfills_extraction_version_from_message(tmp_path):
             pipeline_version="1.1.0",
         )
         # Rewind to pre-008 with the column gone, leaving only the message
-        # stamp. The timing columns (009/010) and extraction_version (011) are
-        # dropped too so they re-apply.
+        # stamp. The timing columns (009/010), extraction_version (011) and the
+        # app_settings table (012) are dropped too so they re-apply.
         s.conn.execute("DELETE FROM schema_version WHERE version >= 8")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN pipeline_version")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
@@ -119,6 +119,7 @@ def test_migration_backfills_extraction_version_from_message(tmp_path):
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing")
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
+        s.conn.execute("DROP TABLE app_settings")
         s.conn.commit()
     with Store(db) as s:
         after = s.extraction_for_message(message.id)
@@ -478,7 +479,8 @@ def test_reextract_skips_ids_without_an_extraction(store):
 class StubPangram:
     """A Pangram client that records the texts it was asked to score."""
 
-    def __init__(self):
+    def __init__(self, model="pangram-4"):
+        self.model = model
         self.texts = []
 
     def predict(self, text):
@@ -639,7 +641,10 @@ def test_staleness_rescore_passes_only_the_given_ids_to_the_scorer(client, monke
         return ScoreSummary(scored=2, cache_hits=1, api_calls=2, too_short=0)
 
     monkeypatch.setattr("mailing_list_ai_check.webapp.api.run_score", fake_run_score)
-    monkeypatch.setattr("mailing_list_ai_check.webapp.api.PangramClient", lambda key: StubPangram())
+    monkeypatch.setattr(
+        "mailing_list_ai_check.webapp.api.PangramClient",
+        lambda key, model="pangram-4": StubPangram(model),
+    )
 
     data = client.post("/api/staleness/rescore", json={"ids": [3, 4, 5]}).get_json()
     assert data == {

@@ -33,7 +33,7 @@ from typing import Any
 from flask import Blueprint, Response, current_app, g, jsonify, request
 
 from ..cleaning import clean_for_scoring
-from ..cli import run_extract, run_score
+from ..cli import _PRICE_PER_100_WORDS, run_extract, run_score
 from ..export_import import ExportImportError, export_lists, import_file
 from ..html_text import split_html_parts
 from ..fetcher import (
@@ -47,7 +47,7 @@ from ..fetcher import (
     run_fetch_uids,
 )
 from ..imap_client import build_search_criteria
-from ..pangram import PangramClient
+from ..pangram import DEFAULT_MODEL, MODEL_GENERATIONS, PangramClient, generation_for_model
 from ..staleness import (
     ExtractionDiff,
     check as check_staleness,
@@ -58,6 +58,8 @@ from ..store import (
     DEFAULT_PER_PAGE,
     MAX_PER_PAGE,
     REPLY_RUG_LIMIT,
+    SETTING_PANGRAM_MODEL,
+    SETTING_PANGRAM_NOTICE,
     SORT_COLUMNS,
     MessageFilters,
     Store,
@@ -329,6 +331,9 @@ def _window_details(raw: dict[str, Any] | None, extracted_text: str | None) -> l
                 "ai_assistance_score": window.get("ai_assistance_score"),
                 "confidence": window.get("confidence"),
                 "label": window.get("label"),
+                # Pangram 4 humanizer verdicts; null on rows scored under v3.
+                "is_humanized": window.get("is_humanized"),
+                "humanizer_score": window.get("humanizer_score"),
                 "word_count": window.get("word_count"),
                 "chars": (end - start) if isinstance(start, int) and isinstance(end, int) else None,
                 "start": position(start) if isinstance(start, int) else None,
@@ -616,6 +621,59 @@ def _fetch_for_list(config: Any, store: Store, list_name: str, count: int) -> An
             pass
 
 
+# --- settings -----------------------------------------------------------------
+#
+# Dashboard choices that must survive a restart live in the store's
+# ``app_settings`` table. Only the Pangram detector selector is exposed here;
+# the upgrade-notice state has its own endpoints below because its GET carries
+# the counts the notice needs.
+
+
+def _active_model(store: Store) -> str:
+    """Return the Pangram detector selector every scoring run should send.
+
+    The stored setting when one has been chosen, otherwise the client default
+    (:data:`~mailing_list_ai_check.pangram.DEFAULT_MODEL`, Pangram 4).
+    """
+    return store.get_setting(SETTING_PANGRAM_MODEL) or DEFAULT_MODEL
+
+
+@api_bp.get("/settings")
+def get_settings() -> Any:
+    """Return the persisted dashboard settings.
+
+    Currently one key: ``pangram_model``, the detector selector scoring sends —
+    ``"pangram-4"`` for Pangram 4, or ``"default"`` for the API's default
+    selector, which resolves to Pangram 3 until that generation is deprecated.
+    An unset setting reads as ``"pangram-4"``.
+    """
+    return jsonify({"pangram_model": _active_model(get_store())})
+
+
+@api_bp.put("/settings")
+def put_settings() -> Any:
+    """Persist a dashboard setting and return the settings as :func:`get_settings`.
+
+    Body: ``{"pangram_model": "pangram-4"|"default"}``. An unknown key or a
+    value outside that vocabulary is a 400 and nothing is written. Changing the
+    selector changes which detector later scoring runs use; it never rewrites a
+    stored verdict (see :func:`pangram_retest`).
+    """
+    data = _json_body()
+
+    unknown = sorted(set(data) - {"pangram_model"})
+    if unknown:
+        raise ApiError(f"unknown setting(s): {', '.join(unknown)}")
+
+    model = data.get("pangram_model")
+    if model not in MODEL_GENERATIONS:
+        raise ApiError(f"pangram_model must be one of {sorted(MODEL_GENERATIONS)}")
+
+    store = get_store()
+    store.set_setting(SETTING_PANGRAM_MODEL, model)
+    return jsonify({"pangram_model": _active_model(store)})
+
+
 def _run_score_stage(
     config: Any, store: Store, limit: int, message_ids: Sequence[int] | None = None
 ) -> dict[str, Any]:
@@ -635,7 +693,7 @@ def _run_score_stage(
             "too_short": 0,
             "scoring_skipped": True,
         }
-    pangram = PangramClient(config.pangram_api_key)
+    pangram = PangramClient(config.pangram_api_key, model=_active_model(store))
     score_summary = run_score(
         store,
         pangram,
@@ -685,7 +743,7 @@ def pull() -> Any:
     scoring_skipped = not config.pangram_api_key
     scored = cache_hits = api_calls = too_short = 0
     if not scoring_skipped:
-        pangram = PangramClient(config.pangram_api_key)
+        pangram = PangramClient(config.pangram_api_key, model=_active_model(store))
         score_summary = run_score(store, pangram, limit=count)
         scored = score_summary.scored
         cache_hits = score_summary.cache_hits
@@ -923,6 +981,135 @@ def staleness_rescore() -> Any:
 
     config = current_app.config["APP_CONFIG"]
     return jsonify(_run_score_stage(config, get_store(), len(ids), message_ids=ids))
+
+
+# --- Pangram detector generation ----------------------------------------------
+#
+# Two endpoints back the dashboard's upgrade notice, which offers to re-test the
+# verdicts an earlier detector generation produced. /pangram/notice reports the
+# notice state together with how many stored scores the selected detector would
+# derive differently and what re-testing them would cost; /pangram/retest drops
+# those verdicts for the chosen messages and scores them again (a paid call per
+# message). Which generation a selector means is
+# :data:`mailing_list_ai_check.pangram.MODEL_GENERATIONS`.
+
+#: Notice states. "pending" is resolved, never stored: it is what an unset
+#: setting means while old-generation scores exist. The user's own choices are
+#: "later" (ask again next load) and "dismissed" (do not ask again).
+_NOTICE_STATES = ("pending", "later", "dismissed")
+#: The states a client may store.
+_SETTABLE_NOTICE_STATES = ("later", "dismissed")
+
+
+def _score_generation(detector_version: str | None, generation: str) -> bool:
+    """Whether a stored ``detector_version`` belongs to ``generation``.
+
+    Pangram stamps a dotted version ("4.0", "3.3.2"), so the generation is the
+    leading component. An unrecorded version belongs to no generation.
+    """
+    return bool(detector_version) and detector_version.startswith(f"{generation}.")
+
+
+def _notice_payload(store: Store) -> dict[str, Any]:
+    """Shape the upgrade-notice response for the currently selected detector.
+
+    ``old_scores`` counts the stored scores that came from another generation —
+    the verdicts the selected detector would derive differently — with
+    ``message_ids`` naming their messages, ``estimated_words`` the words a
+    re-test would send and ``estimated_cost_v4`` the Pangram 4 realtime price of
+    those words. ``state`` is the stored setting when one exists; otherwise it
+    resolves to "pending" when there is something to re-test and "dismissed"
+    when there is not, so a database that has only ever been scored by the
+    current generation never raises the notice. Resolving is not storing: only
+    an explicit PUT writes the setting.
+    """
+    generation = generation_for_model(_active_model(store))
+    rows = store.scores_outside_generation(generation) if generation is not None else []
+    words = sum(count for _, count in rows)
+
+    stored = store.get_setting(SETTING_PANGRAM_NOTICE)
+    if stored in _NOTICE_STATES:
+        state = stored
+    else:
+        state = "pending" if rows else "dismissed"
+
+    return {
+        "state": state,
+        "old_scores": len(rows),
+        "message_ids": [message_id for message_id, _ in rows],
+        "estimated_words": words,
+        "estimated_cost_v4": round(words / 100 * _PRICE_PER_100_WORDS["4"], 2),
+    }
+
+
+@api_bp.get("/pangram/notice")
+def pangram_notice() -> Any:
+    """Report the upgrade-notice state and what re-testing would involve.
+
+    One query over ``scores`` joined to ``extractions`` — nothing is written and
+    Pangram is never called. Returns ``state``, ``old_scores``, ``message_ids``,
+    ``estimated_words`` and ``estimated_cost_v4`` (see :func:`_notice_payload`).
+    """
+    return jsonify(_notice_payload(get_store()))
+
+
+@api_bp.put("/pangram/notice")
+def put_pangram_notice() -> Any:
+    """Persist the upgrade-notice state and return :func:`pangram_notice`'s shape.
+
+    Body: ``{"state": "later"|"dismissed"}``. "pending" is the resolved default
+    for an unset setting, not a state a client may store, so it is a 400 — as is
+    any other value.
+    """
+    data = _json_body()
+
+    state = data.get("state")
+    if state not in _SETTABLE_NOTICE_STATES:
+        raise ApiError(f"state must be one of {sorted(_SETTABLE_NOTICE_STATES)}")
+
+    store = get_store()
+    store.set_setting(SETTING_PANGRAM_NOTICE, state)
+    return jsonify(_notice_payload(store))
+
+
+@api_bp.post("/pangram/retest")
+def pangram_retest() -> Any:
+    """Re-score the given messages with the currently selected detector.
+
+    Body: ``{"ids": [<message id>, …]}`` — 1 to 1000 ids, normally the
+    ``message_ids`` of a :func:`pangram_notice` call. Each message whose stored
+    verdict came from another generation loses that verdict first (``invalidated``
+    counts them), which returns its extraction to the scoring queue; a message
+    already scored by the selected generation keeps its verdict and costs
+    nothing. The re-score is then the ordinary score stage restricted to those
+    messages, so each one can cost at most one Pangram call, and scoring runs
+    only when a Pangram API key is configured. The response is
+    :func:`_run_score_stage`'s summary plus ``invalidated``.
+    """
+    data = _json_body()
+    ids = _message_id_list(data)
+
+    store = get_store()
+    generation = generation_for_model(_active_model(store))
+
+    invalidated = 0
+    for message_id in ids:
+        extraction = store.extraction_for_message(message_id)
+        if extraction is None:
+            continue
+        score = store.score_for_extraction(extraction.id)
+        if score is None:
+            continue
+        # An unknown selector names no generation, so nothing can be shown to be
+        # out of date: keep every verdict rather than discard one that is current.
+        if generation is None or _score_generation(score.detector_version, generation):
+            continue
+        if store.delete_score_for_extraction(extraction.id):
+            invalidated += 1
+
+    config = current_app.config["APP_CONFIG"]
+    result = _run_score_stage(config, store, len(ids), message_ids=ids)
+    return jsonify({**result, "invalidated": invalidated})
 
 
 # --- add messages: preview + ranged pull -------------------------------------

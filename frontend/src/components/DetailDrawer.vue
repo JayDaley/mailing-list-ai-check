@@ -152,10 +152,12 @@ const scoredAt = computed(() => {
 const windows = computed(() =>
   (detail.value?.score?.windows || []).map((w) => {
     const s = Number(w.ai_assistance_score)
+    const h = Number(w.humanizer_score)
     const bucket = windowBucket(w.label)
     return {
       ...w,
       score: Number.isFinite(s) ? s.toFixed(2) : '—',
+      humanizerScoreStr: Number.isFinite(h) ? h.toFixed(2) : '—',
       charsStr: w.chars == null ? '—' : fmtInt(w.chars),
       // The verdict colour is used only for the table's label swatch; the
       // numbers and brackets are grey (see WindowMarker).
@@ -164,6 +166,13 @@ const windows = computed(() =>
     }
   }),
 )
+
+// The humanizer fields arrived with the detector's v4 model: rows scored under
+// v3 carry null for both, so the column is shown only when at least one window
+// has a verdict. Its swatch is the one Observable 10 colour the label
+// vocabulary does not use, so it cannot be read as a label.
+const anyHumanized = computed(() => windows.value.some((w) => w.is_humanized != null))
+const HUMANIZED_COLOR = OBSERVABLE_10.purple
 
 // The window under the pointer, highlighted everywhere it appears: its number
 // boxes in the table, in the text and beside its bracket, and the bracket.
@@ -443,6 +452,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
                   <th style="width: 62px; text-align: right;">Chars</th>
                   <th style="width: 54px; text-align: right;">Score</th>
                   <th style="width: 74px;">Confidence</th>
+                  <th
+                    v-if="anyHumanized"
+                    style="width: 90px;"
+                    title="Whether the window's text reads as AI output passed through a humanizer tool, and the humanizer score (0–1)"
+                  >
+                    Humanized
+                  </th>
                   <th>Label</th>
                 </tr>
               </thead>
@@ -462,6 +478,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
                   <td style="text-align: right;">{{ w.charsStr }}</td>
                   <td style="text-align: right;">{{ w.score }}</td>
                   <td>{{ w.confidence || '—' }}</td>
+                  <td v-if="anyHumanized">
+                    <template v-if="w.is_humanized"
+                      ><span class="win-swatch" :style="{ background: HUMANIZED_COLOR }"></span>yes
+                      {{ w.humanizerScoreStr }}</template
+                    >
+                    <template v-else>{{ w.humanizerScoreStr }}</template>
+                  </td>
                   <td>
                     <span class="win-swatch" :style="{ background: w.labelColor }"></span
                     >{{ w.label || '—' }}

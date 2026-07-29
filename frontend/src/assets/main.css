@@ -153,7 +153,9 @@ button {
 .app-header .header-spacer {
   flex: 1;
 }
-.anon-toggle {
+/* header switches: the Anonymous toggle and the Pangram-v3 toggle beside it */
+.anon-toggle,
+.hdr-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -163,7 +165,8 @@ button {
   font-weight: 600;
   color: var(--text-secondary);
 }
-.anon-checkbox {
+.anon-checkbox,
+.hdr-checkbox {
   accent-color: var(--accent);
 }
 
