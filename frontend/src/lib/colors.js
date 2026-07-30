@@ -87,14 +87,3 @@ export function rateTextColor(cpm) {
   return rateBand(cpm) !== null && cpm >= RATE_WHITE_TEXT_FLOOR ? '#ffffff' : null
 }
 
-// Fixed colours per Pangram label, used by label distribution bars & badges.
-export const LABEL_COLORS = {
-  AI: '#d64545',
-  'AI-Assisted': '#e08a1e',
-  Mixed: '#c9a227',
-  Human: '#2e8b57',
-}
-
-export function labelColor(label) {
-  return LABEL_COLORS[label] || NEUTRAL
-}

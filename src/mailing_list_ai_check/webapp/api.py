@@ -360,8 +360,8 @@ def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
     score = None
     if row["scored_at"] is not None:
         # Pull prediction_short and the free-text headline out of the stored
-        # Pangram response. prediction_short falls back to the four-band label
-        # rebadged to its origin ("AI-Assisted" → "Mixed") when raw is absent.
+        # Pangram response. The stored label is prediction_short verbatim (since
+        # migration 013), so it is the fallback when raw is absent.
         raw = None
         if row.get("raw_response"):
             try:
@@ -371,7 +371,7 @@ def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
         label = row["label"]
         prediction_short = (raw or {}).get("prediction_short")
         if prediction_short is None:
-            prediction_short = "Mixed" if label == "AI-Assisted" else label
+            prediction_short = label
         score = {
             "fraction_ai": row["fraction_ai"],
             "fraction_ai_assisted": row["fraction_ai_assisted"],
@@ -546,8 +546,7 @@ def message_detail(message_id: int) -> Any:
             "fraction_ai_assisted": score.fraction_ai_assisted,
             "fraction_human": score.fraction_human,
             "label": score.label,
-            "prediction_short": (raw_response or {}).get("prediction_short")
-            or ("Mixed" if score.label == "AI-Assisted" else score.label),
+            "prediction_short": (raw_response or {}).get("prediction_short") or score.label,
             "headline": (raw_response or {}).get("headline"),
             "windows": _window_details(
                 raw_response, extraction.extracted_text if extraction is not None else None

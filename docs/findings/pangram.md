@@ -249,9 +249,13 @@ endpoints/stages so a live run confirms the hand-rolled client matches.
     *Correction (July 2026, observed in production):* `prediction_short` never
     actually emits `AI-Assisted` — assisted-dominated text (even
     `fraction_ai_assisted == 1.0`) comes back as `Mixed`, with only the
-    free-text `headline` saying "AI Assisted". `PangramResult.label` now
-    rebadges `Mixed` to `AI-Assisted` when the assisted fraction exceeds both
-    others (store migration 003 backfilled existing rows).
+    free-text `headline` saying "AI Assisted". `PangramResult.label` at that
+    time rebadged `Mixed` to `AI-Assisted` when the assisted fraction exceeded
+    both others (store migration 003 backfilled existing rows).
+    *Removed (v1.4.1):* the rebadge was dropped — `scores.label` stores
+    `prediction_short` verbatim (`AI` / `Human` / `Mixed`; migration 013
+    un-rebadged existing rows) and assisted-dominance is read from
+    `fraction_ai_assisted` and the `headline`.
   - `scored_at`, `text_sha256` (cache key), and the model `version` string.
 - Raw JSON blob (`raw_response`): store the **entire** response, including
   `headline`, `prediction`, `num_*_segments`, and the full `windows` array. The

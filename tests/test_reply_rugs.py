@@ -102,7 +102,7 @@ def fixture(store):
     # The cross-posted copy of x-root goes in first, so beta holds the lower id.
     ids["x-root@beta"] = _message(store, beta, "x-root", 1, address_id=bob, label="Human")
     ids["x-root"] = _message(store, alpha, "x-root", 2, address_id=bob, label="AI")
-    ids["y-root"] = _message(store, alpha, "y-root", 3, address_id=carol, label="AI-Assisted")
+    ids["y-root"] = _message(store, alpha, "y-root", 3, address_id=carol, label="Mixed")
     ids["a-root"] = _message(store, alpha, "a-root", 4, address_id=a1, label="Human")
     ids["a-reply1"] = _message(
         store, alpha, "a-reply1", 5, address_id=a1, in_reply_to="<x-root@test>"
@@ -189,8 +189,8 @@ def test_rug_rows_carry_the_prediction_bucket(fixture):
     buckets = {
         r["message_id"]: (r["label"], r["prediction_short"]) for r in rugs["alpha"]["replied_to"]
     }
-    # The four-band label is preserved; prediction_short un-rebadges AI-Assisted.
-    assert buckets["<y-root@test>"] == ("AI-Assisted", "Mixed")
+    # label and prediction_short are the same stored value, served verbatim.
+    assert buckets["<y-root@test>"] == ("Mixed", "Mixed")
     assert buckets["<x-root@test>"] == ("AI", "AI")
     assert buckets["<a-root@test>"] == ("Human", "Human")
 

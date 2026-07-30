@@ -22,7 +22,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { get, postJson, putJson, del } from '../api'
 import { fmtDate, fmtInt } from '../lib/format'
-import { predictionShort, rugBarColor } from '../lib/labels'
+import { rugBarColor } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
@@ -160,7 +160,7 @@ let rugToken = 0
 // extraction was gated under the reliability floor (extraction_status
 // `too_short`), which the tooltip names where the bucket would otherwise sit.
 function rugBar(m) {
-  const pred = m.prediction_short || predictionShort(m.label) || null
+  const pred = m.prediction_short || m.label || null
   const tooShort = m.extraction_status === 'too_short'
   return {
     id: m.id,

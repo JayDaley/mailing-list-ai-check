@@ -613,7 +613,7 @@ def run_score(
             fraction_ai=result.fraction_ai,
             fraction_ai_assisted=result.fraction_ai_assisted,
             fraction_human=result.fraction_human,
-            label=result.label,
+            label=result.prediction_short,
             detector_version=result.version,
             raw_response=result.raw,
         )
@@ -621,7 +621,7 @@ def run_score(
         score_log.debug(
             "scored extraction id=%s label=%s fraction_ai=%s",
             extraction.id,
-            result.label,
+            result.prediction_short,
             result.fraction_ai,
         )
 

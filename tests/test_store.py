@@ -63,8 +63,8 @@ def test_migrations_are_idempotent(tmp_path):
             "v"
         ]
         row_count_after = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert version_before == version_after == 12
-    assert row_count_before == row_count_after == 12
+    assert version_before == version_after == 13
+    assert row_count_before == row_count_after == 13
 
 
 def test_reopening_database_is_a_noop(tmp_path):
@@ -76,11 +76,11 @@ def test_reopening_database_is_a_noop(tmp_path):
         rows = s.conn.execute("SELECT COUNT(*) AS c FROM lists").fetchone()["c"]
         version = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
     assert rows == 1
-    assert version == 12
+    assert version == 13
 
 
-def test_migration_003_rebadges_assisted_dominated_mixed(store):
-    """Stored 'Mixed' scores whose assisted fraction dominates become 'AI-Assisted'."""
+def test_migration_013_undoes_the_003_rebadge(store):
+    """Replaying 003 and 013 together leaves every label as the API returned it."""
     list_id = store.upsert_list("tls", "Shared Folders/tls").id
     addr_id = store.upsert_address("a@example.org", "A").id
     for i, (fractions, expected) in enumerate(
@@ -114,9 +114,10 @@ def test_migration_003_rebadges_assisted_dominated_mixed(store):
             detector_version="v3",
             raw_response={"prediction_short": "Mixed"},
         )
-    # Rewind to pre-003 and re-apply so the backfill runs over the rows. Drop
-    # the columns/indexes added by 004/005/006/007/008/009/010/011 and the table
-    # added by 012 too so those migrations re-apply cleanly alongside 003.
+    # Rewind to pre-003 and re-apply so both backfills run over the rows: 003
+    # rebadges assisted-dominant Mixed, then 013 restores the verbatim label.
+    # Drop the columns/indexes added by 004..011 and the table added by 012 so
+    # those migrations re-apply cleanly alongside 003 and 013.
     store.conn.execute("DELETE FROM schema_version WHERE version >= 3")
     store.conn.execute("ALTER TABLE messages DROP COLUMN raw_html")
     store.conn.execute("ALTER TABLE lists DROP COLUMN last_message_at")
@@ -134,7 +135,7 @@ def test_migration_003_rebadges_assisted_dominated_mixed(store):
         row["label"]
         for row in store.conn.execute("SELECT label FROM scores ORDER BY extraction_id")
     ]
-    assert labels == ["AI-Assisted", "Mixed", "Mixed"]
+    assert labels == ["Mixed", "Mixed", "Mixed"]
 
 
 def test_migration_004_adds_raw_html_column(store):
@@ -167,7 +168,7 @@ def test_migration_004_present_on_migrated_db(tmp_path):
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "raw_html" in cols
-    assert version == 12
+    assert version == 13
 
 
 def test_migration_005_adds_last_message_at_column(store):
@@ -198,7 +199,7 @@ def test_migration_005_present_on_migrated_db(tmp_path):
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(lists)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "last_message_at" in cols
-    assert version == 12
+    assert version == 13
 
 
 def test_migration_006_present_on_migrated_db(tmp_path):
@@ -226,7 +227,7 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         }
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "idx_messages_message_id" in indexes
-    assert version == 12
+    assert version == 13
 
 
 def test_expected_indexes_exist(store):
@@ -905,7 +906,7 @@ def test_migration_007_present_on_migrated_db(tmp_path):
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "pipeline_version" in cols
-    assert version == 12
+    assert version == 13
 
 
 def test_message_pipeline_version_roundtrips(store):

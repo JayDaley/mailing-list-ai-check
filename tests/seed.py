@@ -9,7 +9,7 @@ Shape: 3 lists, 6 addresses (2 grouped into 2 persons, 4 unassigned but note two
 addresses share the display name "Alice Smith" → one merge suggestion), 15
 messages spread across 2026-01/02/03, extractions in every status
 (ok/empty/too_short/failed plus two messages with no extraction row at all), and
-scores across all four Pangram labels (AI / AI-Assisted / Human / Mixed) with one
+scores across all three Pangram labels (AI / Human / Mixed) with one
 ``ok`` extraction deliberately left unscored.
 """
 
@@ -48,7 +48,7 @@ _MESSAGES = [
         0.02,
         "m1",
     ),
-    ("m3", "announce", "a3", "2026-01-20T10:00:00", "Comments", "ok", "AI-Assisted", 0.55, None),
+    ("m3", "announce", "a3", "2026-01-20T10:00:00", "Comments", "ok", "Mixed", 0.55, None),
     ("m4", "announce", "a4", "2026-02-03T10:00:00", "Question", "ok", "Human", 0.10, None),
     ("m5", "announce", "a5", "2026-02-10T10:00:00", "Short note", "too_short", None, None, None),
     ("m6", "announce", "a6", "2026-02-25T10:00:00", "Empty msg", "empty", None, None, None),
@@ -63,7 +63,7 @@ _MESSAGES = [
         "2026-03-10T10:00:00",
         "Re: Last call review",
         "ok",
-        "AI-Assisted",
+        "Mixed",
         0.60,
         None,
     ),
@@ -144,7 +144,7 @@ def seed(store: Store) -> Seed:
             extraction_id=extraction.id,
             text_sha256=sha256_text(text),
             fraction_ai=frac,
-            fraction_ai_assisted=(frac if label == "AI-Assisted" else 0.0),
+            fraction_ai_assisted=0.0,
             fraction_human=(1.0 - frac if frac is not None else None),
             label=label,
             detector_version="v3",

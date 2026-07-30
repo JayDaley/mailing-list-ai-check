@@ -159,37 +159,23 @@ def test_model_generations_covers_every_accepted_selector():
     assert set(MODEL_GENERATIONS) == {"pangram-4", "default"}
 
 
-# --- label derivation -----------------------------------------------------
+# --- result fields ----------------------------------------------------------
 
 
-def _result(short, ai, assisted, human):
-    return PangramResult.from_response(
+def test_result_fields_are_stored_verbatim():
+    # No label is derived: prediction_short is surfaced exactly as returned,
+    # whatever the fractions say (assisted-dominance lives in the fractions).
+    result = PangramResult.from_response(
         {
-            "prediction_short": short,
-            "fraction_ai": ai,
-            "fraction_ai_assisted": assisted,
-            "fraction_human": human,
+            "prediction_short": "Mixed",
+            "fraction_ai": 0.0,
+            "fraction_ai_assisted": 1.0,
+            "fraction_human": 0.0,
         }
     )
-
-
-def test_label_rebadges_assisted_dominated_mixed():
-    # Pangram calls fully AI-assisted text "Mixed"; the label must not.
-    assert _result("Mixed", 0.0, 1.0, 0.0).label == "AI-Assisted"
-    assert _result("Mixed", 0.0, 0.66, 0.34).label == "AI-Assisted"
-
-
-def test_label_keeps_genuine_mixed():
-    assert _result("Mixed", 0.63, 0.0, 0.37).label == "Mixed"
-    assert _result("Mixed", 0.28, 0.34, 0.38).label == "Mixed"
-
-
-def test_label_passes_through_other_predictions():
-    assert _result("AI", 1.0, 0.0, 0.0).label == "AI"
-    assert _result("Human", 0.0, 0.0, 1.0).label == "Human"
-    assert _result(None, None, None, None).label is None
-    # Missing fractions never rebadge.
-    assert _result("Mixed", None, None, None).label == "Mixed"
+    assert result.prediction_short == "Mixed"
+    assert result.fraction_ai_assisted == 1.0
+    assert not hasattr(result, "label")
 
 
 def test_submit_accepts_202():

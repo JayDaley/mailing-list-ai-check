@@ -163,7 +163,7 @@ def test_summary_totals(store):
 
 def test_summary_label_distribution(store):
     dist = store.summary(MessageFilters())["label_distribution"]
-    assert dist == {"AI": 3, "Human": 3, "AI-Assisted": 2, "Mixed": 1}
+    assert dist == {"AI": 3, "Human": 3, "Mixed": 3}
 
 
 def test_summary_by_list(store):
@@ -182,11 +182,10 @@ def test_summary_by_list_label_counts(store):
     assert by_list["announce"]["label_counts"] == {
         "AI": 1,
         "Human": 2,
-        "AI-Assisted": 1,
-        "Mixed": 1,
+        "Mixed": 2,
     }
     # last-call: m8(AI) m9(Human) m11(AI-Asst).
-    assert by_list["last-call"]["label_counts"] == {"AI": 1, "Human": 1, "AI-Assisted": 1}
+    assert by_list["last-call"]["label_counts"] == {"AI": 1, "Human": 1, "Mixed": 1}
     # quic: only m14 scored (m13 ok-unscored, m15 no extraction).
     assert by_list["quic"]["label_counts"] == {"AI": 1}
 
@@ -224,8 +223,9 @@ def test_summary_by_address_flagged_share(store):
         "carol@example.org",
     }
     assert by_email["bob@example.org"]["scored_count"] == 2
-    assert by_email["bob@example.org"]["flagged_count"] == 2
-    assert by_email["bob@example.org"]["flagged_share"] == pytest.approx(1.0)
+    # Only the fully AI verdict (m8) is flagged; m3 is a Mixed verdict.
+    assert by_email["bob@example.org"]["flagged_count"] == 1
+    assert by_email["bob@example.org"]["flagged_share"] == pytest.approx(0.5)
     assert by_email["carol@example.org"]["flagged_share"] == pytest.approx(1 / 3)
 
 
@@ -234,9 +234,9 @@ def test_summary_by_month(store):
     months = {row["month"]: row for row in by_month}
     assert set(months) == {"2026-01", "2026-02", "2026-03"}
     assert months["2026-01"]["count"] == 5
-    assert months["2026-01"]["flagged_count"] == 3  # m1, m3, m8
+    assert months["2026-01"]["flagged_count"] == 2  # m1, m8 (m3 is Mixed)
     assert months["2026-02"]["flagged_count"] == 0
-    assert months["2026-03"]["flagged_count"] == 2  # m11, m14
+    assert months["2026-03"]["flagged_count"] == 1  # m14 (m11 is Mixed)
     assert months["2026-02"]["avg_fraction_ai"] == pytest.approx((0.10 + 0.05) / 2)
 
 
@@ -264,12 +264,11 @@ def test_list_rows_scored_count_and_label_counts(store):
     assert rows["announce"]["label_counts"] == {
         "AI": 1,
         "Human": 2,
-        "AI-Assisted": 1,
-        "Mixed": 1,
+        "Mixed": 2,
     }
     # last-call: scored m8(AI) m9(Human) m11(AI-Asst) = 3.
     assert rows["last-call"]["scored_count"] == 3
-    assert rows["last-call"]["label_counts"] == {"AI": 1, "Human": 1, "AI-Assisted": 1}
+    assert rows["last-call"]["label_counts"] == {"AI": 1, "Human": 1, "Mixed": 1}
     # quic: only m14 scored (m13 ok-unscored, m15 no extraction).
     assert rows["quic"]["scored_count"] == 1
     assert rows["quic"]["label_counts"] == {"AI": 1}
@@ -317,13 +316,13 @@ def test_sender_rows_person_grouping(store):
     assert alice["emails"] == ["alice@example.org", "alice@work.example"]
     assert len(alice["address_ids"]) == 2
     assert alice["message_count"] == 5  # m1, m2, m11 (a1) + m7, m15 (a2)
-    assert alice["label_counts"] == {"AI": 1, "Human": 1, "AI-Assisted": 1, "Mixed": 1}
+    assert alice["label_counts"] == {"AI": 1, "Human": 1, "Mixed": 2}
 
     bob = senders["Bob Jones"]
     assert bob["type"] == "person"
     assert bob["emails"] == ["bob@example.org"]
     assert bob["message_count"] == 3  # m3, m8, m13
-    assert bob["label_counts"] == {"AI": 1, "AI-Assisted": 1}  # m13 unscored
+    assert bob["label_counts"] == {"AI": 1, "Mixed": 1}  # m13 unscored
 
 
 def test_sender_rows_unlinked_addresses(store):
@@ -428,7 +427,7 @@ def test_sender_rows_list_name_scopes_counts(store):
     assert senders["Alice Smith"]["label_counts"] == {"AI": 1, "Human": 1, "Mixed": 1}
     # Bob = a3, only m3 is on announce.
     assert senders["Bob Jones"]["message_count"] == 1
-    assert senders["Bob Jones"]["label_counts"] == {"AI-Assisted": 1}
+    assert senders["Bob Jones"]["label_counts"] == {"Mixed": 1}
     # Dave/Eve posted (m5 too_short, m6 empty) but nothing scored.
     assert senders["Dave"]["message_count"] == 1
     assert senders["Dave"]["label_counts"] == {}

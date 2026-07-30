@@ -13,7 +13,6 @@ import {
   LABEL_COLORS,
   PRED_ORDER,
   foldToPrediction,
-  predictionShort,
 } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import { useUiStore } from '../stores/ui'
@@ -448,9 +447,9 @@ const rows = computed(() =>
     const ext = m.extraction
     const sc = m.score
     const scored = sc != null && sc.fraction_ai != null
-    // Analysis pill: the prediction_short bucket (falls back to the four-band
-    // label rebadged to its origin), coloured like the score badges.
-    const predShort = scored ? sc.prediction_short || predictionShort(sc.label) : ''
+    // Analysis pill: the prediction_short bucket (the stored label holds the
+    // same value verbatim), coloured like the score badges.
+    const predShort = scored ? sc.prediction_short || sc.label : ''
     // Chars/min: the rate behind the timing band, as whole chars/minute. It is
     // absent exactly where the band is (non-replies, missing parent or dates,
     // no extraction), and from 100 up the cell is tinted by the rate.

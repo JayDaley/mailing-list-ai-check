@@ -19,8 +19,8 @@ import { PRED_ORDER, LABEL_COLORS, LABEL_SHORT, TOO_SHORT_COLOR } from '../lib/l
 const TOO_SHORT_LABEL = 'Too short'
 
 const props = defineProps({
-  // Object of label -> message count. Labels outside `order` are ignored (but
-  // see `fold`); zero values draw no segment.
+  // Object of label -> message count. Labels outside `order` are ignored;
+  // zero values draw no segment.
   counts: { type: Object, default: () => ({}) },
   height: { type: Number, default: 10 },
   // A CSS width (e.g. '200px'), or null / '' for fluid (fills its flex slot).
@@ -28,8 +28,6 @@ const props = defineProps({
   clickable: { type: Boolean, default: false },
   // Which labels to draw, in order.
   order: { type: Array, default: () => PRED_ORDER },
-  // Fold an "AI-Assisted" count into "Mixed" (the prediction_short view).
-  fold: { type: Boolean, default: true },
   // Display text per label in the hover popup. Defaults to the bucket names,
   // matching the analysis pills ("Human" / "Mixed" / "AI").
   phrases: { type: Object, default: () => LABEL_SHORT },
@@ -43,17 +41,9 @@ const props = defineProps({
   tooShort: { type: Number, default: 0 },
 })
 
-// The values actually drawn: optionally folding AI-Assisted into Mixed so a
-// four-band {label: count} map renders as the three prediction_short buckets.
-const effCounts = computed(() => {
-  const c = props.counts || {}
-  if (!props.fold) return c
-  return {
-    ...c,
-    Mixed: (Number(c.Mixed) || 0) + (Number(c['AI-Assisted']) || 0),
-    'AI-Assisted': 0,
-  }
-})
+// The values actually drawn (the store's labels are already the three
+// prediction_short buckets).
+const effCounts = computed(() => props.counts || {})
 
 const emit = defineEmits(['select'])
 

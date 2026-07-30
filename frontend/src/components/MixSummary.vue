@@ -18,8 +18,7 @@ import {
 import MixBar from './MixBar.vue'
 
 const props = defineProps({
-  // Object of label -> count. Unknown / zero labels render as 0. AI-Assisted
-  // folds into Mixed (the prediction_short view — see foldToPrediction).
+  // Object of prediction_short -> count. Unknown / zero labels render as 0.
   counts: { type: Object, default: () => ({}) },
   clickable: { type: Boolean, default: false },
   // Messages gated under the 50-word reliability floor (extraction status
@@ -29,7 +28,7 @@ const props = defineProps({
 
 const emit = defineEmits(['select'])
 
-// The three prediction_short buckets (AI-Assisted merged into Mixed).
+// The three prediction_short buckets, numerically coerced.
 const folded = computed(() => foldToPrediction(props.counts))
 
 const tooShortCount = computed(() => Math.max(0, Number(props.tooShort) || 0))

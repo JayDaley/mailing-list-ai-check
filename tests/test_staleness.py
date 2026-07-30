@@ -490,7 +490,7 @@ class StubPangram:
             fraction_ai = 0.5
             fraction_ai_assisted = 0.0
             fraction_human = 0.5
-            label = "Mixed"
+            prediction_short = "Mixed"
             version = "stub"
             raw = {"prediction_short": "Mixed"}
 

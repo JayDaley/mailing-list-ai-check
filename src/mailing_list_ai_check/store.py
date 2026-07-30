@@ -58,9 +58,10 @@ _TIMING_STATUSES = ("ok", "too_short")
 
 # --- Dashboard query constants ------------------------------------------------
 
-#: Pangram ``prediction_short`` labels that count as "flagged" for the dashboard
-#: (any AI involvement). "Human"/"Mixed" are not flagged.
-FLAGGED_LABELS = ("AI", "AI-Assisted")
+#: Pangram ``prediction_short`` labels that count as "flagged" for the dashboard.
+#: Only fully AI verdicts are flagged; "Human"/"Mixed" are not (assisted or
+#: partial AI content arrives as "Mixed" — see ``fraction_ai_assisted``).
+FLAGGED_LABELS = ("AI",)
 #: Pre-built SQL ``IN`` list of the flagged labels. Values are trusted constants
 #: defined here (no user input), so inlining them is safe from injection.
 _FLAGGED_IN = "(" + ", ".join(f"'{label}'" for label in FLAGGED_LABELS) + ")"
@@ -318,6 +319,14 @@ CREATE TABLE app_settings (
 );
 """
 
+# Undo migration 003's rebadge: the app no longer derives a label, it stores
+# Pangram's prediction_short verbatim (AI / Human / Mixed). Assisted-dominated
+# rows return to the "Mixed" the API actually returned; the distinction stays
+# visible in fraction_ai_assisted and raw_response.
+_MIGRATION_013 = """
+UPDATE scores SET label = 'Mixed' WHERE label = 'AI-Assisted';
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
@@ -331,6 +340,7 @@ MIGRATIONS: list[tuple[int, str]] = [
     (10, _MIGRATION_010),
     (11, _MIGRATION_011),
     (12, _MIGRATION_012),
+    (13, _MIGRATION_013),
 ]
 
 #: The migrations whose backfill runs in Python (see :meth:`Store.__init__`).
@@ -806,11 +816,9 @@ _MESSAGE_COLUMNS = """
 #: the date/subject for the bar's tooltip, the prediction bucket that colours it,
 #: and the extraction status, which tells a message gated under the reliability
 #: floor (``too_short``) from a merely unscored one — the two take different bar
-#: colours. ``prediction_short`` is derived from the stored four-band label
-#: instead of parsed out of ``scores.raw_response``: the label *is* that
-#: response's ``prediction_short`` with assisted-dominant "Mixed" rebadged as
-#: "AI-Assisted" (see ``PangramResult.label`` and migration 003), so undoing the
-#: rebadge recovers it exactly — without loading the full Pangram JSON per bar.
+#: colours. ``scores.label`` stores the response's ``prediction_short`` verbatim
+#: (since migration 013), so it is served under both names — without loading the
+#: full Pangram JSON per bar.
 _RUG_COLUMNS = """
     m.id AS id,
     m.message_id AS message_id,
@@ -819,7 +827,7 @@ _RUG_COLUMNS = """
     m.subject AS subject,
     e.status AS extraction_status,
     s.label AS label,
-    CASE WHEN s.label = 'AI-Assisted' THEN 'Mixed' ELSE s.label END AS prediction_short
+    s.label AS prediction_short
 """
 
 
@@ -871,15 +879,10 @@ def _build_message_where(f: MessageFilters) -> tuple[str, list[Any]]:
         clauses.append("m.date <= ?")
         params.append(f.date_to)
     if f.label:
-        # The dashboard filters by prediction_short (Human / Mixed / AI). The
-        # stored four-band label rebadges assisted-dominant "Mixed" verdicts as
-        # "AI-Assisted", so a "Mixed" filter must match both to agree with the
-        # folded detection bars and pills.
-        if f.label == "Mixed":
-            clauses.append("s.label IN ('Mixed', 'AI-Assisted')")
-        else:
-            clauses.append("s.label = ?")
-            params.append(f.label)
+        # The dashboard filters by prediction_short (Human / Mixed / AI), which
+        # is exactly what scores.label stores.
+        clauses.append("s.label = ?")
+        params.append(f.label)
     if f.min_likelihood is not None:
         clauses.append("s.fraction_ai >= ?")
         params.append(f.min_likelihood)
@@ -2465,8 +2468,9 @@ class Store:
         Each message dict carries ``id``, ``message_id``, ``seq`` (its 0-based
         receipt rank within the window, oldest first — the graph's x position),
         ``uid``, ``date``, ``subject``, ``from_name``, ``from_email``,
-        ``extraction_status``, ``label``, ``prediction_short`` (the stored label
-        with the "AI-Assisted" rebadge undone, as in :data:`_RUG_COLUMNS`),
+        ``extraction_status``, ``label``, ``prediction_short`` (both the stored
+        label, which holds the response's ``prediction_short`` verbatim, as in
+        :data:`_RUG_COLUMNS`),
         ``timing_cpm`` (the stored chars/minute writing rate, or ``None``) and
         ``parent_id`` — the ``id`` of the window message its ``In-Reply-To``
         names, resolved with the same normalisation as the reply-timing
@@ -2504,8 +2508,7 @@ class Store:
             "m.date AS date, m.subject AS subject, m.in_reply_to AS in_reply_to, "
             "a.display_name AS from_name, a.email AS from_email, "
             "e.status AS extraction_status, s.label AS label, "
-            "CASE WHEN s.label = 'AI-Assisted' THEN 'Mixed' ELSE s.label END "
-            "AS prediction_short, "
+            "s.label AS prediction_short, "
             "m.timing_cpm AS timing_cpm "
             "FROM messages m "
             "LEFT JOIN addresses a ON a.id = m.address_id "

@@ -114,6 +114,13 @@ class PangramTimeout(PangramError):
 class PangramResult:
     """The fields Phase 4 surfaces from a successful classification.
 
+    Every field is stored exactly as the API returned it; ``prediction_short``
+    (``AI`` / ``Human`` / ``Mixed``) is the categorical the pipeline stores as
+    ``scores.label``. Assisted-dominated text arrives as ``Mixed`` — the
+    ``fraction_ai_assisted`` value and the free-text ``headline`` carry that
+    distinction; no derived label is computed (the pre-1.4.1 "AI-Assisted"
+    rebadge was removed by migration 013).
+
     ``raw`` is the full parsed JSON response (including ``headline``,
     ``prediction``, ``num_*_segments`` and the ``windows`` array — with the
     per-window ``is_humanized``/``humanizer_score`` fields Pangram 4 added),
@@ -139,25 +146,6 @@ class PangramResult:
             version=data.get("version"),
             raw=data,
         )
-
-    @property
-    def label(self) -> str | None:
-        """The categorical label to store, in the dashboard's four-band vocabulary.
-
-        Pangram's ``prediction_short`` never emits ``"AI-Assisted"`` in practice:
-        assisted-dominated text (even ``fraction_ai_assisted == 1.0``) comes back
-        as ``"Mixed"``, with only the free-text ``headline`` saying "AI Assisted".
-        Rebadge that case so the dashboard's AI-Assisted band matches the
-        fractions; genuine AI/human mixes keep Pangram's ``"Mixed"``.
-        """
-        if (
-            self.prediction_short == "Mixed"
-            and self.fraction_ai_assisted is not None
-            and self.fraction_ai_assisted > (self.fraction_ai or 0.0)
-            and self.fraction_ai_assisted > (self.fraction_human or 0.0)
-        ):
-            return "AI-Assisted"
-        return self.prediction_short
 
 
 # --- Client -------------------------------------------------------------------

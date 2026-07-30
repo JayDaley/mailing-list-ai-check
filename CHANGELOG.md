@@ -37,6 +37,17 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.4.1] - 2026-07-30
+
+Summary: Store Pangram's prediction_short verbatim instead of deriving an "AI-Assisted" label.
+
+- Remove the derived "AI-Assisted" label: `scores.label` now stores the response's `prediction_short` exactly as returned (`AI` / `Human` / `Mixed`).
+- Add migration 013, restoring the `Mixed` label on rows migration 003 had rebadged.
+- Normalize `AI-Assisted` labels to `Mixed` when importing exports written by earlier versions.
+- Remove the un-rebadging `CASE` folds and the `Mixed` filter expansion; label queries now match `scores.label` directly.
+- Count only `AI` verdicts as flagged in sender aggregates (assisted-dominant `Mixed` rows were previously flagged).
+- Remove the AI-Assisted entries and unused helpers from the dashboard's label vocabulary.
+
 ## [1.4.0] - 2026-07-30
 
 Summary: Score with the Pangram 4 detector and surface its per-window humanizer verdicts.

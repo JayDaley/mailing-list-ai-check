@@ -849,6 +849,12 @@ class _Importer:
 
         score = extraction.get("score")
         if score is not None:
+            # Exports written before v1.4.1 carry the derived "AI-Assisted"
+            # label; normalise it back to the "Mixed" the API returned, exactly
+            # as migration 013 did for stored rows.
+            label = score.get("label")
+            if label == "AI-Assisted":
+                label = "Mixed"
             self.conn.execute(
                 "INSERT INTO scores("
                 "extraction_id, fraction_ai, fraction_ai_assisted, fraction_human, "
@@ -859,7 +865,7 @@ class _Importer:
                     score.get("fraction_ai"),
                     score.get("fraction_ai_assisted"),
                     score.get("fraction_human"),
-                    score.get("label"),
+                    label,
                     score.get("detector_version"),
                     score.get("raw_response"),
                     score["text_sha256"],

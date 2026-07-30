@@ -101,7 +101,7 @@ def fixture(store):
         store, alpha, "reply1", 2, uid=2, address_id=bob, in_reply_to="<root1@test>", label="AI"
     )
     ids["solo"] = _message(store, alpha, "solo", 3, uid=3, address_id=alice)
-    ids["root2"] = _message(store, alpha, "root2", 4, uid=4, address_id=bob, label="AI-Assisted")
+    ids["root2"] = _message(store, alpha, "root2", 4, uid=4, address_id=bob, label="Mixed")
     ids["reply2"] = _message(
         store,
         alpha,
@@ -293,9 +293,9 @@ def test_messages_carry_sender_and_prediction_fields(fixture):
         "parent_id",
     }
     assert (root1["from_name"], root1["from_email"]) == ("Alice", "alice@example.org")
-    # The four-band label is preserved; prediction_short un-rebadges AI-Assisted.
+    # label and prediction_short are the same stored value, served verbatim.
     assert (flat["<root2@test>"]["label"], flat["<root2@test>"]["prediction_short"]) == (
-        "AI-Assisted",
+        "Mixed",
         "Mixed",
     )
     # An unscored message still appears, with no label or bucket.

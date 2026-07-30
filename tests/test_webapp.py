@@ -417,7 +417,7 @@ def test_summary(client):
     assert body["extracted"] == 10
     assert body["scored"] == 9
     assert body["too_short"] == 1
-    assert body["label_distribution"] == {"AI": 3, "Human": 3, "AI-Assisted": 2, "Mixed": 1}
+    assert body["label_distribution"] == {"AI": 3, "Human": 3, "Mixed": 3}
     assert body["avg_fraction_ai"] == pytest.approx(4.52 / 9)
     assert len(body["by_month"]) == 3
 
@@ -463,8 +463,7 @@ def test_lists_endpoint_label_mix(client):
     assert rows["announce"]["label_counts"] == {
         "AI": 1,
         "Human": 2,
-        "AI-Assisted": 1,
-        "Mixed": 1,
+        "Mixed": 2,
     }
     assert rows["quic"]["label_counts"] == {"AI": 1}
     # m5 (announce) is the only extraction gated under the reliability floor.
@@ -518,7 +517,7 @@ def test_senders_person_and_unlinked_shape(client):
     assert "person_id" in alice
     assert alice["emails"] == ["alice@example.org", "alice@work.example"]
     assert alice["message_count"] == 5
-    assert alice["label_counts"] == {"AI": 1, "Human": 1, "AI-Assisted": 1, "Mixed": 1}
+    assert alice["label_counts"] == {"AI": 1, "Human": 1, "Mixed": 2}
 
     assert alice["too_short_count"] == 0
 
