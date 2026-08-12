@@ -23,6 +23,7 @@ def make_raw(
     in_reply_to: str | None = None,
     plain: str | None = "plain body",
     html: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> bytes:
     """Build raw RFC 5322 bytes, optionally multipart/alternative or HTML-only."""
     msg = EmailMessage()
@@ -33,6 +34,8 @@ def make_raw(
     msg["Date"] = date
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
+    for name, value in (extra_headers or {}).items():
+        msg[name] = value
 
     if plain is not None and html is not None:
         msg.set_content(plain)

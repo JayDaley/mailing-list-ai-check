@@ -17,6 +17,7 @@ from mailing_list_ai_check import pangram
 from mailing_list_ai_check.pangram import (
     DEFAULT_MODEL,
     MODEL_GENERATIONS,
+    PangramBulkFailed,
     PangramClient,
     PangramError,
     PangramResult,
@@ -320,6 +321,222 @@ def test_request_sends_api_key_header():
     client.predict("text")
     # The key travels in the x-api-key header, added by the client per call.
     assert client._headers()["x-api-key"] == "secret-key"
+
+
+# --- bulk API -------------------------------------------------------------
+
+
+def test_bulk_submit_poll_and_results():
+    # Response shapes mirror the live service (verified 2026-08-12): submit is
+    # 202 with accepted_items as a list, polls report queued/running/succeeded,
+    # and the results page lists entries under "items" with per-entry
+    # index/task_id/stage/error alongside the single-text-schema "result".
+    session = FakeSession(
+        [
+            FakeResponse(
+                202,
+                {
+                    "bulk_id": "b1",
+                    "status": "queued",
+                    "total_items": 2,
+                    "accepted_items": [
+                        {"index": 0, "id": "e1", "task_id": "t1"},
+                        {"index": 1, "id": "e2", "task_id": "t2"},
+                    ],
+                    "failed_items": [],
+                },
+            ),
+            FakeResponse(200, {"status": "running", "succeeded": 0, "failed": 0}),
+            FakeResponse(200, {"status": "succeeded", "succeeded": 2, "failed": 0}),
+            FakeResponse(
+                200,
+                {
+                    "bulk_id": "b1",
+                    "offset": 0,
+                    "limit": 1000,
+                    "total_items": 2,
+                    "items": [
+                        {
+                            "index": 0,
+                            "id": "e1",
+                            "stage": "STAGE_SUCCESS",
+                            "error": None,
+                            "result": SUCCESS_BODY,
+                        },
+                        {
+                            "index": 1,
+                            "id": "e2",
+                            "stage": "STAGE_SUCCESS",
+                            "error": None,
+                            "result": SUCCESS_BODY,
+                        },
+                    ],
+                    "failed_items": [],
+                },
+            ),
+        ]
+    )
+    client = PangramClient("k", session=session, min_submit_interval=0)
+    outcome = client.predict_bulk({"e1": "first text", "e2": "second text"})
+
+    assert outcome.bulk_id == "b1"
+    assert outcome.status == "succeeded"
+    assert set(outcome.results) == {"e1", "e2"}
+    assert outcome.results["e1"].prediction_short == "AI"
+    assert outcome.errors == {}
+
+    # Submit carries the items (id + text) and pins the model, like /task.
+    method, url, kwargs = session.calls[0]
+    assert (method, url) == ("POST", pangram.BULK_SUBMIT_URL)
+    assert kwargs["json"] == {
+        "items": [
+            {"id": "e1", "text": "first text"},
+            {"id": "e2", "text": "second text"},
+        ],
+        "model": "pangram-4",
+    }
+    # Status polls hit /bulk/{id}; the results page carries offset/limit.
+    assert (
+        session.calls[1][1] == session.calls[2][1] == pangram.BULK_STATUS_URL.format(bulk_id="b1")
+    )
+    method, url, kwargs = session.calls[3]
+    assert url == pangram.BULK_RESULTS_URL.format(bulk_id="b1")
+    assert kwargs["params"] == {"offset": 0, "limit": pangram.BULK_RESULTS_PAGE_LIMIT}
+
+
+def test_bulk_pages_results(monkeypatch):
+    # With a page limit of 1, each full page triggers another fetch at the next
+    # offset until a short (empty) page ends the paging.
+    monkeypatch.setattr(pangram, "BULK_RESULTS_PAGE_LIMIT", 1)
+    session = FakeSession(
+        [
+            FakeResponse(202, {"bulk_id": "b2"}),
+            FakeResponse(200, {"status": "succeeded"}),
+            FakeResponse(200, {"items": [{"id": "e1", "result": SUCCESS_BODY}]}),
+            FakeResponse(200, {"items": [{"id": "e2", "result": SUCCESS_BODY}]}),
+            FakeResponse(200, {"items": []}),
+        ]
+    )
+    client = PangramClient("k", session=session, min_submit_interval=0)
+    outcome = client.predict_bulk({"e1": "one", "e2": "two"})
+    assert set(outcome.results) == {"e1", "e2"}
+    offsets = [call[2]["params"]["offset"] for call in session.calls[2:]]
+    assert offsets == [0, 1, 2]
+
+
+def test_bulk_accepts_results_envelope_key():
+    # The live service lists results-page entries under "items"; "results" is
+    # accepted defensively in case the envelope ever changes.
+    client = _client(
+        [
+            FakeResponse(202, {"bulk_id": "b3"}),
+            FakeResponse(200, {"status": "succeeded"}),
+            FakeResponse(200, {"results": [{"id": "e1", "result": SUCCESS_BODY}]}),
+        ]
+    )
+    outcome = client.predict_bulk({"e1": "text"})
+    assert outcome.results["e1"].fraction_ai == 1.0
+
+
+def test_bulk_partial_reports_item_errors():
+    client = _client(
+        [
+            FakeResponse(202, {"bulk_id": "b4"}),
+            FakeResponse(200, {"status": "partial"}),
+            FakeResponse(
+                200,
+                {
+                    "items": [
+                        {"id": "e1", "result": SUCCESS_BODY},
+                        {"id": "e2", "result": None, "error": "too short"},
+                    ]
+                },
+            ),
+        ]
+    )
+    outcome = client.predict_bulk({"e1": "one", "e2": "two"})
+    assert outcome.status == "partial"
+    assert set(outcome.results) == {"e1"}
+    assert outcome.errors == {"e2": "too short"}
+
+
+def test_bulk_item_stage_failed_is_an_error():
+    client = _client(
+        [
+            FakeResponse(202, {"bulk_id": "b5"}),
+            FakeResponse(200, {"status": "partial"}),
+            FakeResponse(
+                200,
+                {"items": [{"id": "e1", "result": {"stage": "STAGE_FAILED", "detail": "boom"}}]},
+            ),
+        ]
+    )
+    outcome = client.predict_bulk({"e1": "text"})
+    assert outcome.results == {}
+    assert outcome.errors == {"e1": "boom"}
+
+
+def test_bulk_item_missing_from_results_is_an_error():
+    client = _client(
+        [
+            FakeResponse(202, {"bulk_id": "b6"}),
+            FakeResponse(200, {"status": "succeeded"}),
+            FakeResponse(200, {"items": [{"id": "e1", "result": SUCCESS_BODY}]}),
+        ]
+    )
+    outcome = client.predict_bulk({"e1": "one", "e2": "two"})
+    assert set(outcome.results) == {"e1"}
+    assert outcome.errors == {"e2": "missing from bulk results"}
+
+
+def test_bulk_failed_status_raises():
+    client = _client(
+        [
+            FakeResponse(202, {"bulk_id": "b7"}),
+            FakeResponse(200, {"status": "failed", "detail": "out of credits"}),
+        ]
+    )
+    with pytest.raises(PangramBulkFailed) as exc:
+        client.predict_bulk({"e1": "text"})
+    assert "out of credits" in str(exc.value)
+
+
+def test_bulk_timeout_raises():
+    # bulk_overall_timeout=0 means the deadline is already past once submit
+    # returns; the realtime overall_timeout does not apply to bulk jobs.
+    client = _client(
+        [FakeResponse(202, {"bulk_id": "b8"})],
+        bulk_overall_timeout=0,
+        overall_timeout=999,
+    )
+    with pytest.raises(PangramTimeout):
+        client.predict_bulk({"e1": "text"})
+
+
+def test_bulk_missing_bulk_id_raises():
+    client = _client([FakeResponse(202, {"status": "queued"})])
+    with pytest.raises(PangramError):
+        client.predict_bulk({"e1": "text"})
+
+
+def test_bulk_malformed_results_page_raises():
+    client = _client(
+        [
+            FakeResponse(202, {"bulk_id": "b9"}),
+            FakeResponse(200, {"status": "succeeded"}),
+            FakeResponse(200, {"unexpected": True}),
+        ]
+    )
+    with pytest.raises(PangramError):
+        client.predict_bulk({"e1": "text"})
+
+
+def test_bulk_empty_items_rejected():
+    session = FakeSession([])
+    client = PangramClient("k", session=session, min_submit_interval=0)
+    with pytest.raises(ValueError):
+        client.predict_bulk({})
+    assert session.calls == []  # nothing was submitted
 
 
 # --- opt-in live test ---------------------------------------------------------

@@ -13,7 +13,7 @@ import pytest
 from mailing_list_ai_check import cli
 from mailing_list_ai_check.cleaning import clean_for_scoring
 from mailing_list_ai_check.html_text import split_html_parts
-from mailing_list_ai_check.pangram import PangramError, PangramResult
+from mailing_list_ai_check.pangram import PangramBulkOutcome, PangramError, PangramResult
 from mailing_list_ai_check.store import Store, sha256_text
 
 WORDS_60 = " ".join(f"word{i}" for i in range(60))
@@ -26,18 +26,20 @@ class FakeClient:
     ``model`` and ``version`` move together, as they do for the real client: the
     default selector returns a Pangram 3 verdict ("3.3.2"), ``pangram-4`` a
     Pangram 4 one ("4.0"). The score cache is filtered on that generation.
+    ``predict_bulk`` returns the same canned verdict per item; ``bulk_errors``
+    maps item ids (text hashes) that should fail to their error message.
     """
 
-    def __init__(self, *, fail=False, model="default", version="3.3.2"):
+    def __init__(self, *, fail=False, model="default", version="3.3.2", bulk_errors=None):
         self.calls = 0
+        self.bulk_calls = 0
+        self.bulk_items = []
         self.model = model
         self.version = version
         self._fail = fail
+        self._bulk_errors = bulk_errors or {}
 
-    def predict(self, text):
-        self.calls += 1
-        if self._fail:
-            raise PangramError("simulated failure")
+    def _result(self):
         return PangramResult(
             fraction_ai=0.9,
             fraction_ai_assisted=0.1,
@@ -45,6 +47,26 @@ class FakeClient:
             prediction_short="AI",
             version=self.version,
             raw={"stage": "STAGE_SUCCESS", "fraction_ai": 0.9},
+        )
+
+    def predict(self, text):
+        self.calls += 1
+        if self._fail:
+            raise PangramError("simulated failure")
+        return self._result()
+
+    def predict_bulk(self, items):
+        self.bulk_calls += 1
+        self.bulk_items.append(dict(items))
+        if self._fail:
+            raise PangramError("simulated bulk failure")
+        results = {i: self._result() for i in items if i not in self._bulk_errors}
+        errors = {i: self._bulk_errors[i] for i in items if i in self._bulk_errors}
+        return PangramBulkOutcome(
+            bulk_id="b1",
+            status="partial" if errors else "succeeded",
+            results=results,
+            errors=errors,
         )
 
 
@@ -310,6 +332,125 @@ def test_spend_estimate_uses_the_active_generation_price(store):
     assert summary.estimated_spend == pytest.approx(61 / 100 * 0.05)
 
 
+# --- bulk mode ------------------------------------------------------------
+
+
+def _cleaned_sha(text):
+    """The score-cache key run_score derives for ``text`` (no HTML hint)."""
+    return sha256_text(clean_for_scoring(text).text)
+
+
+def test_bulk_scores_the_run_in_one_job(store):
+    exts = [
+        _seed_extraction(store, text=f"{WORDS_60} unique{i}", message_id=f"<b{i}@x>")
+        for i in range(3)
+    ]
+    client = FakeClient()
+    summary = cli.run_score(store, client, limit=10, bulk=True)
+    assert summary.scored == 3
+    assert summary.api_calls == 3  # the billed unit: texts submitted
+    assert client.bulk_calls == 1
+    assert client.calls == 0  # no realtime calls in bulk mode
+    # Items are keyed by the cleaned text's sha256, the score-cache key.
+    assert set(client.bulk_items[0]) == {_cleaned_sha(f"{WORDS_60} unique{i}") for i in range(3)}
+    for ext in exts:
+        row = store.conn.execute(
+            "SELECT * FROM scores WHERE extraction_id = ?", (ext.id,)
+        ).fetchone()
+        assert row["label"] == "AI"
+        assert row["detector_version"] == "3.3.2"
+
+
+def test_bulk_deduplicates_identical_text_within_the_run(store):
+    _seed_extraction(store, text=WORDS_60, message_id="<bd1@x>")
+    _seed_extraction(store, text=WORDS_60, message_id="<bd2@x>")
+    client = FakeClient()
+    summary = cli.run_score(store, client, limit=10, bulk=True)
+    assert len(client.bulk_items[0]) == 1  # one item for two identical texts
+    assert summary.scored == 1
+    assert summary.cache_hits == 1
+    assert summary.words_sent == 60  # billed once
+    # both extractions still get a score row from the one verdict.
+    assert store.conn.execute("SELECT COUNT(*) AS c FROM scores").fetchone()["c"] == 2
+
+
+def test_bulk_respects_limit(store):
+    for i in range(5):
+        _seed_extraction(store, text=f"{WORDS_60} unique{i}", message_id=f"<bl{i}@x>")
+    client = FakeClient()
+    summary = cli.run_score(store, client, limit=2, bulk=True)
+    assert summary.scored == 2
+    assert summary.api_calls == 2
+    assert len(client.bulk_items[0]) == 2
+    # remaining extractions are left unscored for a later run.
+    assert len(list(store.iter_extractions_needing_score(min_words=50))) == 3
+
+
+def test_bulk_still_serves_the_persistent_cache(store):
+    # The first run scores the text; a second, bulk run over identical new text
+    # is served entirely from the score cache — no bulk job is submitted.
+    _seed_extraction(store, text=WORDS_60, message_id="<bc1@x>")
+    cli.run_score(store, FakeClient(), limit=10)
+    _seed_extraction(store, text=WORDS_60, message_id="<bc2@x>")
+    client = FakeClient()
+    summary = cli.run_score(store, client, limit=10, bulk=True)
+    assert summary.cache_hits == 1
+    assert summary.api_calls == 0
+    assert client.bulk_calls == 0
+
+
+def test_bulk_item_failure_leaves_extraction_scoreable(store):
+    ok_text = f"{WORDS_60} fine"
+    bad_text = f"{WORDS_60} broken"
+    _seed_extraction(store, text=ok_text, message_id="<bf1@x>")
+    bad = _seed_extraction(store, text=bad_text, message_id="<bf2@x>")
+    client = FakeClient(bulk_errors={_cleaned_sha(bad_text): "item failed"})
+    summary = cli.run_score(store, client, limit=10, bulk=True)
+    assert summary.scored == 1
+    assert summary.failed == 1
+    assert summary.api_calls == 2  # both texts were submitted
+    # the failed item's extraction has no score row and stays in the queue.
+    row = store.conn.execute(
+        "SELECT COUNT(*) AS c FROM scores WHERE extraction_id = ?", (bad.id,)
+    ).fetchone()
+    assert row["c"] == 0
+    assert [e.id for e in store.iter_extractions_needing_score(min_words=50)] == [bad.id]
+
+
+def test_bulk_submit_failure_counts_every_text_failed(store):
+    for i in range(3):
+        _seed_extraction(store, text=f"{WORDS_60} u{i}", message_id=f"<bx{i}@x>")
+    client = FakeClient(fail=True)
+    summary = cli.run_score(store, client, limit=10, bulk=True)
+    assert summary.failed == 3
+    assert summary.scored == 0
+    assert summary.api_calls == 3
+    # nothing stored; every extraction stays scoreable for a later run.
+    assert store.conn.execute("SELECT COUNT(*) AS c FROM scores").fetchone()["c"] == 0
+    assert len(list(store.iter_extractions_needing_score(min_words=50))) == 3
+
+
+def test_bulk_dry_run_makes_no_calls_or_writes(store):
+    _seed_extraction(store, text=WORDS_60, message_id="<bdr1@x>")
+    _seed_extraction(store, text=WORDS_60, message_id="<bdr2@x>")  # in-run duplicate
+    _seed_extraction(store, text=f"{WORDS_60} more", message_id="<bdr3@x>")
+    _seed_extraction(store, text=WORDS_10, message_id="<bdr4@x>")
+    summary = cli.run_score(store, None, limit=10, dry_run=True, bulk=True)
+    assert summary.scored == 2  # two unique texts would be submitted
+    assert summary.cache_hits == 1  # the duplicate would ride along free
+    assert summary.too_short == 1
+    assert summary.words_sent == 60 + 61
+    assert store.conn.execute("SELECT COUNT(*) AS c FROM scores").fetchone()["c"] == 0
+
+
+def test_bulk_spend_estimate_applies_the_discount(store):
+    # 60 words at the Pangram 4 price with the 20% bulk discount applied.
+    _seed_extraction(store, text=WORDS_60, message_id="<bp@x>")
+    client = FakeClient(model="pangram-4", version="4.0")
+    summary = cli.run_score(store, client, limit=10, bulk=True)
+    assert summary.estimated_spend == pytest.approx(60 / 100 * 0.05 * 0.8)
+
+
 # --- score_main arg handling --------------------------------------------------
 
 
@@ -398,6 +539,27 @@ def test_score_main_rejects_an_unknown_model(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         cli.score_main(["--model", "pangram-5"])
     assert exc.value.code == 2
+
+
+def test_score_main_bulk_flag_uses_the_bulk_api(monkeypatch, tmp_path):
+    monkeypatch.setenv("PANGRAM_API_KEY", "test-key")
+    db = tmp_path / "bulk.db"
+    with Store(db) as store:
+        _seed_extraction(store, text=WORDS_60, message_id="<bulkmain@x>")
+
+    clients: list[FakeClient] = []
+
+    def _build(api_key, *, model=None, **kwargs):
+        client = FakeClient(model=model)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(cli, "PangramClient", _build)
+    assert cli.score_main(["--db", str(db), "--bulk"]) == 0
+    assert clients[0].bulk_calls == 1
+    assert clients[0].calls == 0
+    with Store(db) as store:
+        assert store.conn.execute("SELECT COUNT(*) AS c FROM scores").fetchone()["c"] == 1
 
 
 def test_score_main_dry_run_end_to_end(monkeypatch, tmp_path):

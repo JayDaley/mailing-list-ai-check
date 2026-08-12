@@ -116,6 +116,25 @@ completed item carries a `result` object with the **same schema as a single-text
 result**; still-running items have `result: null`; failures land in
 `failed_items` with an `error`.
 
+> **Live verification (2026-08-12)** — a 2-item job ran against the live
+> service (within the 10-text testing cap) when `PangramClient.predict_bulk`
+> was added in v1.5.0. The contract above held, with these deltas and
+> additions:
+>
+> - `POST /bulk` accepts the realtime endpoint's `model` selector; a
+>   `pangram-4` job's results stamped `version: "4.0"`.
+> - In the 202 submit response, `accepted_items` and `failed_items` are
+>   **lists** (`accepted_items` entries: `{index, id, task_id}`), not counts.
+> - Status polls returned `status` `queued` → `running` → `succeeded`, with
+>   `total_items`, `accepted`, `succeeded` and `failed` counts plus
+>   `created_at` / `completed_at` timestamps.
+> - The results page lists entries under the key **`items`** (not `results`);
+>   the envelope echoes `bulk_id`, `offset`, `limit`, `total_items` and a
+>   page-level `failed_items` list. Each entry carries `index`, `id`,
+>   `task_id`, `stage`, `error` and the `result` object, which matched the
+>   single-text schema exactly (including the Pangram 4 per-window
+>   `is_humanized` / `humanizer_score` fields).
+
 ---
 
 ## 2. Response schema (single text and per-bulk-item `result`)

@@ -566,6 +566,30 @@ def test_senders_sort_count_asc_explicit(client):
     ]
 
 
+def test_senders_sort_ai_default_order(client):
+    body = client.get("/api/senders?sort=ai").get_json()
+    assert body["order"] == "desc"  # natural default for ai
+    # AI shares: Bob 1/2, Carol 1/3, Alice 1/4, Dave 0, Eve 0 (ties on name asc).
+    assert [r["name"] for r in body["senders"]] == [
+        "Bob Jones",
+        "Carol",
+        "Alice Smith",
+        "Dave",
+        "Eve",
+    ]
+
+
+def test_senders_sort_ai_asc_explicit(client):
+    body = client.get("/api/senders?sort=ai&order=asc").get_json()
+    assert [r["name"] for r in body["senders"]] == [
+        "Dave",
+        "Eve",
+        "Alice Smith",
+        "Carol",
+        "Bob Jones",
+    ]
+
+
 def test_senders_pagination_and_total(client):
     p1 = client.get("/api/senders?sort=name&order=asc&page=1&per_page=2").get_json()
     p2 = client.get("/api/senders?sort=name&order=asc&page=2&per_page=2").get_json()

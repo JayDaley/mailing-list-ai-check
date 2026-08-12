@@ -81,7 +81,7 @@ _MAX_PULL_COUNT = 1000
 _DEFAULT_SENDER_PER_PAGE = 60
 #: Sort keys the Senders pane accepts, mapped to their default sort direction
 #: (used when the request omits ``order``).
-_SENDER_SORTS = {"count": "desc", "name": "asc"}
+_SENDER_SORTS = {"count": "desc", "name": "asc", "ai": "desc"}
 
 
 # --- errors -------------------------------------------------------------------
@@ -395,6 +395,7 @@ def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
         "subject": row["subject"],
         "timing": row["timing"],
         "timing_cpm": round(timing_cpm, 1) if timing_cpm is not None else None,
+        "auto_generated": row["auto_generated"],
         "from": {"address": row["from_address"], "display_name": row["from_display_name"]},
         "person": person,
         "extraction": extraction,
@@ -564,6 +565,7 @@ def message_detail(message_id: int) -> Any:
             "date": msg.date,
             "subject": msg.subject,
             "timing": msg.timing,
+            "auto_generated": msg.auto_generated,
             "in_reply_to": msg.in_reply_to,
             "thread_parent_id": thread_parent_id,
             "raw_body": msg.raw_body,
@@ -1552,8 +1554,9 @@ def list_senders() -> Any:
     Query params (all optional): ``q`` (case-insensitive substring over name or
     any email), ``list`` (restrict to senders who posted to that list, with
     counts/labels scoped to it; an unknown list yields no senders), ``sort``
-    (``count`` default, or ``name``), ``order`` (``asc``/``desc`` — defaults to
-    the natural direction for the chosen sort: ``desc`` for count, ``asc`` for
+    (``count`` default, ``name``, or ``ai`` — the ``AI`` share of the sender's
+    mix), ``order`` (``asc``/``desc`` — defaults to the natural direction for the
+    chosen sort: ``desc`` for count and ai, ``asc`` for
     name), ``page`` (default 1), ``per_page`` (default 60, clamped to
     ``MAX_PER_PAGE``). Bad input yields a 400 like :func:`parse_filters`.
     """

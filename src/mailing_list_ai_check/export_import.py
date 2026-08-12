@@ -492,6 +492,7 @@ def export_lists(
                         "uid": m["uid"],
                         "fetched_at": m["fetched_at"],
                         "pipeline_version": m["pipeline_version"],
+                        "auto_generated": m["auto_generated"],
                         "extraction": extraction_obj,
                     }
                 )
@@ -726,8 +727,8 @@ class _Importer:
         cur = self.conn.execute(
             "INSERT INTO messages("
             "message_id, list_id, address_id, subject, date, in_reply_to, raw_body, uid, "
-            "fetched_at, raw_html, pipeline_version"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "fetched_at, raw_html, pipeline_version, auto_generated"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(list_id, message_id) DO NOTHING",
             (
                 record["message_id"],
@@ -741,6 +742,8 @@ class _Importer:
                 record["fetched_at"],
                 record.get("raw_html"),
                 record.get("pipeline_version"),
+                # Absent in files written before the field existed → NULL.
+                record.get("auto_generated"),
             ),
         )
 

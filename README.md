@@ -123,6 +123,13 @@ Depth is one of `--count N`, `--since YYYY-MM-DD`, `--days N`, or
 `--incremental`. `--limit N` is a hard cap on messages fetched this run — use
 `--limit 10` when testing (see Costs and usage limits).
 
+Every fetched message is classified against the auto-generated-mail rules
+(`docs/findings/auto-generated.md`); flagged messages are stored with their
+classification reason and excluded from extraction and scoring. `--all-lists`
+skips the lists that carry only auto-generated traffic (announcement lists,
+DMARC reports, GitHub mirrors, meeting broadcasts); `--include-excluded-lists`
+restores them, and explicitly named lists are always pulled.
+
 ### `mail-ai-extract` — isolate each author's new text
 
 ```bash
@@ -139,6 +146,7 @@ network needed.
 ```bash
 mail-ai-score                # default: at most 10 API calls
 mail-ai-score --limit 500    # a production run
+mail-ai-score --limit 500 --bulk   # the same run as one Bulk API job (20% cheaper)
 mail-ai-score --dry-run      # show what would be scored / gated / cached
 ```
 
@@ -148,7 +156,13 @@ call. `--limit N` caps Pangram API calls per run (cache hits are free and
 uncapped) and **defaults to 10** to limit accidental spending — pass a larger
 value for production runs. Scoring uses the Pangram 4 detector by default,
 which costs roughly **$0.05 per 100 words** on realtime API calls (Pangram 3
-cost $0.05 per 1,000 words). The detector can be changed with `--model
+cost $0.05 per 1,000 words). `--bulk` submits the run's texts as a single
+Pangram Bulk API job instead of one realtime call per text: bulk words are
+billed at a 20% discount, identical cleaned text is submitted once with the
+verdict shared by every message carrying it, and `--limit` caps the texts
+submitted. Bulk suits large catch-up runs; for a handful of new messages the
+realtime default is simpler and faster. Texts a bulk job fails to score stay
+queued and are retried on the next run. The detector can be changed with `--model
 {pangram-4,default}` for one run (`default` routes to Pangram 3 until Pangram
 deprecates it), or persistently with the dashboard's "Use Pangram v3 (old)"
 header switch; the switch's setting applies to both the dashboard and the CLI.
@@ -343,7 +357,7 @@ Layout:
 - `docs/findings/` — the Phase 0 spike findings (IMAP, extraction, Pangram) that
   the design is built on, including the rationale for the main design decisions
   (email-reply-parser over Talon, stdlib `sqlite3` over an ORM, the Pangram
-  contract).
+  contract), plus the auto-generated-mail survey behind the exclusion rules.
 
 ### Secret-scanning guardrail
 

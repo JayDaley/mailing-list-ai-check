@@ -23,7 +23,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { get, postJson } from '../api'
 import { fmtDate, fmtInt } from '../lib/format'
-import { rugBarColor } from '../lib/labels'
+import { aiShare, rugBarColor } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
@@ -412,21 +412,51 @@ const showActiveEmpty = computed(
   () => showActive.value && lists.value.length > 0 && filteredLists.value.length === 0,
 )
 
-const listRows = computed(() =>
-  [...filteredLists.value]
-    .sort((a, b) => (b.message_count || 0) - (a.message_count || 0))
-    .map((l) => ({
-      name: l.name,
-      count: fmtInt(l.message_count || 0),
-      counts: l.label_counts || {},
-      // Gated under the reliability floor: the mix bar's trailing grey segment.
-      tooShort: l.too_short_count || 0,
-      // Oldest stored message date for the list (the message's own date), or an
-      // em-dash when the list has no dated messages.
-      earliest: l.earliest_message_at ? fmtDate(l.earliest_message_at) : '—',
-      synced: fmtSynced(l.last_synced_at),
-    })),
+// Index ordering. The default is message count desc; clicking the "Aggregate
+// analysis" caption sorts by each list's AI share instead — highest share first,
+// then lowest, then a third click returns to the default order.
+const indexSort = ref(null) // null (message count desc) | 'ai'
+const indexOrder = ref('desc')
+function sortIndexAi() {
+  if (indexSort.value !== 'ai') {
+    indexSort.value = 'ai'
+    indexOrder.value = 'desc'
+  } else if (indexOrder.value === 'desc') {
+    indexOrder.value = 'asc'
+  } else {
+    indexSort.value = null
+    indexOrder.value = 'desc'
+  }
+}
+const aiInd = computed(() =>
+  indexSort.value === 'ai' ? (indexOrder.value === 'asc' ? ' ▲' : ' ▼') : '',
 )
+
+const listRows = computed(() => {
+  const sorted = [...filteredLists.value].sort(
+    (a, b) => (b.message_count || 0) - (a.message_count || 0),
+  )
+  if (indexSort.value === 'ai') {
+    const dir = indexOrder.value === 'asc' ? 1 : -1
+    // Stable, so lists sharing an AI share keep the message-count order above.
+    sorted.sort(
+      (a, b) =>
+        dir *
+        (aiShare(a.label_counts, a.too_short_count) - aiShare(b.label_counts, b.too_short_count)),
+    )
+  }
+  return sorted.map((l) => ({
+    name: l.name,
+    count: fmtInt(l.message_count || 0),
+    counts: l.label_counts || {},
+    // Gated under the reliability floor: the mix bar's trailing grey segment.
+    tooShort: l.too_short_count || 0,
+    // Oldest stored message date for the list (the message's own date), or an
+    // em-dash when the list has no dated messages.
+    earliest: l.earliest_message_at ? fmtDate(l.earliest_message_at) : '—',
+    synced: fmtSynced(l.last_synced_at),
+  }))
+})
 
 const pullFormOpen = ref(false)
 const pullName = ref('')
@@ -821,7 +851,9 @@ function closeList() {
         <div class="index-caption">
           <span>List</span>
           <span style="text-align: right;">Msgs</span>
-          <span>Aggregate analysis</span>
+          <span class="sortable" title="Sort by AI share" @click="sortIndexAi"
+            >Aggregate analysis{{ aiInd }}</span
+          >
           <span style="text-align: right;">Earliest</span>
           <span style="text-align: right;">Synced</span>
           <span></span>
@@ -1379,6 +1411,12 @@ function closeList() {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
+}
+.index-caption .sortable {
+  cursor: pointer;
+}
+.index-caption .sortable:hover {
+  color: var(--accent);
 }
 .index-row {
   display: grid;

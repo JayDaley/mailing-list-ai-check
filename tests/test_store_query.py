@@ -11,7 +11,7 @@ import math
 
 import pytest
 
-from mailing_list_ai_check.store import MessageFilters, Store
+from mailing_list_ai_check.store import MessageFilters, Store, ai_share
 
 from seed import seed
 
@@ -391,6 +391,40 @@ def test_sender_rows_sort_count_asc(store):
         "Carol",
         "Alice Smith",
     ]
+
+
+def test_sender_rows_sort_ai_desc_default(store):
+    rows, _ = store.sender_rows(sort="ai", per_page=200)
+    # AI shares: Bob 1/2, Carol 1/3, Alice 1/4, Dave 0 (only a gated message),
+    # Eve 0 (nothing in the mix). Ties break on name asc.
+    assert [r["name"] for r in rows] == [
+        "Bob Jones",
+        "Carol",
+        "Alice Smith",
+        "Dave",
+        "Eve",
+    ]
+
+
+def test_sender_rows_sort_ai_asc(store):
+    rows, _ = store.sender_rows(sort="ai", order="asc", per_page=200)
+    assert [r["name"] for r in rows] == [
+        "Dave",
+        "Eve",
+        "Alice Smith",
+        "Carol",
+        "Bob Jones",
+    ]
+
+
+def test_ai_share_counts_gated_messages_and_empty_mixes():
+    assert ai_share({"AI": 1, "Human": 1}) == 0.5
+    # A gated message is part of the denominator, as the mix bar draws it.
+    assert ai_share({"AI": 1, "Human": 1}, 2) == 0.25
+    assert ai_share({"Human": 3}) == 0.0
+    assert ai_share({}, 0) == 0.0
+    assert ai_share(None) == 0.0
+    assert ai_share({"AI": 2}) == 1.0
 
 
 def test_sender_rows_sort_name(store):

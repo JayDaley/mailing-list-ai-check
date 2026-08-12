@@ -58,6 +58,8 @@ DEFAULT_SCORE_LIMIT = 10
 #: $0.05 per 1,000. Unknown generations use the Pangram 4 price.
 _PRICE_PER_100_WORDS = {"4": 0.05, "3": 0.005}
 _DEFAULT_PRICE_PER_100_WORDS = _PRICE_PER_100_WORDS["4"]
+#: Bulk API words are billed at a 20% discount off the realtime price.
+_BULK_PRICE_FACTOR = 0.8
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -74,6 +76,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--all-lists",
         action="store_true",
         help="pull every list folder on the server (touches ~1374 folders)",
+    )
+    parser.add_argument(
+        "--include-excluded-lists",
+        action="store_true",
+        help=(
+            "with --all-lists, also pull the lists that carry only auto-generated "
+            "traffic (see docs/findings/auto-generated.md); they are skipped by default"
+        ),
     )
 
     depth = parser.add_mutually_exclusive_group()
@@ -310,7 +320,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             config.imap_host, config.imap_port, config.imap_username, config.imap_password
         )
         try:
-            folders = resolve_folders(client, args.lists, all_lists=args.all_lists)
+            folders = resolve_folders(
+                client,
+                args.lists,
+                all_lists=args.all_lists,
+                include_excluded=args.include_excluded_lists,
+            )
             with Store(db_path) as store:
                 run_backfill_html(client, store, folders, limit=limit, batch_size=args.batch_size)
         finally:
@@ -324,7 +339,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         config.imap_host, config.imap_port, config.imap_username, config.imap_password
     )
     try:
-        folders = resolve_folders(client, args.lists, all_lists=args.all_lists)
+        folders = resolve_folders(
+            client,
+            args.lists,
+            all_lists=args.all_lists,
+            include_excluded=args.include_excluded_lists,
+        )
         request = FetchRequest(
             folders=tuple(folders),
             depth=depth,
@@ -465,6 +485,19 @@ class ScoreSummary:
         )
 
 
+@dataclass
+class _BulkGroup:
+    """One unique cleaned text queued for a bulk job.
+
+    ``extraction_ids`` lists every extraction sharing that text this run; the
+    first is the one whose submission is billed, the rest are fanned out from
+    its result like cache hits.
+    """
+
+    text: str
+    extraction_ids: list[int]
+
+
 def build_score_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mail-ai-score",
@@ -500,6 +533,15 @@ def build_score_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--bulk",
+        action="store_true",
+        help=(
+            "submit this run's texts as a single Pangram Bulk API job instead of "
+            "one realtime call per text; bulk words are billed at a 20%% discount, "
+            "which suits large catch-up runs. --limit still caps the texts submitted."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="report what would be scored / gated / cache-hit without calling the API",
@@ -528,6 +570,7 @@ def run_score(
     min_words: int = SCORE_MIN_WORDS,
     dry_run: bool = False,
     message_ids: Container[int] | None = None,
+    bulk: bool = False,
 ) -> ScoreSummary:
     """Score unscored extractions, capping real API calls at ``limit``.
 
@@ -548,10 +591,21 @@ def run_score(
     the generation ``client`` selects (``DEFAULT_MODEL``'s in a dry run, where
     there is no client) can be reused, so a stored Pangram 3 verdict never
     stands in for a Pangram 4 run or the reverse.
+
+    With ``bulk``, the texts that would each get a realtime call are instead
+    submitted as one Bulk API job (billed at a 20% discount): ``limit`` caps
+    the texts submitted, ``api_calls`` counts them (the billed unit), and
+    identical cleaned text is submitted once with the verdict fanned out to
+    every extraction sharing it, counted as cache hits past the first. Items
+    the job fails (or never reports back) are left unscored for a later run.
     """
     summary = ScoreSummary()
     generation = generation_for_model(client.model if client is not None else DEFAULT_MODEL)
-    summary.price_per_100_words = _PRICE_PER_100_WORDS.get(generation, _DEFAULT_PRICE_PER_100_WORDS)
+    price = _PRICE_PER_100_WORDS.get(generation, _DEFAULT_PRICE_PER_100_WORDS)
+    summary.price_per_100_words = price * _BULK_PRICE_FACTOR if bulk else price
+
+    #: text_sha256 → the texts queued for the one bulk job (bulk mode only).
+    pending: dict[str, _BulkGroup] = {}
 
     # One pass over every unscored ok extraction (min_words=0 yields all); the
     # short-text gate is applied here on the *cleaned* word count so it never
@@ -572,7 +626,8 @@ def run_score(
                 store.update_extraction_status(extraction.id, "too_short")
             continue
 
-        cached = store.find_score_by_text_sha256(sha256_text(text), generation=generation)
+        text_sha = sha256_text(text)
+        cached = store.find_score_by_text_sha256(text_sha, generation=generation)
         if cached is not None:
             summary.cache_hits += 1
             if not dry_run:
@@ -586,6 +641,24 @@ def run_score(
                     detector_version=cached.detector_version,
                     raw_response=cached.raw_response,
                 )
+            continue
+
+        if bulk:
+            # Queue for the single bulk job. A within-run duplicate joins the
+            # existing item free of charge (over the limit included) and is
+            # tallied as a cache hit — here in a dry run, at fan-out otherwise.
+            group = pending.get(text_sha)
+            if group is not None:
+                group.extraction_ids.append(extraction.id)
+                if dry_run:
+                    summary.cache_hits += 1
+                continue
+            if len(pending) >= limit:
+                continue
+            pending[text_sha] = _BulkGroup(text=text, extraction_ids=[extraction.id])
+            summary.words_sent += word_count
+            if dry_run:
+                summary.scored += 1
             continue
 
         # Needs a real API call — respect the per-run cap (leaves the rest for
@@ -609,7 +682,7 @@ def run_score(
             continue
         store.insert_score(
             extraction_id=extraction.id,
-            text_sha256=sha256_text(text),
+            text_sha256=text_sha,
             fraction_ai=result.fraction_ai,
             fraction_ai_assisted=result.fraction_ai_assisted,
             fraction_human=result.fraction_human,
@@ -625,7 +698,62 @@ def run_score(
             result.fraction_ai,
         )
 
+    if pending and not dry_run:
+        _score_bulk(store, client, pending, summary)
     return summary
+
+
+def _score_bulk(
+    store: Store,
+    client: PangramClient | None,
+    pending: dict[str, _BulkGroup],
+    summary: ScoreSummary,
+) -> None:
+    """Submit ``pending`` as one bulk job and store each verdict that comes back.
+
+    Item ids are the texts' sha256 hashes (the score-cache key), so results map
+    straight back to their groups. A group whose item fails is only logged — its
+    extractions stay unscored and the next run retries them.
+    """
+    assert client is not None  # guaranteed by score_main outside dry-run
+    summary.api_calls += len(pending)
+    try:
+        outcome = client.predict_bulk({sha: group.text for sha, group in pending.items()})
+    except PangramError as exc:
+        summary.failed += len(pending)
+        score_log.warning("bulk scoring failed for all %d texts: %s", len(pending), exc)
+        return
+    for text_sha, group in pending.items():
+        result = outcome.results.get(text_sha)
+        if result is None:
+            summary.failed += 1
+            score_log.warning(
+                "bulk scoring failed for extraction id=%s: %s",
+                group.extraction_ids[0],
+                outcome.errors.get(text_sha, "missing from bulk results"),
+            )
+            continue
+        for position, extraction_id in enumerate(group.extraction_ids):
+            store.insert_score(
+                extraction_id=extraction_id,
+                text_sha256=text_sha,
+                fraction_ai=result.fraction_ai,
+                fraction_ai_assisted=result.fraction_ai_assisted,
+                fraction_human=result.fraction_human,
+                label=result.prediction_short,
+                detector_version=result.version,
+                raw_response=result.raw,
+            )
+            if position == 0:
+                summary.scored += 1
+            else:
+                summary.cache_hits += 1
+        score_log.debug(
+            "scored extraction id=%s label=%s fraction_ai=%s",
+            group.extraction_ids[0],
+            result.prediction_short,
+            result.fraction_ai,
+        )
 
 
 def score_main(argv: Sequence[str] | None = None) -> int:
@@ -658,6 +786,7 @@ def score_main(argv: Sequence[str] | None = None) -> int:
             limit=args.limit,
             min_words=SCORE_MIN_WORDS,
             dry_run=args.dry_run,
+            bulk=args.bulk,
         )
 
     prefix = "dry-run summary" if args.dry_run else "summary"

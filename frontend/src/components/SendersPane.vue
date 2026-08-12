@@ -293,8 +293,18 @@ function sortCount() {
   }
   refresh()
 }
+// By the AI share of the sender's mix (the API's `ai` sort), highest first.
+function sortAi() {
+  if (sort.value === 'ai') order.value = order.value === 'desc' ? 'asc' : 'desc'
+  else {
+    sort.value = 'ai'
+    order.value = 'desc'
+  }
+  refresh()
+}
 const nameInd = computed(() => (sort.value === 'name' ? (order.value === 'asc' ? ' ▲' : ' ▼') : ''))
 const countInd = computed(() => (sort.value === 'count' ? (order.value === 'asc' ? ' ▲' : ' ▼') : ''))
+const aiInd = computed(() => (sort.value === 'ai' ? (order.value === 'asc' ? ' ▲' : ' ▼') : ''))
 
 // --- popover ----------------------------------------------------------------
 const openPop = ref(null) // row key ('p<id>' | 'a<id>') of the open popover
@@ -513,7 +523,9 @@ async function assignToExisting(row) {
         <span class="sortable" @click="sortName">Sender{{ nameInd }}</span>
         <span>Address</span>
         <span class="sortable" style="text-align: right;" @click="sortCount">Emails{{ countInd }}</span>
-        <span>Aggregate analysis</span>
+        <span class="sortable" title="Sort by AI share" @click="sortAi"
+          >Aggregate analysis{{ aiInd }}</span
+        >
         <span style="text-align: right;">Link</span>
       </div>
 

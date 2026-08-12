@@ -327,6 +327,16 @@ _MIGRATION_013 = """
 UPDATE scores SET label = 'Mixed' WHERE label = 'AI-Assisted';
 """
 
+# Auto-generated-mail classification (see autogen.py and
+# docs/findings/auto-generated.md): a reason slug when the fetcher classified
+# the message as machine-generated, NULL for human mail. Flagged messages are
+# excluded from the extraction queue and therefore never scored. Rows fetched
+# before the column existed stay NULL (headers are not stored, so they cannot
+# be reclassified locally; a re-pull into a fresh store classifies them).
+_MIGRATION_014 = """
+ALTER TABLE messages ADD COLUMN auto_generated TEXT;
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
@@ -341,6 +351,7 @@ MIGRATIONS: list[tuple[int, str]] = [
     (11, _MIGRATION_011),
     (12, _MIGRATION_012),
     (13, _MIGRATION_013),
+    (14, _MIGRATION_014),
 ]
 
 #: The migrations whose backfill runs in Python (see :meth:`Store.__init__`).
@@ -507,6 +518,10 @@ class Message:
     ``timing`` is the reply-timing classification (one of
     :data:`TIMING_VALUES`, or NULL when it cannot be computed — see
     :meth:`Store.recompute_timing`).
+
+    ``auto_generated`` is the fetch-time classification reason when the
+    message is machine-generated (see :mod:`~mailing_list_ai_check.autogen`),
+    NULL for human mail and for rows fetched before migration 014.
     """
 
     id: int
@@ -522,6 +537,7 @@ class Message:
     raw_html: str | None = None
     pipeline_version: str | None = None
     timing: str | None = None
+    auto_generated: str | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Message":
@@ -539,6 +555,7 @@ class Message:
             raw_html=row["raw_html"],
             pipeline_version=row["pipeline_version"],
             timing=row["timing"],
+            auto_generated=row["auto_generated"],
         )
 
 
@@ -795,6 +812,7 @@ _MESSAGE_COLUMNS = """
     m.in_reply_to AS in_reply_to,
     m.timing AS timing,
     m.timing_cpm AS timing_cpm,
+    m.auto_generated AS auto_generated,
     m.list_id AS list_id,
     a.email AS from_address,
     a.display_name AS from_display_name,
@@ -835,6 +853,21 @@ def _in_chunks(items: Sequence[Any], size: int = _IN_CHUNK) -> Iterator[Sequence
     """Yield ``items`` in batches small enough to bind into one ``IN (...)``."""
     for start in range(0, len(items), size):
         yield items[start : start + size]
+
+
+def ai_share(label_counts: Mapping[str, Any] | None, too_short_count: int = 0) -> float:
+    """The ``AI`` fraction of one aggregate mix, in ``[0, 1]``.
+
+    The denominator is every message the dashboard's mix bar draws — the scored
+    ones plus those gated under the reliability floor — so the value matches the
+    ``AI`` percentage the bar reports. A mix with nothing in it is 0.0.
+    """
+    counts = label_counts or {}
+    scored = sum(int(n or 0) for n in counts.values())
+    denom = scored + int(too_short_count or 0)
+    if denom == 0:
+        return 0.0
+    return int(counts.get("AI") or 0) / denom
 
 
 def _sender_scope(person_id: int | None, address: str | None) -> tuple[str, str, list[Any]]:
@@ -1197,22 +1230,26 @@ class Store:
         fetched_at: str | None = None,
         raw_html: str | None = None,
         pipeline_version: str | None = None,
+        auto_generated: str | None = None,
     ) -> MessageUpsert:
         """Insert a message, deduping on ``(list_id, message_id)``.
 
         Idempotent: a re-pull of the same message is a no-op that returns the
-        existing row with ``inserted=False`` (``raw_html`` and
-        ``pipeline_version`` are stored only on insert; a conflicting existing
-        row is left exactly as-is). New rows return ``inserted=True``.
+        existing row with ``inserted=False`` (``raw_html``,
+        ``pipeline_version`` and ``auto_generated`` are stored only on insert;
+        a conflicting existing row is left exactly as-is). New rows return
+        ``inserted=True``.
 
         ``pipeline_version`` defaults to the current package version
         (:data:`__version__`); tests may pass an explicit value.
+        ``auto_generated`` is the fetch-time classification reason (see
+        :mod:`~mailing_list_ai_check.autogen`), or ``None`` for human mail.
         """
         cur = self.conn.execute(
             "INSERT INTO messages("
             "message_id, list_id, address_id, subject, date, in_reply_to, raw_body, uid, "
-            "fetched_at, raw_html, pipeline_version"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "fetched_at, raw_html, pipeline_version, auto_generated"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(list_id, message_id) DO NOTHING",
             (
                 message_id,
@@ -1226,6 +1263,7 @@ class Store:
                 fetched_at or _utcnow_iso(),
                 raw_html,
                 pipeline_version if pipeline_version is not None else __version__,
+                auto_generated,
             ),
         )
         self.conn.commit()
@@ -1309,11 +1347,16 @@ class Store:
             yield Message.from_row(row)
 
     def iter_messages_without_extraction(self) -> Iterator[Message]:
-        """Yield messages that have no ``extractions`` row yet (extraction queue)."""
+        """Yield messages that have no ``extractions`` row yet (extraction queue).
+
+        Messages classified as auto-generated at fetch time are excluded: they
+        never enter the extraction queue, so they are never scored either
+        (scores hang off extractions).
+        """
         rows = self.conn.execute(
             "SELECT m.* FROM messages m "
             "LEFT JOIN extractions e ON e.message_id = m.id "
-            "WHERE e.id IS NULL ORDER BY m.id"
+            "WHERE e.id IS NULL AND m.auto_generated IS NULL ORDER BY m.id"
         ).fetchall()
         for row in rows:
             yield Message.from_row(row)
@@ -1986,8 +2029,9 @@ class Store:
         then happens in Python over the small result:
 
         - ``q`` — case-insensitive substring over the name or ANY email;
-        - ``sort`` — ``"count"`` (by ``message_count``, secondary name asc for a
-          stable order) or ``"name"`` (case-insensitive);
+        - ``sort`` — ``"count"`` (by ``message_count``), ``"ai"`` (by the mix's
+          ``AI`` share, see :func:`ai_share`), both with a secondary name asc for
+          a stable order, or ``"name"`` (case-insensitive);
         - ``order`` — ``"asc"``/``"desc"``;
         - ``page``/``per_page`` — 1-based, ``per_page`` clamped to
           ``[1, MAX_PER_PAGE]``.
@@ -2105,6 +2149,11 @@ class Store:
         if sort == "name":
             if order == "desc":
                 entries.reverse()
+        elif sort == "ai":
+            entries.sort(
+                key=lambda e: ai_share(e["label_counts"], e["too_short_count"]),
+                reverse=(order != "asc"),
+            )
         else:  # count
             entries.sort(key=lambda e: e["message_count"], reverse=(order != "asc"))
 

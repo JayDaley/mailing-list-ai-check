@@ -63,8 +63,8 @@ def test_migrations_are_idempotent(tmp_path):
             "v"
         ]
         row_count_after = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert version_before == version_after == 13
-    assert row_count_before == row_count_after == 13
+    assert version_before == version_after == 14
+    assert row_count_before == row_count_after == 14
 
 
 def test_reopening_database_is_a_noop(tmp_path):
@@ -76,7 +76,7 @@ def test_reopening_database_is_a_noop(tmp_path):
         rows = s.conn.execute("SELECT COUNT(*) AS c FROM lists").fetchone()["c"]
         version = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
     assert rows == 1
-    assert version == 13
+    assert version == 14
 
 
 def test_migration_013_undoes_the_003_rebadge(store):
@@ -116,8 +116,8 @@ def test_migration_013_undoes_the_003_rebadge(store):
         )
     # Rewind to pre-003 and re-apply so both backfills run over the rows: 003
     # rebadges assisted-dominant Mixed, then 013 restores the verbatim label.
-    # Drop the columns/indexes added by 004..011 and the table added by 012 so
-    # those migrations re-apply cleanly alongside 003 and 013.
+    # Drop the columns/indexes added by 004..011 and 014 and the table added by
+    # 012 so those migrations re-apply cleanly alongside 003 and 013.
     store.conn.execute("DELETE FROM schema_version WHERE version >= 3")
     store.conn.execute("ALTER TABLE messages DROP COLUMN raw_html")
     store.conn.execute("ALTER TABLE lists DROP COLUMN last_message_at")
@@ -130,6 +130,7 @@ def test_migration_013_undoes_the_003_rebadge(store):
     store.conn.execute("DROP INDEX idx_messages_timing_cpm")
     store.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
     store.conn.execute("DROP TABLE app_settings")
+    store.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
     apply_migrations(store.conn)
     labels = [
         row["label"]
@@ -163,12 +164,13 @@ def test_migration_004_present_on_migrated_db(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "raw_html" in cols
-    assert version == 13
+    assert version == 14
 
 
 def test_migration_005_adds_last_message_at_column(store):
@@ -194,12 +196,13 @@ def test_migration_005_present_on_migrated_db(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(lists)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "last_message_at" in cols
-    assert version == 13
+    assert version == 14
 
 
 def test_migration_006_present_on_migrated_db(tmp_path):
@@ -219,6 +222,7 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
         s.conn.commit()
     with Store(db) as s:
         indexes = {
@@ -227,7 +231,7 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         }
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "idx_messages_message_id" in indexes
-    assert version == 13
+    assert version == 14
 
 
 def test_expected_indexes_exist(store):
@@ -901,12 +905,13 @@ def test_migration_007_present_on_migrated_db(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "pipeline_version" in cols
-    assert version == 13
+    assert version == 14
 
 
 def test_message_pipeline_version_roundtrips(store):
@@ -1049,12 +1054,14 @@ def test_replace_extraction_restamps_the_extraction_version(store):
 def _rewound_to_pre_011(db):
     """Drop the extraction_version column and rewind the schema version past it.
 
-    The app_settings table (012) goes with it so that migration re-applies too.
+    The app_settings table (012) and the auto_generated column (014) go with it
+    so those migrations re-apply too.
     """
     with Store(db) as s:
         s.conn.execute("DELETE FROM schema_version WHERE version >= 11")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
         s.conn.commit()
 
 

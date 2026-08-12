@@ -37,6 +37,26 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.5.0] - 2026-08-12
+
+Summary: Add Pangram Bulk API scoring, auto-generated-mail exclusion rules, and AI-share sorting for the lists index and senders table.
+
+- Add `autogen.py`: header- and sender-based classification of auto-generated messages, derived from a survey of IETF list traffic since 2025-07-01 (see docs/findings/auto-generated.md).
+- Classify every fetched message at parse time and store the reason in a new `messages.auto_generated` column (migration 014); flagged messages are excluded from extraction and scoring.
+- Keep datatracker-delivered IESG ballot positions (identified by their `To: iesg@ietf.org` header) in scope despite their `Auto-Submitted: auto-generated` header, since the ballot text is human-written.
+- Skip lists that carry only auto-generated traffic during `--all-lists` pulls; a new `--include-excluded-lists` flag restores them, and explicitly named lists are always honoured.
+- Report the number of auto-generated messages in the fetch summary and expose the classification reason in the message list and detail API payloads.
+- Round-trip `messages.auto_generated` through export and import (additive format change; older files import with the field unset).
+- Add docs/findings/auto-generated.md, recording the survey method and the measured exclusion rules.
+
+- Add `PangramClient.predict_bulk()`, a Pangram Bulk API client: submit one job of many texts, poll to a terminal status, page the results, and return per-item verdicts and errors.
+- Add a `--bulk` flag to `mail-ai-score` that submits the run's texts as a single Bulk API job, submitting identical cleaned text once and fanning its verdict out to every extraction sharing it.
+- Estimate bulk-run spend at the Bulk API's 20% discount off the realtime per-word price.
+- Add an `ai` sort key to `GET /api/senders`, ordering senders by the AI share of their mix (default direction descending).
+- Add `store.ai_share()`, the AI fraction of one aggregate mix over the scored messages plus those gated under the reliability floor.
+- Make the senders table's "Aggregate analysis" column header sort by AI share, ascending or descending.
+- Make the lists index's "Aggregate analysis" column header sort by AI share, descending then ascending, with a third click returning to the message-count order.
+
 ## [1.4.1] - 2026-07-30
 
 Summary: Store Pangram's prediction_short verbatim instead of deriving an "AI-Assisted" label.

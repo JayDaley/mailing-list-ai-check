@@ -33,6 +33,7 @@ from email import policy
 from email.message import EmailMessage
 from email.utils import parseaddr, parsedate_to_datetime
 
+from .autogen import classify_message, is_excluded_list
 from .imap_client import DEFAULT_BATCH_SIZE, FOLDER_PREFIX, ImapClient, build_search_criteria
 from .store import Store
 
@@ -79,13 +80,14 @@ class FetchSummary:
     parse_errors: int = 0
     html_only: int = 0
     matched: int = 0
+    auto_generated: int = 0
     per_list: dict[str, int] = field(default_factory=dict)
 
     def as_line(self) -> str:
         return (
             f"fetched={self.fetched} duplicates={self.duplicates} "
             f"parse_errors={self.parse_errors} html_only={self.html_only} "
-            f"matched={self.matched}"
+            f"matched={self.matched} auto_generated={self.auto_generated}"
         )
 
 
@@ -100,6 +102,11 @@ class ParsedMessage:
     ``html_body`` the decoded ``text/html`` part (``None`` when absent). Both are
     captured with the same charset-fallback handling; ``html_only`` stays true
     only when there is no plain part.
+
+    ``auto_generated`` is the classification reason when the message's headers
+    mark it machine-generated (see
+    :func:`~mailing_list_ai_check.autogen.classify_message`), ``None`` for
+    human mail.
     """
 
     message_id: str
@@ -111,6 +118,7 @@ class ParsedMessage:
     body: str | None
     html_only: bool
     html_body: str | None = None
+    auto_generated: str | None = None
 
 
 @dataclass(frozen=True)
@@ -233,6 +241,7 @@ def parse_message(raw: bytes, *, uid: int | None = None, folder: str = "") -> Pa
         body=body,
         html_only=html_only,
         html_body=html_body,
+        auto_generated=classify_message(msg),
     )
 
 
@@ -268,16 +277,30 @@ def list_name_for_folder(folder: str) -> str:
 
 
 def resolve_folders(
-    client: ImapClient, list_names: Sequence[str], *, all_lists: bool = False
+    client: ImapClient,
+    list_names: Sequence[str],
+    *,
+    all_lists: bool = False,
+    include_excluded: bool = False,
 ) -> list[str]:
     """Resolve a selection into concrete folder names.
 
     ``all_lists`` enumerates the server; otherwise each name is mapped through
-    :func:`folder_for_list`.
+    :func:`folder_for_list`. An enumeration skips the lists that carry only
+    auto-generated traffic (see
+    :func:`~mailing_list_ai_check.autogen.is_excluded_list`) unless
+    ``include_excluded`` is set; explicitly named lists are always honoured.
     """
-    if all_lists:
-        return client.list_folders()
-    return [folder_for_list(name) for name in list_names]
+    if not all_lists:
+        return [folder_for_list(name) for name in list_names]
+    folders = client.list_folders()
+    if include_excluded:
+        return folders
+    kept = [f for f in folders if not is_excluded_list(list_name_for_folder(f))]
+    skipped = len(folders) - len(kept)
+    if skipped:
+        log.info("skipping %d auto-generated list(s); --include-excluded-lists overrides", skipped)
+    return kept
 
 
 def refresh_lists_index(client: ImapClient, store: Store) -> dict[str, int]:
@@ -502,12 +525,15 @@ def _fetch_folder(
             raw_body=parsed.body,
             uid=uid,
             raw_html=parsed.html_body,
+            auto_generated=parsed.auto_generated,
         )
         if result.inserted:
             summary.fetched += 1
             fetched_here += 1
             if parsed.html_only:
                 summary.html_only += 1
+            if parsed.auto_generated:
+                summary.auto_generated += 1
             # Never log body content; a length is safe only at DEBUG.
             log.debug("stored %s uid=%s body_chars=%s", name, uid, len(parsed.body or ""))
         else:
