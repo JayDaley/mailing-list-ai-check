@@ -23,6 +23,16 @@ deadline, and — importantly for a public repo — a guarantee that the API key
 only ever read from the caller (``Config.load().pangram_api_key``) and never
 logged. A single :class:`requests.Session` is reused across calls.
 
+The submit POSTs are the exception to the retry policy: ``POST /task`` and
+``POST /bulk`` create billed work, so a request the server may already have
+received is never re-sent. A submit is retried only on HTTP 429 (the server
+rejected it before doing work) or a connect-phase timeout (it was never sent);
+a read timeout, a mid-request connection failure or a 5xx response raises
+immediately instead, leaving the run to resume on a later pass. A 1,000-item
+bulk submit was observed taking longer than the 10 s default request timeout
+to be accepted, and the retries then created one billed job per attempt —
+hence both the rule and the separate, larger ``bulk_submit_timeout``.
+
 The 50-word "too short to score" gate is **not** enforced here — that is the
 scoring pipeline's job (the server itself does not enforce it).
 """
@@ -91,6 +101,10 @@ _SUBMIT_OK = (200, 202)
 
 # Timeouts / intervals mirror the SDK defaults documented in the findings.
 DEFAULT_HTTP_TIMEOUT = 10.0  # per-request
+#: Per-request timeout for the bulk submit alone: accepting a large item list
+#: server-side takes well over the 10 s default (measured on a 1,000-item job),
+#: and a timed-out submit cannot be retried safely (see the module docstring).
+DEFAULT_BULK_SUBMIT_TIMEOUT = 120.0
 DEFAULT_OVERALL_TIMEOUT = 300.0  # overall task deadline
 DEFAULT_POLL_INTERVAL = 0.5  # between polls
 DEFAULT_BULK_OVERALL_TIMEOUT = 3600.0  # overall bulk-job deadline (findings §4)
@@ -221,6 +235,7 @@ class PangramClient:
         model: str = DEFAULT_MODEL,
         session: requests.Session | None = None,
         http_timeout: float = DEFAULT_HTTP_TIMEOUT,
+        bulk_submit_timeout: float = DEFAULT_BULK_SUBMIT_TIMEOUT,
         overall_timeout: float = DEFAULT_OVERALL_TIMEOUT,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         max_retries: int = DEFAULT_MAX_RETRIES,
@@ -235,6 +250,7 @@ class PangramClient:
         self.model = model
         self.session = session or requests.Session()
         self.http_timeout = http_timeout
+        self.bulk_submit_timeout = bulk_submit_timeout
         self.overall_timeout = overall_timeout
         self.poll_interval = poll_interval
         self.bulk_overall_timeout = bulk_overall_timeout
@@ -259,6 +275,7 @@ class PangramClient:
             "POST",
             SUBMIT_URL,
             expected=_SUBMIT_OK,
+            idempotent=False,
             json={"text": text, "model": self.model, "public_dashboard_link": False},
         )
         self._last_submit_at = time.monotonic()
@@ -302,6 +319,8 @@ class PangramClient:
             "POST",
             BULK_SUBMIT_URL,
             expected=_SUBMIT_OK,
+            idempotent=False,
+            timeout=self.bulk_submit_timeout,
             json={
                 "items": [{"id": item_id, "text": text} for item_id, text in items.items()],
                 "model": self.model,
@@ -393,25 +412,54 @@ class PangramClient:
             time.sleep(wait)
 
     def _request(
-        self, method: str, url: str, *, expected: tuple[int, ...], **kwargs: Any
+        self,
+        method: str,
+        url: str,
+        *,
+        expected: tuple[int, ...],
+        idempotent: bool = True,
+        timeout: float | None = None,
+        **kwargs: Any,
     ) -> requests.Response:
         """Issue one HTTP request, retrying transient failures with backoff.
 
         Retries ``429`` and ``5xx`` responses and connection-level errors up to
         ``max_retries`` times, honouring a ``Retry-After`` header when present.
         Any other non-``expected`` status raises immediately (not retryable).
+
+        ``idempotent=False`` marks a request that creates billed work (the
+        ``/task`` and ``/bulk`` submits): it is retried only when the server
+        demonstrably did no work — an HTTP 429, or a connect-phase timeout
+        (the request was never sent). A read timeout, another connection
+        failure or a 5xx raises immediately, because the job may exist
+        server-side and a re-send would be billed again.
+
+        ``timeout`` overrides the per-request ``http_timeout`` for this call.
         """
         backoff = self.initial_backoff
         for attempt in range(self.max_retries + 1):
             try:
                 resp = self.session.request(
-                    method, url, headers=self._headers(), timeout=self.http_timeout, **kwargs
+                    method,
+                    url,
+                    headers=self._headers(),
+                    timeout=timeout if timeout is not None else self.http_timeout,
+                    **kwargs,
                 )
             except requests.RequestException as exc:
-                if attempt >= self.max_retries:
+                # ConnectTimeout means the connection was never established, so
+                # nothing reached the server; every other transport failure may
+                # have delivered the request.
+                may_retry = idempotent or isinstance(exc, requests.exceptions.ConnectTimeout)
+                if not may_retry or attempt >= self.max_retries:
                     raise PangramTransportError(
-                        f"{method} {self._safe_url(url)} failed after "
-                        f"{self.max_retries} retries: {type(exc).__name__}"
+                        f"{method} {self._safe_url(url)} failed"
+                        + (
+                            f" after {self.max_retries} retries"
+                            if may_retry
+                            else " (not retried: the submit may already have been accepted)"
+                        )
+                        + f": {type(exc).__name__}"
                     ) from exc
                 log.debug("connection error on attempt %d, backing off %.1fs", attempt, backoff)
                 time.sleep(backoff)
@@ -421,7 +469,7 @@ class PangramClient:
             if resp.status_code in expected:
                 return resp
 
-            retryable = resp.status_code == 429 or 500 <= resp.status_code < 600
+            retryable = resp.status_code == 429 or (idempotent and 500 <= resp.status_code < 600)
             if retryable and attempt < self.max_retries:
                 wait = self._retry_after(resp) or backoff
                 log.debug(

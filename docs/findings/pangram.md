@@ -218,8 +218,11 @@ keep a char guard too — see Decision inputs.)
 
 ## 4. Rate limits, pricing, batching
 
-- **Pricing (realtime / single-text):** **$0.05 per 1,000 words.**
-- **Pricing (bulk):** **$0.04 per 1,000 words** — a 20% discount.
+- **Pricing (realtime / single-text):** Pangram 3: **$0.05 per 1,000 words**
+  (the figure verified during this spike). Pangram 4 (scored by default from
+  app v1.4.0): **$0.05 per 100 words** — ten times the Pangram 3 rate.
+- **Pricing (bulk):** a **20% discount** off the realtime per-word price of
+  the selected generation (Pangram 4: $0.04 per 100 words).
 - **Billing model:** prepaid developer credits ($5–$2,000, optional auto-refill);
   billed per word, so short texts are cheap but the 50-word floor means a typical
   scored reply costs a fraction of a cent.
@@ -292,6 +295,13 @@ dashboard can distinguish "too short" from "scored".
 
 - Respect ~5 QPS on the realtime `/task` endpoint: a simple client-side limiter
   (≤ 5 in-flight per second) with exponential backoff on `429` and `5xx`.
+- **Do not auto-retry a submit the server may have received (added
+  2026-08-12):** `POST /bulk` and `POST /task` create billed work and are not
+  idempotent. A 1,000-item bulk submit took longer than the 10 s per-request
+  timeout to be accepted; the client's five automatic retries each created a
+  separate billed job (~270k words per job). From app v1.5.1 the client
+  retries a submit only on HTTP 429 or a connect-phase timeout, and the bulk
+  submit uses its own 120 s request timeout.
 - For catch-up / backfill runs over many messages, prefer the **Bulk API**
   (`/bulk`): 20% cheaper and designed for async fan-out. Use item `id` =
   `extractions.id` to reconcile results. For incremental day-to-day scoring of a
@@ -306,6 +316,6 @@ dashboard can distinguish "too short" from "scored".
   repeated quoted/boilerplate content).
 - Enforce the 50-word floor *before* any network call.
 - Honour the PLAN's `--limit N` per run and print a running word/call total and
-  estimated spend ($0.05/1k words realtime, $0.04/1k words bulk) at the end.
+  estimated spend at the selected generation's rate (see section 4) at the end.
 - Optionally cap per-text word count sent (very long threads cost proportionally
   more) — decide during Phase 4 once live windowing behaviour is confirmed.

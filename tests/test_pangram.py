@@ -50,9 +50,11 @@ class FakeSession:
     def __init__(self, script):
         self.script = list(script)
         self.calls = []
+        self.timeouts = []
 
     def request(self, method, url, headers=None, timeout=None, **kwargs):
         self.calls.append((method, url, kwargs))
+        self.timeouts.append(timeout)
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -227,39 +229,137 @@ def test_retry_after_header_respected(_no_sleep):
     assert 7.0 in _no_sleep
 
 
-def test_5xx_then_success(_no_sleep):
+def test_poll_5xx_then_success(_no_sleep):
+    # The status poll is idempotent, so a transient 5xx there is retried.
     client = _client(
         [
-            FakeResponse(503),
             FakeResponse(200, {"task_id": "t6"}),
+            FakeResponse(503),
             FakeResponse(200, SUCCESS_BODY),
         ]
     )
     assert client.predict("text").fraction_ai == 1.0
 
 
-def test_connection_error_then_success():
+def test_poll_connection_error_then_success():
     client = _client(
         [
-            requests.ConnectionError("boom"),
             FakeResponse(200, {"task_id": "t7"}),
+            requests.ConnectionError("boom"),
             FakeResponse(200, SUCCESS_BODY),
         ]
     )
     assert client.predict("text").prediction_short == "AI"
 
 
-def test_5xx_exhausts_retries():
-    client = _client([FakeResponse(500)] * 3, max_retries=2)
+def test_poll_5xx_exhausts_retries():
+    client = _client([FakeResponse(200, {"task_id": "t"})] + [FakeResponse(500)] * 3, max_retries=2)
     with pytest.raises(PangramTransportError) as exc:
         client.predict("text")
     assert exc.value.status_code == 500
 
 
-def test_connection_error_exhausts_retries():
-    client = _client([requests.ConnectionError("x")] * 3, max_retries=2)
+def test_poll_connection_error_exhausts_retries():
+    client = _client(
+        [FakeResponse(200, {"task_id": "t"})] + [requests.ConnectionError("x")] * 3,
+        max_retries=2,
+    )
     with pytest.raises(PangramTransportError):
         client.predict("text")
+
+
+# --- submit safety --------------------------------------------------------
+# The /task and /bulk submits create billed work, so they are never re-sent
+# when the server may already have received them: only a 429 response or a
+# connect-phase timeout is retried. See the 2026-08-12 incident in the module
+# docstring (a timed-out 1,000-item bulk submit, retried 5 times, likely
+# created one billed job per attempt).
+
+
+def test_task_submit_read_timeout_not_retried():
+    session = FakeSession([requests.ReadTimeout("slow accept")])
+    client = PangramClient("k", session=session, min_submit_interval=0)
+    with pytest.raises(PangramTransportError) as exc:
+        client.predict("text")
+    assert len(session.calls) == 1
+    assert "not retried" in str(exc.value)
+
+
+def test_task_submit_5xx_not_retried():
+    session = FakeSession([FakeResponse(502)])
+    client = PangramClient("k", session=session, min_submit_interval=0)
+    with pytest.raises(PangramTransportError) as exc:
+        client.predict("text")
+    assert exc.value.status_code == 502
+    assert len(session.calls) == 1
+
+
+def test_task_submit_connect_timeout_is_retried(_no_sleep):
+    # ConnectTimeout means the request never reached the server — safe to retry.
+    client = _client(
+        [
+            requests.ConnectTimeout("no route"),
+            FakeResponse(200, {"task_id": "t"}),
+            FakeResponse(200, SUCCESS_BODY),
+        ]
+    )
+    assert client.predict("text").prediction_short == "AI"
+
+
+def test_bulk_submit_read_timeout_not_retried():
+    session = FakeSession([requests.ReadTimeout("slow accept")])
+    client = PangramClient("k", session=session, min_submit_interval=0)
+    with pytest.raises(PangramTransportError) as exc:
+        client.predict_bulk({"e1": "text"})
+    assert len(session.calls) == 1
+    assert "not retried" in str(exc.value)
+
+
+def test_bulk_submit_connection_error_not_retried():
+    session = FakeSession([requests.ConnectionError("reset")])
+    client = PangramClient("k", session=session, min_submit_interval=0)
+    with pytest.raises(PangramTransportError):
+        client.predict_bulk({"e1": "text"})
+    assert len(session.calls) == 1
+
+
+def test_bulk_submit_5xx_not_retried():
+    session = FakeSession([FakeResponse(500)])
+    client = PangramClient("k", session=session, min_submit_interval=0)
+    with pytest.raises(PangramTransportError) as exc:
+        client.predict_bulk({"e1": "text"})
+    assert exc.value.status_code == 500
+    assert len(session.calls) == 1
+
+
+def test_bulk_submit_429_is_retried(_no_sleep):
+    client = _client(
+        [
+            FakeResponse(429),
+            FakeResponse(202, {"bulk_id": "b"}),
+            FakeResponse(200, {"status": "succeeded"}),
+            FakeResponse(200, {"items": [{"id": "e1", "result": SUCCESS_BODY}]}),
+        ]
+    )
+    outcome = client.predict_bulk({"e1": "text"})
+    assert outcome.results["e1"].prediction_short == "AI"
+
+
+def test_bulk_submit_uses_its_own_timeout():
+    # The submit uses bulk_submit_timeout; polls and results pages keep the
+    # ordinary per-request http_timeout.
+    session = FakeSession(
+        [
+            FakeResponse(202, {"bulk_id": "b"}),
+            FakeResponse(200, {"status": "succeeded"}),
+            FakeResponse(200, {"items": [{"id": "e1", "result": SUCCESS_BODY}]}),
+        ]
+    )
+    client = PangramClient(
+        "k", session=session, min_submit_interval=0, http_timeout=10.0, bulk_submit_timeout=120.0
+    )
+    client.predict_bulk({"e1": "text"})
+    assert session.timeouts == [120.0, 10.0, 10.0]
 
 
 # --- non-retryable / failure paths --------------------------------------------

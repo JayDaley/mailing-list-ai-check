@@ -37,6 +37,14 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.5.1] - 2026-08-13
+
+Summary: Stop the Pangram client from auto-retrying submit requests that may already have created a billed job.
+
+- Retry a `POST /task` or `POST /bulk` submit only on HTTP 429 or a connect-phase timeout; a read timeout, mid-request connection failure or 5xx response now raises immediately instead of re-sending a request the server may already have accepted (a retried bulk submit was observed creating one billed job per attempt).
+- Give the bulk submit its own request timeout (`bulk_submit_timeout`, default 120 s); accepting a 1,000-item job was measured taking longer than the 10 s general request timeout.
+- Update docs/findings/pangram.md: per-generation pricing in the rate-limits section (the previous figures were Pangram-3-era) and a note recording the duplicate-submission hazard.
+
 ## [1.5.0] - 2026-08-12
 
 Summary: Add Pangram Bulk API scoring, auto-generated-mail exclusion rules, and AI-share sorting for the lists index and senders table.
