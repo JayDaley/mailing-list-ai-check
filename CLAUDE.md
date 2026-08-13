@@ -83,13 +83,19 @@ The app uses [semantic versioning](https://semver.org/); the current version is
 (in `__init__.py`); `pyproject.toml` reads it dynamically, so the two never
 drift.
 
-Bump policy — ordinary semantic versioning, with no component reserved for any
-one subsystem:
+Bump policy — the component to bump is decided by whether the change affects
+the stored data, not by how large or how visible it is:
 
-- **major** — a breaking change.
-- **minor** — a new feature, or any other user-visible change, including a
-  raised Python floor.
-- **patch** — a bug fix, or an internal change with no user-visible effect.
+- **major** — never, at present. No condition currently bumps it.
+- **minor** — any change that affects the data: a schema migration, or any
+  other change to what is stored or to how a stored value is derived.
+- **patch** — every other change, however large. A new feature, an API or
+  dashboard change, a bug fix or an internal refactor is a patch when the data
+  in the database is unaffected.
+
+A migration is the clearest case of a minor bump, but not the only one: a
+change that alters what a pull stores, or the value written into an existing
+column, affects the data just as much without touching the schema.
 
 Extraction changes are not tied to the app version; they carry their own number
 (see "Extraction version" below).

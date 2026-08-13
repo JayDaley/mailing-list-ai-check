@@ -410,10 +410,13 @@ secrets out of commits:
 
 The app follows [semantic versioning](https://semver.org/); the current version
 lives in `mailing_list_ai_check.__version__` (`pyproject.toml` reads it
-dynamically). The major version is bumped for a breaking change, the minor
-version for a new feature or any other user-visible change (a raised Python floor
-included), and the patch version for a fix or an internal change. Each message
-records the app version that last processed it.
+dynamically). Which component is bumped depends on whether the change affects
+the stored data, not on how large the change is. The minor version is bumped for
+a change that affects the data — a schema migration, or any other change to what
+is stored or to how a stored value is derived. The patch version is bumped for
+every other change, a new feature and a dashboard change included, when the data
+in the database is unaffected. No condition currently bumps the major version.
+Each message records the app version that last processed it.
 
 The text-extraction routine carries a separate version number of its own,
 incremented whenever a change could alter its output; see "Re-processing text

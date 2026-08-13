@@ -53,10 +53,12 @@ The app uses [semantic versioning](https://semver.org/), starting at
 reads it dynamically (`dynamic = ["version"]` +
 `[tool.setuptools.dynamic]`), so the two can never drift.
 
-Bump policy (also recorded in `CLAUDE.md` and the README) is ordinary semantic
-versioning: **major** for a breaking change, **minor** for a feature or any
-other user-visible change, **patch** for a fix or an internal change. No
-component of the app version is reserved for extraction changes.
+Bump policy (also recorded in `CLAUDE.md` and the README) turns on whether a
+change affects the stored data: **minor** for a change that does — a schema
+migration, or any other change to what is stored or to how a stored value is
+derived — and **patch** for every other change, however large. No condition
+currently bumps the major version. No component of the app version is reserved
+for extraction changes.
 
 The routine that derives extracted text carries its own integer generation,
 `extraction.EXTRACTION_VERSION`, incremented by hand whenever a change to
