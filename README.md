@@ -1,14 +1,16 @@
 # mailing-list-ai-check
 
-A tool for checking mailing-list mail for AI-generated content. Works against
-any IMAP-accessible mailing-list archive. It pulls
-list mail over IMAP, extracts the new text each author actually wrote (stripping
-quotes and signatures), scores that text with the [Pangram](https://www.pangram.com/)
-AI-detection API, and presents the results in a searchable web dashboard.
+A tool for checking mailing-list mail for AI-generated content, against any
+IMAP-accessible mailing-list archive. The pipeline runs as three idempotent
+stages over a local SQLite database: **pull** (fetch messages over IMAP) →
+**extract** (isolate the new text each author wrote, stripping quotes and
+signatures) → **score** (a verdict from the [Pangram](https://www.pangram.com/)
+AI-detection API). A Flask + Vue web dashboard reads the results.
 
-The pipeline runs as three idempotent, re-runnable stages over a local SQLite
-database: **pull** (fetch messages) → **extract** (isolate each author's new
-text) → **score** (Pangram verdict). A Flask + Vue dashboard reads the results.
+![The dashboard with no filter applied](docs/images/dashboard.png)
+
+The dashboard is one screen: the messages pane across the top, the lists and
+senders panes below, and a message drawer over them.
 
 ### Limitations
 
@@ -21,10 +23,9 @@ text) → **score** (Pangram verdict). A Flask + Vue dashboard reads the results
 
 ## Requirements
 
-- Python ≥ 3.14. The export/import format is compressed with zstd, which entered
-  the standard library in 3.14 as `compression.zstd`; requiring that release
-  keeps compression a standard-library concern and adds no third-party
-  dependency. Earlier interpreters are not supported.
+- Python ≥ 3.14 — the release that added `compression.zstd`, which the
+  export/import format uses; the floor keeps compression a standard-library
+  concern with no third-party dependency.
 - Node.js (only to build the dashboard front end)
 
 ## Install
@@ -66,13 +67,12 @@ command: the schema is brought up to date automatically whenever the database is
 opened.
 
 Each schema change is one numbered SQL script in `store.py`, and the applied
-numbers are recorded in the database's own `schema_version` table. Opening the
-database compares the two and runs only the scripts that are missing, each
-committed in turn. Every entry point — the three pipeline commands, the export
-and import commands, and the web app (one connection per request) — opens the
-database the same way, so whichever runs first after an upgrade performs the
-migration before doing anything else. Re-running against an already-current
-database does nothing.
+numbers are recorded in the database's own `schema_version` table; opening the
+database runs the missing scripts, each committed in turn. Every entry point —
+the pipeline commands, export and import, and the web app (one connection per
+request) — opens the database the same way, so whichever runs first after an
+upgrade performs the migration. Re-running against an already-current database
+does nothing.
 
 Two consequences:
 
@@ -151,23 +151,26 @@ mail-ai-score --dry-run      # show what would be scored / gated / cached
 ```
 
 Requires `PANGRAM_API_KEY`. Extractions under 50 words are marked `too_short`
-and never sent. Identical text is served from the score cache without an API
-call. `--limit N` caps Pangram API calls per run (cache hits are free and
-uncapped) and **defaults to 10** to limit accidental spending — pass a larger
-value for production runs. Scoring uses the Pangram 4 detector by default,
-which costs roughly **$0.05 per 100 words** on realtime API calls (Pangram 3
-cost $0.05 per 1,000 words). `--bulk` submits the run's texts as a single
-Pangram Bulk API job instead of one realtime call per text: bulk words are
-billed at a 20% discount, identical cleaned text is submitted once with the
-verdict shared by every message carrying it, and `--limit` caps the texts
-submitted. Bulk suits large catch-up runs; for a handful of new messages the
-realtime default is simpler and faster. Texts a bulk job fails to score stay
-queued and are retried on the next run. The detector can be changed with `--model
-{pangram-4,default}` for one run (`default` routes to Pangram 3 until Pangram
-deprecates it), or persistently with the dashboard's "Use Pangram v3 (old)"
-header switch; the switch's setting applies to both the dashboard and the CLI.
-A database holding Pangram 3 verdicts shows a one-time notice in the dashboard
-offering to keep using v3 and to re-score the old verdicts.
+and never sent, and identical text is served from the score cache without an
+API call. `--limit N` caps API calls per run (cache hits are free and uncapped)
+and **defaults to 10** to limit accidental spending — pass a larger value for
+production runs. Scoring uses the Pangram 4 detector by default, at roughly
+**$0.05 per 100 words** on realtime calls (Pangram 3 cost $0.05 per 1,000
+words).
+
+`--bulk` submits the run's texts as one Pangram Bulk API job instead of one
+realtime call per text: bulk words are billed at a 20% discount, identical
+cleaned text is submitted once with the verdict shared by every message carrying
+it, and `--limit` caps the texts submitted. Bulk suits large catch-up runs; for
+a handful of new messages the realtime default is simpler and faster. Texts a
+bulk job fails to score stay queued and are retried on the next run.
+
+The detector can be changed for one run with `--model {pangram-4,default}`
+(`default` routes to Pangram 3 until Pangram deprecates it), or persistently
+with the dashboard's "Use Pangram v3 (old)" header switch, which applies to
+both the dashboard and the CLI. A database holding Pangram 3 verdicts shows a
+one-time dashboard notice offering to keep using v3 and to re-score the old
+verdicts.
 
 ### `mail-ai-web` — the dashboard
 
@@ -179,24 +182,58 @@ For a production view, build the front end (`make build`) first; `mail-ai-web`
 then serves `frontend/dist` directly. For front-end development, use the
 two-terminal workflow (see `make dev`).
 
-The dashboard shares a single filter bar (list, person/address, date range,
-Pangram label, likelihood range, free-text search) across every view, and that
-filter state lives in the URL query string — so every view is a shareable link.
+One filter — list, sender (person or address), date range, subject/text search,
+Pangram label, AI-score range and reply rate — drives all three panes at once,
+and the filter state lives in the URL query string, so any view of the data is a
+shareable link.
 
-- **Overview** — headline counts, score distribution, flagged-share-over-time
-  chart, and top flagged senders/lists; each element drills into the message
-  explorer with that filter applied.
-- **Messages** — a paginated, sortable table of messages under the current
-  filter; click a row for detail. The last column, Chars/min, carries the
-  reply-timing rate (see below), with a filter taking a minimum and/or a
-  maximum rate.
-- **Detail** — one message: metadata, the extracted new text highlighted within
-  the full body, the Pangram score/label with a raw-response toggle, and a link
-  to the thread.
-- **People** — group multiple email addresses into a single person, with
-  auto-suggested groupings (matching display names) and merge/detach controls,
-  so one contributor's mail is analyzed together.
-- **Lists** — per-list summary strips.
+- **Messages** (top) — a sortable, infinite-scrolling table of the messages under
+  the current filter, with the detection mix of that set beside the count and a
+  row of filter controls under the column headings. The last column, Chars/min,
+  carries the reply-timing rate (see below), filtered by a minimum and/or a
+  maximum rate. Clicking a row opens the message drawer.
+- **Lists** (lower left) — with no list in the filter, every list with its message
+  count and aggregate detection mix. "Add list" and each row's "Add" button run
+  the three pipeline stages from the dashboard ("Run process ($)"), so a list can
+  be pulled, extracted and scored without the CLI.
+- **Senders** (lower right) — one row per sender: a person (a group of linked
+  addresses) or a single unlinked address, searchable and sortable by volume or
+  AI share. The ⇄ control links addresses into one person, with groupings
+  suggested from matching display names, so one contributor's mail is analyzed
+  together.
+
+With a list in the filter, the lists pane becomes that list's statistics —
+message and scored counts, the detection mix, a bar per message over the last
+100, and a thread chart — and the senders pane narrows to the senders who posted
+to it.
+
+![The dashboard filtered to one list](docs/images/dashboard-list.png)
+
+With a sender in the filter, the senders pane becomes that sender's profile:
+posts, detection mix, and per-list activity with two rugs — the messages this
+sender's replies point at, and other senders' replies to this sender.
+
+![The dashboard filtered to one sender](docs/images/dashboard-sender.png)
+
+The message drawer, opened from any row and deep-linked at `/messages/<id>`,
+shows the message metadata and reply-timing band, the analysis card (the Pangram
+prediction, headline, detector version, and one row per scored window), and the
+text that was analyzed, numbered by line and marked with each window's extent.
+The ↑ and ↓ buttons step through the filtered result set without leaving the
+drawer.
+
+![The message drawer](docs/images/message-detail.png)
+
+"Show ignored" widens the text card from the analyzed text to the whole message,
+with everything extraction and post-processing removed — quoted passages,
+attribution lines, signatures — dimmed in place, which shows what the detector
+was and was not given.
+
+![The same message with "Show ignored" on](docs/images/message-ignored-text.png)
+
+The header holds the store's unfiltered totals, the "Use Pangram v3 (old)"
+detector switch, and an Anonymous toggle that hides the sender-identifying parts
+of the interface: the From column, the senders pane, and the sender filters.
 
 The ⓘ button beside the app name in the header opens a documentation panel: a
 file list on the left, the rendered Markdown on the right. It shows `README.md`,
@@ -227,9 +264,9 @@ The Chars/min column filters on the stored rate: the `cpm_min` and `cpm_max`
 query parameters are inclusive bounds in characters per minute, and either one
 excludes every message whose rate is not computable.
 
-From 100 characters per minute up, the Chars/min cell is tinted in ten steps of
-one purple, one step per hundred characters per minute (100–199 the lightest
-through 1000 and above the strongest); lower rates and empty cells are untinted.
+From 100 characters per minute up, the Chars/min cell is tinted in ten purple
+steps, one per hundred characters per minute; lower rates and empty cells are
+untinted.
 
 The signal is one-sided: a high rate shows the text was not composed within the
 interval, while a low rate shows nothing. It is not by itself evidence of AI
@@ -242,12 +279,12 @@ and import.
 ### Re-processing text derived by an older extraction routine
 
 The routine that derives an author's new text carries its own version number,
-separate from the app's. It is incremented whenever a change could alter the
-extracted text, the text sent to Pangram, or an extraction's status, and every
-extraction records the number of the routine that produced its text. An
-extraction recorded against a lower number may hold text the current routine
-would not produce. A release that does not change the routine leaves the number
-alone, so upgrading the app does not by itself make stored text out of date.
+separate from the app's, incremented whenever a change could alter the extracted
+text, the text sent to Pangram, or an extraction's status. Every extraction
+records the routine number that produced its text, so one recorded against a
+lower number may hold text the current routine would not produce. A release that
+does not change the routine leaves the number alone, so upgrading the app does
+not by itself make stored text out of date.
 
 The dashboard compares those numbers on load. When any extraction predates the
 running routine it opens a prompt reporting how many, and offers to identify the
@@ -260,7 +297,7 @@ affected messages:
   total, showing the character counts before and after and what moved (the
   extracted text, the text that gets scored, or the extraction status).
   Extractions that come out identical are stamped with the running routine's
-  number, which is what stops the same prompt appearing again.
+  number, so the prompt does not reappear for them.
 - **Run process ($)** re-extracts the listed messages and re-scores them. A
   message keeps its stored score unless the *scored* text changed, since only
   then was the verdict reached on text that no longer exists; each message that
@@ -376,15 +413,11 @@ lives in `mailing_list_ai_check.__version__` (`pyproject.toml` reads it
 dynamically). The major version is bumped for a breaking change, the minor
 version for a new feature or any other user-visible change (a raised Python floor
 included), and the patch version for a fix or an internal change. Each message
-records the app version that last processed it, and importing an export made by a
-later version refreshes that message's extraction and score data.
+records the app version that last processed it.
 
 The text-extraction routine carries a separate version number of its own,
-incremented whenever a change could alter the extracted text, the text sent to
-Pangram, or an extraction's status. It is what the dashboard compares to detect
-stored text derived by an older routine (see "Re-processing text derived by an
-older extraction routine"), so an app release that leaves the routine alone never
-marks stored text out of date.
+incremented whenever a change could alter its output; see "Re-processing text
+derived by an older extraction routine".
 
 ## License
 
