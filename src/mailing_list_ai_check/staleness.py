@@ -258,7 +258,7 @@ def diff(store: Store) -> DiffReport:
                 date=message.date,
                 subject=message.subject,
                 from_address=address.email if address else None,
-                from_display_name=address.display_name if address else None,
+                from_display_name=message.from_name or (address.display_name if address else None),
                 pipeline_version=extraction.pipeline_version,
                 extraction_version=extraction.extraction_version,
                 old_chars=len(extraction.extracted_text),

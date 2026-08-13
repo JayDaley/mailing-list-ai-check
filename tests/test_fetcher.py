@@ -19,6 +19,7 @@ from mailing_list_ai_check.fetcher import (
     resolve_folders,
     run_fetch,
     run_fetch_uids,
+    split_headers,
 )
 from mailing_list_ai_check.imap_client import ImapClient
 from mailing_list_ai_check.store import Store
@@ -397,6 +398,65 @@ def test_run_fetch_stores_messages_addresses_and_cursor():
     # address landed, normalized
     addr = store.upsert_address("user1@example.org")
     assert addr.email == "user1@example.org"
+    store.close()
+
+
+def test_split_headers_slices_at_the_blank_line():
+    assert split_headers(b"From: a\r\nTo: b\r\n\r\nbody\r\n") == b"From: a\r\nTo: b\r\n"
+    assert split_headers(b"From: a\nTo: b\n\nbody\n") == b"From: a\nTo: b\n"
+    # A header-only blob (no body at all) comes back whole.
+    assert split_headers(b"From: a\r\nTo: b\r\n") == b"From: a\r\nTo: b\r\n"
+
+
+def test_parse_message_keeps_headers_verbatim_and_reparseable():
+    raw = make_raw(
+        message_id="<hdr@example.org>",
+        from_header="=?utf-8?q?Andr=C3=A9?= <andre@example.org>",
+        subject="Hello",
+    )
+    parsed = parse_message(raw)
+    # Sliced out of the input, not re-serialized: a prefix of the raw bytes,
+    # with the encoded word still encoded.
+    assert raw.startswith(parsed.raw_headers)
+    assert b"=?utf-8?q?" in parsed.raw_headers
+    assert b"plain body" not in parsed.raw_headers
+    # Re-parsing the stored bytes reproduces what the fetch derived.
+    assert parse_header(parsed.raw_headers).from_name == parsed.from_name == "André"
+
+
+def test_run_fetch_stores_raw_headers():
+    fd = _folder({1: (datetime(2025, 1, 1), "a@example.org")})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    run_fetch(client, store, _request())
+    row = store.conn.execute("SELECT raw_headers FROM messages").fetchone()
+    assert isinstance(row["raw_headers"], bytes)
+    assert b"Message-ID:" in row["raw_headers"]
+    store.close()
+
+
+def test_run_fetch_stores_each_messages_own_from_name():
+    # A notification sender puts a different person's name in From on each
+    # message. The address row keeps the first name it was seen with; every
+    # message keeps the name its own header carried.
+    fd = FakeFolder(uidvalidity=1000, uidnext=999, exists=2)
+    for uid, name in ((1, "First Person"), (2, "Second Person")):
+        date = datetime(2025, 1, uid)
+        fd.messages[uid] = make_raw(
+            message_id=f"<{uid}@example.org>",
+            from_header=f"{name} <noreply@example.org>",
+            date=date.strftime("%a, %d %b %Y %H:%M:%S +0000"),
+        )
+        fd.dates[uid] = date
+        fd.froms[uid] = "noreply@example.org"
+
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    run_fetch(client, store, _request())
+
+    rows = store.conn.execute("SELECT from_name FROM messages ORDER BY uid").fetchall()
+    assert [r["from_name"] for r in rows] == ["First Person", "Second Person"]
+    assert store.upsert_address("noreply@example.org").display_name == "First Person"
     store.close()
 
 

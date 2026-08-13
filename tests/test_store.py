@@ -63,8 +63,8 @@ def test_migrations_are_idempotent(tmp_path):
             "v"
         ]
         row_count_after = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert version_before == version_after == 14
-    assert row_count_before == row_count_after == 14
+    assert version_before == version_after == 16
+    assert row_count_before == row_count_after == 16
 
 
 def test_reopening_database_is_a_noop(tmp_path):
@@ -76,7 +76,7 @@ def test_reopening_database_is_a_noop(tmp_path):
         rows = s.conn.execute("SELECT COUNT(*) AS c FROM lists").fetchone()["c"]
         version = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
     assert rows == 1
-    assert version == 14
+    assert version == 16
 
 
 def test_migration_013_undoes_the_003_rebadge(store):
@@ -131,6 +131,8 @@ def test_migration_013_undoes_the_003_rebadge(store):
     store.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
     store.conn.execute("DROP TABLE app_settings")
     store.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
+    store.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
+    store.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
     apply_migrations(store.conn)
     labels = [
         row["label"]
@@ -165,12 +167,14 @@ def test_migration_004_present_on_migrated_db(tmp_path):
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "raw_html" in cols
-    assert version == 14
+    assert version == 16
 
 
 def test_migration_005_adds_last_message_at_column(store):
@@ -197,12 +201,14 @@ def test_migration_005_present_on_migrated_db(tmp_path):
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(lists)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "last_message_at" in cols
-    assert version == 14
+    assert version == 16
 
 
 def test_migration_006_present_on_migrated_db(tmp_path):
@@ -223,6 +229,8 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
         s.conn.commit()
     with Store(db) as s:
         indexes = {
@@ -231,7 +239,7 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         }
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "idx_messages_message_id" in indexes
-    assert version == 14
+    assert version == 16
 
 
 def test_expected_indexes_exist(store):
@@ -553,6 +561,87 @@ def test_upsert_message_conflict_leaves_raw_html_untouched(store):
     second = _add_message(store, lst.id, addr.id, message_id="<h@x>", raw_html="<p>second</p>")
     assert second.inserted is False
     assert store.get_message(second.message.id).raw_html == "<p>first</p>"
+
+
+def test_upsert_message_stores_its_own_from_name(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org", "Alice")
+    up = _add_message(store, lst.id, addr.id, message_id="<n@x>", from_name="Alice Smith")
+    assert store.get_message(up.message.id).from_name == "Alice Smith"
+
+
+def test_from_name_is_per_message_not_per_address(store):
+    # The regression this column exists for: one address presenting a different
+    # name on each message (a notification sender such as noreply@github.com).
+    # The address keeps the first name it was seen with; each message keeps its own.
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("noreply@github.com", "First Person")
+    store.upsert_address("noreply@github.com", "Second Person")
+
+    _add_message(store, lst.id, addr.id, message_id="<g1@x>", uid=1, from_name="First Person")
+    _add_message(store, lst.id, addr.id, message_id="<g2@x>", uid=2, from_name="Second Person")
+
+    assert store.get_address(addr.id).display_name == "First Person"
+    rows = store.conn.execute("SELECT from_name FROM messages ORDER BY uid").fetchall()
+    assert [r["from_name"] for r in rows] == ["First Person", "Second Person"]
+
+
+def test_upsert_message_conflict_leaves_from_name_untouched(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    _add_message(store, lst.id, addr.id, message_id="<n@x>", from_name="Original")
+    second = _add_message(store, lst.id, addr.id, message_id="<n@x>", from_name="Replacement")
+    assert second.inserted is False
+    assert store.get_message(second.message.id).from_name == "Original"
+
+
+def test_upsert_message_from_name_defaults_to_null(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    up = _add_message(store, lst.id, addr.id, message_id="<n@x>")
+    assert store.get_message(up.message.id).from_name is None
+
+
+def test_upsert_message_stores_raw_headers_as_bytes(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    up = _add_message(store, lst.id, addr.id, message_id="<h@x>", raw_headers=b"From: a@x.org\r\n")
+    assert store.get_message(up.message.id).raw_headers == b"From: a@x.org\r\n"
+
+
+def test_set_message_headers_fills_only_a_null_from_name(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    blank = _add_message(store, lst.id, addr.id, message_id="<b@x>", uid=1)
+    named = _add_message(store, lst.id, addr.id, message_id="<n@x>", uid=2, from_name="Kept")
+
+    store.set_message_headers(blank.message.id, b"From: X <a@x.org>\r\n", from_name="Recovered")
+    store.set_message_headers(named.message.id, b"From: Y <a@x.org>\r\n", from_name="Ignored")
+
+    assert store.get_message(blank.message.id).from_name == "Recovered"
+    assert store.get_message(named.message.id).from_name == "Kept"
+    # Headers are written in both cases; raw_body is never touched.
+    assert store.get_message(named.message.id).raw_headers == b"From: Y <a@x.org>\r\n"
+    assert store.get_message(named.message.id).raw_body == "body"
+
+
+def test_iter_messages_missing_headers_skips_the_tombstone(store):
+    # A message the server returned no headers for is stamped b"" so a capped
+    # backfill run drains its queue instead of re-fetching it forever.
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    pending = _add_message(store, lst.id, addr.id, message_id="<p@x>", uid=1)
+    tombstoned = _add_message(store, lst.id, addr.id, message_id="<t@x>", uid=2)
+    store.set_message_headers(tombstoned.message.id, b"")
+
+    assert [m.id for m in store.iter_messages_missing_headers(lst.id)] == [pending.message.id]
+
+
+def test_iter_messages_missing_headers_needs_a_uid(store):
+    lst = store.upsert_list("announce", "Shared Folders/announce")
+    addr = store.upsert_address("a@x.org")
+    _add_message(store, lst.id, addr.id, message_id="<u@x>", uid=None)
+    assert list(store.iter_messages_missing_headers(lst.id)) == []
 
 
 def test_set_message_raw_html_backfills_without_touching_body(store):
@@ -906,12 +995,14 @@ def test_migration_007_present_on_migrated_db(tmp_path):
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
         s.conn.commit()
     with Store(db) as s:
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "pipeline_version" in cols
-    assert version == 14
+    assert version == 16
 
 
 def test_message_pipeline_version_roundtrips(store):
@@ -1062,6 +1153,8 @@ def _rewound_to_pre_011(db):
         s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
         s.conn.execute("DROP TABLE app_settings")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
+        s.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
         s.conn.commit()
 
 

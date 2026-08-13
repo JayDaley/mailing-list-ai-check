@@ -85,11 +85,41 @@ def test_messages_default(client):
     assert len(body["messages"]) == 15
 
 
+def test_message_from_name_overrides_the_address_name(db_path, client):
+    # A message whose header carried its own display name reports that name, in
+    # the list row and in the detail, rather than the address's stored one.
+    with Store(db_path) as store:
+        lst = store.upsert_list("announce", "Shared Folders/announce")
+        addr = store.upsert_address("alice@example.org")
+        up = store.upsert_message(
+            message_id="<own-name@test>",
+            list_id=lst.id,
+            address_id=addr.id,
+            subject="Notification",
+            date="2026-04-01T10:00:00",
+            in_reply_to=None,
+            raw_body="body",
+            uid=901,
+            from_name="Someone Else",
+        )
+
+    row = next(
+        m
+        for m in client.get("/api/messages?q=Notification").get_json()["messages"]
+        if m["message_id"] == "<own-name@test>"
+    )
+    assert row["from"] == {"address": "alice@example.org", "display_name": "Someone Else"}
+
+    detail = client.get(f"/api/messages/{up.message.id}").get_json()
+    assert detail["from"] == {"address": "alice@example.org", "display_name": "Someone Else"}
+
+
 def test_message_row_shape(client):
     body = client.get("/api/messages?list=announce&label=AI").get_json()
     assert body["total"] == 1
     row = body["messages"][0]
     assert row["message_id"] == "<m1@test>"
+    # Seeded rows carry no per-message from_name, so the address name is served.
     assert row["from"] == {"address": "alice@example.org", "display_name": "Alice Smith"}
     assert row["person"]["name"] == "Alice Smith"
     assert row["extraction"] == {

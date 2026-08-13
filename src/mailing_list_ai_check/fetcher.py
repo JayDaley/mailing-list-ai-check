@@ -107,6 +107,9 @@ class ParsedMessage:
     mark it machine-generated (see
     :func:`~mailing_list_ai_check.autogen.classify_message`), ``None`` for
     human mail.
+
+    ``raw_headers`` is the message's verbatim header block, sliced out of the
+    same bytes every other field was parsed from (see :func:`split_headers`).
     """
 
     message_id: str
@@ -119,6 +122,7 @@ class ParsedMessage:
     html_only: bool
     html_body: str | None = None
     auto_generated: str | None = None
+    raw_headers: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -212,12 +216,31 @@ def _date_header_to_iso(msg: EmailMessage) -> str | None:
     return dt.astimezone(UTC).isoformat()
 
 
+def split_headers(raw: bytes) -> bytes:
+    """Return the verbatim header block of ``raw``, without the blank separator.
+
+    The bytes are sliced, never re-serialized, so what is stored is exactly what
+    the server sent — folding, RFC 2047 encoded words and any raw 8-bit octets
+    intact — and re-parsing it reproduces the same headers this module parsed.
+    Accepts a full message or a header-only FETCH blob (which the server ends
+    with the same blank line). Bodyless input is returned whole.
+    """
+    crlf = raw.find(b"\r\n\r\n")
+    lf = raw.find(b"\n\n")
+    if crlf != -1 and (lf == -1 or crlf <= lf):
+        return raw[: crlf + 2]
+    if lf != -1:
+        return raw[: lf + 1]
+    return raw
+
+
 def parse_message(raw: bytes, *, uid: int | None = None, folder: str = "") -> ParsedMessage:
     """Parse raw RFC 5322 bytes into a :class:`ParsedMessage`.
 
     ``policy=default`` decodes RFC 2047 words in headers. The ``From`` address is
     lowercased and stripped; a missing ``Message-ID`` is synthesized from the UID
-    so the row still has a stable dedupe key.
+    so the row still has a stable dedupe key. The header block is carried through
+    verbatim so every header-derived field can be recomputed without a re-fetch.
     """
     msg = email.message_from_bytes(raw, policy=policy.default)
 
@@ -242,6 +265,7 @@ def parse_message(raw: bytes, *, uid: int | None = None, folder: str = "") -> Pa
         html_only=html_only,
         html_body=html_body,
         auto_generated=classify_message(msg),
+        raw_headers=split_headers(raw),
     )
 
 
@@ -526,6 +550,8 @@ def _fetch_folder(
             uid=uid,
             raw_html=parsed.html_body,
             auto_generated=parsed.auto_generated,
+            from_name=parsed.from_name,
+            raw_headers=parsed.raw_headers,
         )
         if result.inserted:
             summary.fetched += 1

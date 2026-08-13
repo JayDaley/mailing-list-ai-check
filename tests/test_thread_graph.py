@@ -292,6 +292,7 @@ def test_messages_carry_sender_and_prediction_fields(fixture):
         "timing_cpm",
         "parent_id",
     }
+    # No per-message from_name on the fixture rows, so the address name is served.
     assert (root1["from_name"], root1["from_email"]) == ("Alice", "alice@example.org")
     # label and prediction_short are the same stored value, served verbatim.
     assert (flat["<root2@test>"]["label"], flat["<root2@test>"]["prediction_short"]) == (
@@ -301,6 +302,17 @@ def test_messages_carry_sender_and_prediction_fields(fixture):
     # An unscored message still appears, with no label or bucket.
     assert flat["<solo@test>"]["label"] is None
     assert flat["<solo@test>"]["prediction_short"] is None
+
+
+def test_thread_graph_prefers_the_messages_own_from_name(fixture):
+    store = fixture["store"]
+    store.conn.execute(
+        "UPDATE messages SET from_name = ? WHERE id = ?",
+        ("Someone Else", fixture["ids"]["root1"]),
+    )
+    store.conn.commit()
+    root1 = _flat(store.thread_graph(fixture["alpha"]))["<root1@test>"]
+    assert (root1["from_name"], root1["from_email"]) == ("Someone Else", "alice@example.org")
 
 
 def test_messages_carry_the_stored_writing_rate(store):

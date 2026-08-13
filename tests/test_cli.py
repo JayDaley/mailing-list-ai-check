@@ -8,6 +8,7 @@ import pytest
 from conftest import FakeFolder, FakeImapConn, make_raw
 
 from mailing_list_ai_check import cli
+from mailing_list_ai_check.fetcher import parse_header
 from mailing_list_ai_check.imap_client import ImapClient
 from mailing_list_ai_check.store import Store
 
@@ -230,6 +231,132 @@ def test_backfill_html_tombstones_html_less_messages(monkeypatch, tmp_path):
         rows = store.conn.execute("SELECT raw_html, raw_body FROM messages").fetchall()
         assert all(r["raw_html"] == "" for r in rows)
         assert all(r["raw_body"] == "the plain body" for r in rows)  # seeded body untouched
+
+
+# --- --backfill-headers -------------------------------------------------------
+
+
+def _named_folder(names, uidvalidity=1000):
+    """A folder whose messages all share one address but differ in From name."""
+    fd = FakeFolder(uidvalidity=uidvalidity, uidnext=len(names) + 1, exists=len(names))
+    for uid, display in names.items():
+        fd.messages[uid] = make_raw(
+            message_id=f"<bf{uid}@x>",
+            from_header=f"{display} <noreply@example.org>",
+            plain="the plain body",
+        )
+        fd.dates[uid] = datetime(2025, 1, 1)
+        fd.froms[uid] = "noreply@example.org"
+    return fd
+
+
+def test_backfill_headers_stores_headers_and_recovers_names(monkeypatch, tmp_path):
+    # The whole point of the mode: rows pulled before the columns existed get
+    # their verbatim headers, and each recovers the name its own header carried
+    # rather than inheriting the address's first-seen one.
+    db = tmp_path / "hdr.db"
+    with Store(db) as store:
+        lst = store.upsert_list("announce", "Shared Folders/announce")
+        addr = store.upsert_address("noreply@example.org", "First Person")
+        _seed_missing_html(store, lst.id, addr.id, [1, 2, 3])
+
+    names = {1: "First Person", 2: "Second Person", 3: "Third Person"}
+    _install_fake(monkeypatch, {"Shared Folders/announce": _named_folder(names)})
+    assert cli.main(["announce", "--backfill-headers", "--db", str(db)]) == 0
+
+    with Store(db) as store:
+        rows = store.conn.execute(
+            "SELECT uid, from_name, raw_headers FROM messages ORDER BY uid"
+        ).fetchall()
+        assert [r["from_name"] for r in rows] == list(names.values())
+        # Stored verbatim as bytes, and re-parseable back to the same name.
+        for row in rows:
+            assert isinstance(row["raw_headers"], bytes)
+            assert b"From:" in row["raw_headers"]
+            assert parse_header(row["raw_headers"]).from_name == row["from_name"]
+        # The address keeps the name it was first seen with; queue is drained.
+        assert store.get_address(1).display_name == "First Person"
+        assert list(store.iter_messages_missing_headers(1)) == []
+
+
+def test_backfill_headers_keeps_a_name_captured_at_fetch_time(monkeypatch, tmp_path):
+    # from_name already set (pulled after migration 015) is authoritative: the
+    # backfill adds headers but must not overwrite it.
+    db = tmp_path / "keep.db"
+    with Store(db) as store:
+        lst = store.upsert_list("announce", "Shared Folders/announce")
+        addr = store.upsert_address("noreply@example.org", "A")
+        store.upsert_message(
+            message_id="<bf1@x>",
+            list_id=lst.id,
+            address_id=addr.id,
+            subject="s",
+            date="2026-07-01T00:00:00+00:00",
+            in_reply_to=None,
+            raw_body="the plain body",
+            uid=1,
+            from_name="Captured At Fetch",
+        )
+        store.set_pull_state(lst.id, 1000, 1)
+
+    _install_fake(monkeypatch, {"Shared Folders/announce": _named_folder({1: "From The Header"})})
+    assert cli.main(["announce", "--backfill-headers", "--db", str(db)]) == 0
+
+    with Store(db) as store:
+        row = store.conn.execute("SELECT from_name, raw_headers FROM messages").fetchone()
+        assert row["from_name"] == "Captured At Fetch"
+        assert b"From The Header" in row["raw_headers"]
+
+
+def test_backfill_headers_default_cap_is_ten(monkeypatch, tmp_path):
+    db = tmp_path / "hdrcap.db"
+    with Store(db) as store:
+        lst = store.upsert_list("announce", "Shared Folders/announce")
+        addr = store.upsert_address("noreply@example.org", "A")
+        _seed_missing_html(store, lst.id, addr.id, list(range(1, 13)))  # 12 pending
+
+    names = {uid: f"Person {uid}" for uid in range(1, 13)}
+    _install_fake(monkeypatch, {"Shared Folders/announce": _named_folder(names)})
+    assert cli.main(["announce", "--backfill-headers", "--db", str(db)]) == 0
+
+    with Store(db) as store:
+        filled = store.conn.execute(
+            "SELECT COUNT(*) AS c FROM messages WHERE raw_headers IS NOT NULL"
+        ).fetchone()["c"]
+        assert filled == 10  # the CLAUDE.md testing cap
+        assert len(list(store.iter_messages_missing_headers(1))) == 2
+
+
+def test_backfill_headers_skips_on_uidvalidity_mismatch(monkeypatch, tmp_path):
+    db = tmp_path / "hdrmismatch.db"
+    with Store(db) as store:
+        lst = store.upsert_list("announce", "Shared Folders/announce")
+        addr = store.upsert_address("noreply@example.org", "A")
+        _seed_missing_html(store, lst.id, addr.id, [1, 2], uidvalidity=999)
+
+    _install_fake(
+        monkeypatch,
+        {"Shared Folders/announce": _named_folder({1: "A", 2: "B"}, uidvalidity=1000)},
+    )
+    assert cli.main(["announce", "--backfill-headers", "--db", str(db)]) == 0
+
+    with Store(db) as store:
+        filled = store.conn.execute(
+            "SELECT COUNT(*) AS c FROM messages WHERE raw_headers IS NOT NULL"
+        ).fetchone()["c"]
+        assert filled == 0
+
+
+def test_backfill_headers_rejects_depth_mode():
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["announce", "--backfill-headers", "--count", "5"])
+    assert exc.value.code == 2
+
+
+def test_backfill_modes_are_mutually_exclusive():
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["announce", "--backfill-html", "--backfill-headers"])
+    assert exc.value.code == 2
 
 
 def test_main_limit_caps_fetch(monkeypatch, tmp_path):

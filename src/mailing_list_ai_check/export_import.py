@@ -43,6 +43,7 @@ no-op.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from collections.abc import Sequence
@@ -72,7 +73,9 @@ log = logging.getLogger("mailing_list_ai_check.export_import")
 #:
 #: Version 2 is extended additively rather than bumped: the extraction generation
 #: (``extraction_version``, in the header and on each embedded extraction) was
-#: added to it in place. A bump would have rejected every file already written,
+#: added to it in place, and later the per-message ``from_name`` and
+#: ``raw_headers_b64`` (base64, since the header block is bytes) alongside it.
+#: A bump would have rejected every file already written,
 #: and nothing needs rejecting in either direction. New code reading an old file
 #: finds the key absent and falls back to inference from ``pipeline_version``
 #: (see :func:`~.store.extraction_version_for_app_version`); old code reading a
@@ -176,6 +179,22 @@ class ImportSummary:
 def _utcnow_iso() -> str:
     """Current time as a UTC ISO-8601 string (second precision)."""
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _decode_raw_headers(record: dict[str, Any], lineno: int) -> bytes | None:
+    """Decode a message record's ``raw_headers_b64`` field, or ``None`` if absent.
+
+    Absent in every file written before the field existed, and in new files for
+    a message whose headers were never captured. Raises
+    :class:`ExportImportError` rather than importing a corrupt header block.
+    """
+    encoded = record.get("raw_headers_b64")
+    if encoded is None:
+        return None
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise ExportImportError(f"line {lineno}: raw_headers_b64 is not valid base64") from exc
 
 
 def _text_pointer(extracted_text: str, raw_body: str | None) -> dict[str, Any]:
@@ -484,6 +503,15 @@ def export_lists(
                         "folder": lst["folder"],
                         "message_id": m["message_id"],
                         "email": email,
+                        "from_name": m["from_name"],
+                        # Bytes, so base64 in a JSON Lines file. Absent (not
+                        # null) when the row has no headers, keeping the line
+                        # identical to one an older export would have written.
+                        **(
+                            {"raw_headers_b64": base64.b64encode(m["raw_headers"]).decode("ascii")}
+                            if m["raw_headers"] is not None
+                            else {}
+                        ),
                         "subject": m["subject"],
                         "date": m["date"],
                         "in_reply_to": m["in_reply_to"],
@@ -727,8 +755,8 @@ class _Importer:
         cur = self.conn.execute(
             "INSERT INTO messages("
             "message_id, list_id, address_id, subject, date, in_reply_to, raw_body, uid, "
-            "fetched_at, raw_html, pipeline_version, auto_generated"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "fetched_at, raw_html, pipeline_version, auto_generated, from_name, raw_headers"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(list_id, message_id) DO NOTHING",
             (
                 record["message_id"],
@@ -744,6 +772,8 @@ class _Importer:
                 record.get("pipeline_version"),
                 # Absent in files written before the field existed → NULL.
                 record.get("auto_generated"),
+                record.get("from_name"),
+                _decode_raw_headers(record, lineno),
             ),
         )
 

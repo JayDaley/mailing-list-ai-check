@@ -396,7 +396,13 @@ def _serialize_message_row(row: dict[str, Any]) -> dict[str, Any]:
         "timing": row["timing"],
         "timing_cpm": round(timing_cpm, 1) if timing_cpm is not None else None,
         "auto_generated": row["auto_generated"],
-        "from": {"address": row["from_address"], "display_name": row["from_display_name"]},
+        # The message's own From name wins; the per-address name is the fallback
+        # for rows fetched before migration 015 stored it (and for headers that
+        # carried no display name at all).
+        "from": {
+            "address": row["from_address"],
+            "display_name": row["from_name"] or row["from_display_name"],
+        },
         "person": person,
         "extraction": extraction,
         "score": score,
@@ -571,7 +577,8 @@ def message_detail(message_id: int) -> Any:
             "raw_body": msg.raw_body,
             "from": {
                 "address": address.email if address else None,
-                "display_name": address.display_name if address else None,
+                # As in the list rows: this message's own name, else the address's.
+                "display_name": msg.from_name or (address.display_name if address else None),
             },
             "person": person,
             "extraction": extraction_json,

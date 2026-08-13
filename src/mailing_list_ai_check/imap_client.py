@@ -264,6 +264,20 @@ class ImapClient:
             uids, "(UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])", batch_size
         )
 
+    def fetch_full_headers(
+        self, uids: Sequence[int], *, batch_size: int = DEFAULT_BATCH_SIZE
+    ) -> Iterator[tuple[int | None, bytes]]:
+        """Yield ``(uid, raw_header_block)`` for ``uids`` — every header, batched.
+
+        Uses ``(UID BODY.PEEK[HEADER])``, which transfers the whole header block
+        rather than the three fields :meth:`fetch_headers` names. Still far
+        cheaper than :meth:`fetch_bodies`, and it is what the
+        ``--backfill-headers`` pull mode stores, since the point of that column
+        is to hold every header, not a chosen few. ``PEEK`` leaves ``\\Seen``
+        untouched and responses are matched exactly as in :meth:`fetch_bodies`.
+        """
+        yield from self._fetch(uids, "(UID BODY.PEEK[HEADER])", batch_size)
+
     # -- lifecycle ------------------------------------------------------------
 
     def close(self) -> None:

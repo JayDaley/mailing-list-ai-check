@@ -337,6 +337,35 @@ _MIGRATION_014 = """
 ALTER TABLE messages ADD COLUMN auto_generated TEXT;
 """
 
+# The message's own From display name, as parsed from its header. Before this
+# column the name was kept only on the address row, which is keyed on the email
+# alone and backfills once (see Store.upsert_address), so the first name ever
+# seen for an address was shown for every later message from it. That is wrong
+# for any sender whose display name varies per message — notification senders
+# such as noreply@github.com, which put the acting person's name in From, are
+# the clearest case. NULL for rows fetched before the column existed; readers
+# fall back to the address name for those. Headers are not stored, so existing
+# rows cannot be backfilled locally — only a re-pull recovers their names.
+_MIGRATION_015 = """
+ALTER TABLE messages ADD COLUMN from_name TEXT;
+"""
+
+# The message's verbatim header block, exactly as the server sent it. Stored so
+# that anything derived from a header can be re-derived locally, without an IMAP
+# re-fetch: the From display name (migration 015), the auto-generated
+# classification (migration 014, whose note that "headers are not stored, so they
+# cannot be reclassified locally" this column is what lifts), and whatever a
+# later rule needs. A BLOB rather than TEXT because the value's purpose is to be
+# re-parsed byte-for-byte by the stdlib email parser, which takes bytes; deciding
+# a decoding here would be a lossy guess at a header that may carry raw 8-bit
+# octets. Three-state exactly like raw_html: NULL means never captured (the
+# backfill queue), non-empty is the header block, and b'' is the tombstone for a
+# message the backfill fetched and got nothing for, which keeps a capped run
+# moving. NULL for every row fetched before this column existed.
+_MIGRATION_016 = """
+ALTER TABLE messages ADD COLUMN raw_headers BLOB;
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
@@ -352,6 +381,8 @@ MIGRATIONS: list[tuple[int, str]] = [
     (12, _MIGRATION_012),
     (13, _MIGRATION_013),
     (14, _MIGRATION_014),
+    (15, _MIGRATION_015),
+    (16, _MIGRATION_016),
 ]
 
 #: The migrations whose backfill runs in Python (see :meth:`Store.__init__`).
@@ -522,6 +553,16 @@ class Message:
     ``auto_generated`` is the fetch-time classification reason when the
     message is machine-generated (see :mod:`~mailing_list_ai_check.autogen`),
     NULL for human mail and for rows fetched before migration 014.
+
+    ``from_name`` is this message's own ``From`` display name (NULL when the
+    header carried none, and for rows fetched before migration 015). The
+    address row's ``display_name`` is the per-address fallback, so a sender
+    whose name varies per message is reported correctly per message.
+
+    ``raw_headers`` is the verbatim header block as bytes (NULL for rows
+    fetched before migration 016 and not yet backfilled, ``b""`` for a
+    backfilled message the server returned no headers for). It is the
+    provenance every header-derived field can be recomputed from locally.
     """
 
     id: int
@@ -538,6 +579,8 @@ class Message:
     pipeline_version: str | None = None
     timing: str | None = None
     auto_generated: str | None = None
+    from_name: str | None = None
+    raw_headers: bytes | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Message":
@@ -556,6 +599,8 @@ class Message:
             pipeline_version=row["pipeline_version"],
             timing=row["timing"],
             auto_generated=row["auto_generated"],
+            from_name=row["from_name"],
+            raw_headers=row["raw_headers"],
         )
 
 
@@ -815,6 +860,7 @@ _MESSAGE_COLUMNS = """
     m.auto_generated AS auto_generated,
     m.list_id AS list_id,
     a.email AS from_address,
+    m.from_name AS from_name,
     a.display_name AS from_display_name,
     a.person_id AS person_id,
     p.canonical_name AS person_name,
@@ -1231,25 +1277,31 @@ class Store:
         raw_html: str | None = None,
         pipeline_version: str | None = None,
         auto_generated: str | None = None,
+        from_name: str | None = None,
+        raw_headers: bytes | None = None,
     ) -> MessageUpsert:
         """Insert a message, deduping on ``(list_id, message_id)``.
 
         Idempotent: a re-pull of the same message is a no-op that returns the
         existing row with ``inserted=False`` (``raw_html``,
-        ``pipeline_version`` and ``auto_generated`` are stored only on insert;
-        a conflicting existing row is left exactly as-is). New rows return
-        ``inserted=True``.
+        ``pipeline_version``, ``auto_generated``, ``from_name`` and
+        ``raw_headers`` are stored only on insert; a conflicting existing row is
+        left exactly as-is). New rows return ``inserted=True``.
 
         ``pipeline_version`` defaults to the current package version
         (:data:`__version__`); tests may pass an explicit value.
         ``auto_generated`` is the fetch-time classification reason (see
         :mod:`~mailing_list_ai_check.autogen`), or ``None`` for human mail.
+        ``from_name`` is the message's own ``From`` display name, kept per
+        message because one address can present different names.
+        ``raw_headers`` is the verbatim header block those header-derived
+        fields were computed from.
         """
         cur = self.conn.execute(
             "INSERT INTO messages("
             "message_id, list_id, address_id, subject, date, in_reply_to, raw_body, uid, "
-            "fetched_at, raw_html, pipeline_version, auto_generated"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "fetched_at, raw_html, pipeline_version, auto_generated, from_name, raw_headers"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(list_id, message_id) DO NOTHING",
             (
                 message_id,
@@ -1264,6 +1316,8 @@ class Store:
                 raw_html,
                 pipeline_version if pipeline_version is not None else __version__,
                 auto_generated,
+                from_name,
+                raw_headers,
             ),
         )
         self.conn.commit()
@@ -1340,6 +1394,46 @@ class Store:
         rows = self.conn.execute(
             "SELECT * FROM messages "
             "WHERE list_id = ? AND raw_html IS NULL AND uid IS NOT NULL "
+            "ORDER BY uid",
+            (list_id,),
+        ).fetchall()
+        for row in rows:
+            yield Message.from_row(row)
+
+    def set_message_headers(
+        self, message_pk: int, raw_headers: bytes, *, from_name: str | None = None
+    ) -> None:
+        """Store the verbatim header block for an already-stored message.
+
+        Used by the ``--backfill-headers`` pull mode to fill ``raw_headers`` for
+        rows fetched before the column existed. ``from_name`` is the display name
+        re-derived from those headers; it is written only where the column is
+        still NULL, so a name already captured at fetch time is never overwritten
+        by a later re-parse. Every other field, ``raw_body`` included, is left
+        untouched — the backfill adds provenance, it does not rewrite history.
+
+        ``raw_headers`` is three-state as described on migration 016: pass
+        ``b""`` to tombstone a message the server returned no headers for, so
+        :meth:`iter_messages_missing_headers` stops offering it and a capped run
+        keeps making forward progress.
+        """
+        self.conn.execute(
+            "UPDATE messages SET raw_headers = ?, from_name = COALESCE(from_name, ?) WHERE id = ?",
+            (raw_headers, from_name, message_pk),
+        )
+        self.conn.commit()
+
+    def iter_messages_missing_headers(self, list_id: int) -> Iterator[Message]:
+        """Yield the list's messages that still need a header backfill, by UID.
+
+        A message qualifies when ``raw_headers IS NULL`` and it has a UID (so it
+        can be re-fetched). Ordered by ``uid``, so a capped run makes
+        deterministic forward progress across runs; tombstoned rows (``b""``)
+        are excluded, exactly as in :meth:`iter_messages_missing_html`.
+        """
+        rows = self.conn.execute(
+            "SELECT * FROM messages "
+            "WHERE list_id = ? AND raw_headers IS NULL AND uid IS NOT NULL "
             "ORDER BY uid",
             (list_id,),
         ).fetchall()
@@ -2555,7 +2649,9 @@ class Store:
         rows = self.conn.execute(
             "SELECT m.id AS id, m.message_id AS message_id, m.uid AS uid, "
             "m.date AS date, m.subject AS subject, m.in_reply_to AS in_reply_to, "
-            "a.display_name AS from_name, a.email AS from_email, "
+            # The message's own name, else the address's — as the message list
+            # and detail do, so one sender reads the same on every surface.
+            "COALESCE(m.from_name, a.display_name) AS from_name, a.email AS from_email, "
             "e.status AS extraction_status, s.label AS label, "
             "s.label AS prediction_short, "
             "m.timing_cpm AS timing_cpm "

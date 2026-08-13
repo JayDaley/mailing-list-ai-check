@@ -88,6 +88,12 @@ def _build_source(store: Store) -> None:
         uid=101,
         fetched_at="2026-01-06T00:00:00+00:00",
         raw_html="<p>whole</p>",
+        # Deliberately not the address's "Alice Smith": the per-message name is
+        # carried by the file in its own right.
+        from_name="Alice A. Smith",
+        # Bytes, and deliberately non-UTF-8 (a raw 8-bit octet in a header), so
+        # the round-trip proves base64 rather than a lossy text encoding.
+        raw_headers=b"From: Alice A. Smith <alice@example.org>\r\nX-Odd: \xff\xfe\r\n",
     ).message
     e1 = store.insert_extraction(
         message_id=m1.id,
@@ -305,7 +311,8 @@ def _messages_by_key(store: Store) -> dict[tuple[str, str], dict]:
         "SELECT l.folder AS folder, m.message_id AS message_id, m.subject AS subject, "
         "m.date AS date, m.in_reply_to AS in_reply_to, m.raw_body AS raw_body, "
         "m.raw_html AS raw_html, m.uid AS uid, m.fetched_at AS fetched_at, "
-        "m.pipeline_version AS pipeline_version, a.email AS email "
+        "m.pipeline_version AS pipeline_version, m.from_name AS from_name, "
+        "m.raw_headers AS raw_headers, a.email AS email "
         "FROM messages m JOIN lists l ON l.id = m.list_id "
         "LEFT JOIN addresses a ON a.id = m.address_id"
     ).fetchall()
@@ -713,6 +720,10 @@ def test_import_into_fresh_db_reproduces_everything(source, target, tmp_path):
     assert m1["raw_html"] == "<p>whole</p>"
     assert m1["uid"] == 101
     assert m1["fetched_at"] == "2026-01-06T00:00:00+00:00"
+    # The message's own From name survives, distinct from the address's.
+    assert m1["from_name"] == "Alice A. Smith"
+    # Headers survive byte-for-byte, raw 8-bit octets included.
+    assert m1["raw_headers"] == (b"From: Alice A. Smith <alice@example.org>\r\nX-Odd: \xff\xfe\r\n")
 
 
 def test_import_preserves_file_pipeline_version(source, target, tmp_path):
@@ -1423,6 +1434,30 @@ def test_import_rejects_wrong_format_version(source, target, tmp_path):
     records = _valid_records(source, tmp_path)
     records[0]["format_version"] = 999
     _assert_import_fails_and_rolls_back(target, records, tmp_path)
+
+
+def test_import_rejects_malformed_raw_headers_base64(source, target, tmp_path):
+    records = _valid_records(source, tmp_path)
+    message = next(r for r in records if r["type"] == "message" and "raw_headers_b64" in r)
+    message["raw_headers_b64"] = "not base64!!"
+    bad = tmp_path / "bad-b64.jsonl"
+    _write_records(bad, records)
+    # The path helper returns the error, so the failure can be pinned to this
+    # field rather than to some unrelated validation tripping first.
+    err = _assert_import_of_path_fails_and_rolls_back(target, bad)
+    assert "raw_headers_b64" in str(err)
+
+
+def test_import_accepts_a_message_record_without_raw_headers(source, target, tmp_path):
+    # Files written before the field existed carry no raw_headers_b64; those
+    # messages import with a NULL header block rather than failing.
+    records = _valid_records(source, tmp_path)
+    for record in records:
+        record.pop("raw_headers_b64", None)
+    path = tmp_path / "no-headers.jsonl"
+    _write_records(path, records)
+    export_import.import_file(target, path)
+    assert all(m["raw_headers"] is None for m in _messages_by_key(target).values())
 
 
 def test_import_rejects_missing_trailer(source, target, tmp_path):

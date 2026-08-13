@@ -37,6 +37,19 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.6.0] - 2026-08-13
+
+Summary: Store each message's own From display name and its verbatim header block, so senders that present a different name per message are no longer all shown under the first name seen.
+
+- Add `messages.from_name` (migration 015), the display name parsed from the message's own `From` header; the fetcher stores it on insert.
+- Add `messages.raw_headers` (migration 016), the verbatim header block as bytes, so any header-derived field can be recomputed locally without an IMAP re-fetch; the fetcher slices it from the bytes it already parses, at no extra network cost.
+- Add a `--backfill-headers` pull mode that fetches `BODY.PEEK[HEADER]` for stored messages lacking a header block, stores it, and re-derives the `From` display name for messages that have none; `--limit` caps a run, defaulting to 10.
+- Add `ImapClient.fetch_full_headers`, a whole-header-block fetch alongside the existing three-field `fetch_headers`.
+- Reject `--backfill-html` and `--backfill-headers` together, and reject a depth mode with either.
+- Serve the message's own name from `/api/messages` and `/api/messages/<id>`, falling back to the address's stored `display_name` when it is NULL (rows fetched before migration 015, and headers that carried no name).
+- Prefer the message's own name in the stale-data report's sender column and in the list panel's thread graph, on the same fallback; the thread graph previously served the address's name under the field name `from_name`.
+- Carry `from_name` and `raw_headers` (base64, as `raw_headers_b64`) through export and import as additive fields; `format_version` is unchanged, so files remain compatible in both directions, and a malformed base64 header block is rejected rather than imported.
+
 ## [1.5.1] - 2026-08-13
 
 Summary: Stop the Pangram client from auto-retrying submit requests that may already have created a billed job.

@@ -124,6 +124,15 @@ def build_parser() -> argparse.ArgumentParser:
             "it in (no normal pull); respects --limit as a per-run message cap"
         ),
     )
+    parser.add_argument(
+        "--backfill-headers",
+        action="store_true",
+        help=(
+            "re-fetch the header block of already-stored messages that lack one "
+            "and fill it in, re-deriving any missing From display name (no normal "
+            "pull); respects --limit as a per-run message cap"
+        ),
+    )
     parser.add_argument("--batch-size", type=int, default=200, help=argparse.SUPPRESS)
     return parser
 
@@ -154,11 +163,14 @@ def _validate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
         args.days is not None,
         args.incremental,
     ]
-    # --backfill-html re-fetches stored messages rather than doing a depth-based
-    # pull, so it takes no depth mode (and rejects one, to avoid confusion).
-    if args.backfill_html:
+    if args.backfill_html and args.backfill_headers:
+        parser.error("give either --backfill-html or --backfill-headers, not both")
+    # Both backfills re-fetch stored messages rather than doing a depth-based
+    # pull, so neither takes a depth mode (and both reject one, to avoid confusion).
+    if args.backfill_html or args.backfill_headers:
+        flag = "--backfill-html" if args.backfill_html else "--backfill-headers"
         if sum(depth_flags) > 0:
-            parser.error("--backfill-html does not take a depth mode (--count/--since/…)")
+            parser.error(f"{flag} does not take a depth mode (--count/--since/…)")
         if args.limit is not None and args.limit <= 0:
             parser.error("--limit must be a positive integer")
         return
@@ -298,6 +310,115 @@ def run_backfill_html(
     return summary
 
 
+@dataclass
+class HeaderBackfillSummary:
+    """Tally of one ``--backfill-headers`` run."""
+
+    lists_processed: int = 0
+    lists_skipped: int = 0
+    fetched: int = 0
+    headers_stored: int = 0
+    headers_missing: int = 0
+    names_recovered: int = 0
+
+    def as_line(self) -> str:
+        return (
+            f"lists_processed={self.lists_processed} lists_skipped={self.lists_skipped} "
+            f"fetched={self.fetched} headers_stored={self.headers_stored} "
+            f"headers_missing={self.headers_missing} names_recovered={self.names_recovered}"
+        )
+
+
+def run_backfill_headers(
+    client: ImapClient,
+    store: Store,
+    folders: Sequence[str],
+    *,
+    limit: int = DEFAULT_BACKFILL_LIMIT,
+    batch_size: int = 200,
+) -> HeaderBackfillSummary:
+    """Re-fetch the header block of stored messages missing one and fill it in.
+
+    The same shape as :func:`run_backfill_html` — per folder, select read-only
+    and verify UIDVALIDITY against the stored ``pull_state`` (skip the list with
+    a warning otherwise, since a changed UIDVALIDITY means the stored UIDs no
+    longer address the same messages), then walk
+    :meth:`Store.iter_messages_missing_headers` in UID order — but it fetches
+    ``BODY.PEEK[HEADER]`` rather than whole bodies, so it moves a fraction of the
+    bytes a body backfill does.
+
+    Each fetched blob is stored verbatim and re-parsed for the ``From`` display
+    name, which is written only where ``from_name`` is still NULL (see
+    :meth:`Store.set_message_headers`). This is what recovers the names of
+    messages pulled before migration 015, whose senders were until now shown
+    under whatever name their address happened to be first seen with. A message
+    the server returns nothing for is tombstoned with ``b""`` so a capped run
+    keeps making forward progress instead of re-fetching it every time.
+
+    ``limit`` is a hard cap on messages fetched across all folders this run
+    (default the CLAUDE.md testing cap); production runs pass a larger value.
+    """
+    from .fetcher import list_name_for_folder, parse_header, split_headers
+
+    summary = HeaderBackfillSummary()
+    remaining = limit
+
+    for folder in folders:
+        name = list_name_for_folder(folder)
+        if remaining <= 0:
+            log.info("header backfill message cap reached; skipping %s", name)
+            break
+
+        mlist = store.upsert_list(name, folder)
+        status = client.examine(folder)
+        cursor = store.get_pull_state(mlist.id)
+        if cursor is None or cursor.uidvalidity != status.uidvalidity:
+            log.warning(
+                "skipping %s: UIDVALIDITY %s does not match stored cursor %s",
+                name,
+                status.uidvalidity,
+                cursor.uidvalidity if cursor else "<none>",
+            )
+            summary.lists_skipped += 1
+            continue
+
+        pending = list(store.iter_messages_missing_headers(mlist.id))[:remaining]
+        by_uid = {m.uid: m for m in pending if m.uid is not None}
+        if not by_uid:
+            summary.lists_processed += 1
+            continue
+
+        for uid, raw in client.fetch_full_headers(sorted(by_uid), batch_size=batch_size):
+            message = by_uid.get(uid)
+            if message is None:
+                continue
+            summary.fetched += 1
+            remaining -= 1
+
+            headers = split_headers(raw)
+            if not headers:
+                store.set_message_headers(message.id, b"")
+                summary.headers_missing += 1
+                continue
+
+            # Re-derive the display name from the bytes just stored. A name
+            # captured at fetch time wins; set_message_headers only fills NULLs.
+            from_name: str | None = None
+            try:
+                from_name = parse_header(headers).from_name
+            except Exception:
+                log.warning("parse error backfilling headers for %s uid=%s", name, uid)
+            store.set_message_headers(message.id, headers, from_name=from_name)
+            summary.headers_stored += 1
+            if from_name and message.from_name is None:
+                summary.names_recovered += 1
+
+        summary.lists_processed += 1
+
+    log.info("header backfill summary: %s", summary.as_line())
+    return summary
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -314,8 +435,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    if args.backfill_html:
+    if args.backfill_html or args.backfill_headers:
         limit = args.limit if args.limit is not None else DEFAULT_BACKFILL_LIMIT
+        run = run_backfill_html if args.backfill_html else run_backfill_headers
         client = open_client(
             config.imap_host, config.imap_port, config.imap_username, config.imap_password
         )
@@ -327,7 +449,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 include_excluded=args.include_excluded_lists,
             )
             with Store(db_path) as store:
-                run_backfill_html(client, store, folders, limit=limit, batch_size=args.batch_size)
+                run(client, store, folders, limit=limit, batch_size=args.batch_size)
         finally:
             client.close()
             client.logout()
