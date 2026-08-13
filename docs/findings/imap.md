@@ -79,6 +79,12 @@ be done server-side, and combined in one `UID SEARCH`. The fetcher should push
 happen to contain it — sufficient for narrowing, but confirm the parsed address
 client-side if exactness matters.
 
+Re-verified 2026-08-14: `SENTSINCE` (the `Date`-header key) works combined
+with `SINCE` on the live server and, from app v1.7.0, date-based pulls send
+both — `SINCE` bounds arrival, `SENTSINCE` (with a one-day time-zone margin)
+excludes re-imported messages whose own date predates the pull period before
+their bodies are downloaded.
+
 ## 4. UIDVALIDITY
 
 Stable per-folder values:

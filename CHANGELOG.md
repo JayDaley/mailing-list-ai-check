@@ -37,6 +37,17 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.7.0] - 2026-08-14
+
+Summary: Discard messages a date-based pull fetches whose own Date header predates the pull period.
+
+- Discard, instead of storing, any message fetched by a `--since` or `--days` pull whose `Date` header is earlier than the period start; the server-side `SINCE` search matches on arrival time (INTERNALDATE), so re-imported or late-delivered history otherwise accretes into the store with dates far outside the pulled period.
+- Keep messages with no parsable `Date` header, and apply no discard to `--count`, `--incremental` or explicit-UID pulls, which have no period.
+- Count discards in a new `discarded_early` field of the fetch summary and its log line.
+- Pre-filter date-based pulls server-side with `SENTSINCE` (the `Date`-header search key, live-verified on the archive server), so early-dated history is excluded before any body is downloaded; the search uses a one-day margin because `SENTSINCE` disregards the header's time zone, and the client-side discard remains the precise gate.
+- Skip re-downloading messages whose UIDs the store already holds for a list when the folder's UIDVALIDITY is unchanged; skipped messages are counted as duplicates, and the pull cursor advances only over the contiguous processed prefix of the search result.
+- Add `Store.uids_for_list`, the stored-UID set the skip subtracts from a search result.
+
 ## [1.6.0] - 2026-08-13
 
 Summary: Store each message's own From display name and its verbatim header block, so senders that present a different name per message are no longer all shown under the first name seen.

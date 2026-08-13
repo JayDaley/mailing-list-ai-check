@@ -4,7 +4,7 @@
 :class:`mailing_list_ai_check.imap_client.ImapClient` calls (``login``, ``list``,
 ``select``, ``response``, ``uid``, ``close``, ``logout``) and interprets the
 ``UID SEARCH`` criteria the fetcher builds (``ALL`` / ``UID n:*`` / ``SINCE`` /
-``FROM``), so tests never touch the network.
+``SENTSINCE`` / ``FROM``), so tests never touch the network.
 """
 
 from __future__ import annotations
@@ -49,13 +49,19 @@ def make_raw(
 
 @dataclass
 class FakeFolder:
-    """A fake mailbox: UID→raw bytes plus per-UID date/from for search."""
+    """A fake mailbox: UID→raw bytes plus per-UID date/from for search.
+
+    ``dates`` plays INTERNALDATE (matched by ``SINCE``); ``sent_dates`` plays
+    the ``Date`` header's date (matched by ``SENTSINCE``), falling back to
+    ``dates`` per UID so tests that never set it behave as before.
+    """
 
     uidvalidity: int
     uidnext: int
     exists: int = 0
     messages: dict[int, bytes] = field(default_factory=dict)
     dates: dict[int, datetime] = field(default_factory=dict)
+    sent_dates: dict[int, datetime] = field(default_factory=dict)
     froms: dict[int, str] = field(default_factory=dict)
 
     def match(self, criteria: tuple[str, ...]) -> list[int]:
@@ -78,6 +84,14 @@ class FakeFolder:
             elif tok == "SINCE":
                 since = datetime.strptime(crit[j + 1], "%d-%b-%Y")
                 result &= {u for u in uids if self.dates.get(u, datetime.min) >= since}
+                j += 2
+            elif tok == "SENTSINCE":
+                since = datetime.strptime(crit[j + 1], "%d-%b-%Y")
+                result &= {
+                    u
+                    for u in uids
+                    if self.sent_dates.get(u, self.dates.get(u, datetime.min)) >= since
+                }
                 j += 2
             elif tok == "FROM":
                 term = crit[j + 1].strip('"').lower()

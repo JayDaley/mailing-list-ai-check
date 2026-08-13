@@ -537,6 +537,130 @@ def test_run_fetch_stores_raw_html():
     store.close()
 
 
+def test_run_fetch_since_discards_messages_dated_before_period():
+    # SINCE matches on INTERNALDATE (arrival), so re-imported history arrives
+    # with much older Date headers: uid 2 arrived in-period but is dated 2003.
+    # uid 1 is dated exactly midnight of the since day — the boundary is kept.
+    fd = FakeFolder(uidvalidity=1000, uidnext=10, exists=2)
+    fd.messages[1] = make_raw(message_id="<new@x>", date="Fri, 01 May 2026 00:00:00 +0000")
+    fd.messages[2] = make_raw(message_id="<old@x>", date="Tue, 03 Jun 2003 09:00:00 +0000")
+    fd.dates[1] = datetime(2026, 5, 2)
+    fd.dates[2] = datetime(2026, 5, 15)
+    fd.froms[1] = fd.froms[2] = "a@example.org"
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    summary = run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01")))
+    assert summary.fetched == 1
+    assert summary.discarded_early == 1
+    assert "discarded_early=1" in summary.as_line()
+    rows = store.conn.execute("SELECT message_id FROM messages").fetchall()
+    assert [r["message_id"] for r in rows] == ["<new@x>"]
+    store.close()
+
+
+def test_run_fetch_since_keeps_messages_without_a_date():
+    # An unparsable/absent Date header cannot be compared, so the message is kept.
+    fd = FakeFolder(uidvalidity=1000, uidnext=10, exists=1)
+    fd.messages[1] = make_raw(message_id="<undated@x>", date="")
+    fd.dates[1] = datetime(2026, 5, 2)
+    fd.froms[1] = "a@example.org"
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    summary = run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01")))
+    assert summary.fetched == 1
+    assert summary.discarded_early == 0
+    store.close()
+
+
+def test_since_pull_prefilters_on_sent_date_server_side():
+    # uid 2 arrived in-period (INTERNALDATE May 15) but its Date header is
+    # 2003: the SENTSINCE prefilter excludes it server-side, so its body is
+    # never downloaded. The search carries a one-day margin (SENTSINCE
+    # 30-Apr) because SENTSINCE disregards the header's time zone.
+    fd = FakeFolder(uidvalidity=1000, uidnext=10, exists=2)
+    fd.messages[1] = make_raw(message_id="<new@x>", date="Sat, 02 May 2026 10:00:00 +0000")
+    fd.messages[2] = make_raw(message_id="<old@x>", date="Tue, 03 Jun 2003 09:00:00 +0000")
+    fd.dates[1] = datetime(2026, 5, 2)
+    fd.dates[2] = datetime(2026, 5, 15)
+    fd.sent_dates[1] = datetime(2026, 5, 2)
+    fd.sent_dates[2] = datetime(2003, 6, 3)
+    fd.froms[1] = fd.froms[2] = "a@example.org"
+    conn = FakeImapConn(folders={"Shared Folders/t": fd})
+    client = ImapClient(conn)
+    store = Store(":memory:")
+    summary = run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01")))
+    assert summary.fetched == 1
+    assert summary.matched == 1  # uid 2 never even matched the search
+    assert conn.search_calls == [("SINCE", "01-May-2026", "SENTSINCE", "30-Apr-2026")]
+    assert conn.fetch_calls == ["1"]  # uid 2's body was never downloaded
+    store.close()
+
+
+def test_run_fetch_repull_skips_stored_bodies():
+    # A second identical pull downloads nothing: the stored UIDs are
+    # subtracted from the search result (UIDVALIDITY unchanged), counted as
+    # duplicates, and the cursor still covers them.
+    fd = _folder({u: (datetime(2026, 5, 2 + u), "a@example.org") for u in range(1, 4)})
+    conn = FakeImapConn(folders={"Shared Folders/t": fd})
+    client = ImapClient(conn)
+    store = Store(":memory:")
+    run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01")))
+    calls_after_first = list(conn.fetch_calls)
+    second = run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01")))
+    assert second.fetched == 0
+    assert second.duplicates == 3
+    assert conn.fetch_calls == calls_after_first  # no body re-downloaded
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    assert store.get_pull_state(mlist.id).last_uid == 3
+    store.close()
+
+
+def test_run_fetch_refetches_stored_uids_after_uidvalidity_change():
+    # A changed UIDVALIDITY invalidates stored UIDs, so nothing is subtracted;
+    # the bodies are re-downloaded and the message-id dedupe catches them.
+    fd = _folder({u: (datetime(2026, 5, 2 + u), "a@example.org") for u in range(1, 3)})
+    conn = FakeImapConn(folders={"Shared Folders/t": fd})
+    client = ImapClient(conn)
+    store = Store(":memory:")
+    run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01")))
+    fd.uidvalidity = 2000
+    second = run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01")))
+    assert second.fetched == 0
+    assert second.duplicates == 2
+    assert len(conn.fetch_calls) == 2  # one batched fetch per run
+    store.close()
+
+
+def test_run_fetch_limit_never_advances_cursor_past_unfetched_uids():
+    # First run stores uid 1 (limit 1). The second limited run skips stored
+    # uid 1, fetches uid 2, and must leave the cursor at 2 — not at any
+    # higher matched-but-unfetched uid.
+    fd = _folder({u: (datetime(2026, 5, 2 + u), "a@example.org") for u in range(1, 4)})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01"), limit=1))
+    second = run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01"), limit=1))
+    assert second.fetched == 1
+    assert second.duplicates == 1
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    assert store.get_pull_state(mlist.id).last_uid == 2
+    store.close()
+
+
+def test_run_fetch_count_mode_never_discards():
+    # Only date-based pulls have a period; --count stores old-dated mail as-is.
+    fd = FakeFolder(uidvalidity=1000, uidnext=10, exists=1)
+    fd.messages[1] = make_raw(message_id="<old@x>", date="Tue, 03 Jun 2003 09:00:00 +0000")
+    fd.dates[1] = datetime(2026, 5, 15)
+    fd.froms[1] = "a@example.org"
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    summary = run_fetch(client, store, _request(depth=DepthMode(count=10)))
+    assert summary.fetched == 1
+    assert summary.discarded_early == 0
+    store.close()
+
+
 # --- run_fetch_uids -----------------------------------------------------------
 
 

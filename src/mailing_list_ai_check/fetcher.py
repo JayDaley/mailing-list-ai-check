@@ -28,7 +28,7 @@ import email
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email import policy
 from email.message import EmailMessage
 from email.utils import parseaddr, parsedate_to_datetime
@@ -73,7 +73,12 @@ class FetchRequest:
 
 @dataclass
 class FetchSummary:
-    """Counts collected across a run."""
+    """Counts collected across a run.
+
+    ``discarded_early`` counts messages fetched by a date-based pull whose own
+    ``Date`` header predates the pull period, discarded instead of stored (see
+    :func:`run_fetch`).
+    """
 
     fetched: int = 0
     duplicates: int = 0
@@ -81,13 +86,15 @@ class FetchSummary:
     html_only: int = 0
     matched: int = 0
     auto_generated: int = 0
+    discarded_early: int = 0
     per_list: dict[str, int] = field(default_factory=dict)
 
     def as_line(self) -> str:
         return (
             f"fetched={self.fetched} duplicates={self.duplicates} "
             f"parse_errors={self.parse_errors} html_only={self.html_only} "
-            f"matched={self.matched} auto_generated={self.auto_generated}"
+            f"matched={self.matched} auto_generated={self.auto_generated} "
+            f"discarded_early={self.discarded_early}"
         )
 
 
@@ -383,6 +390,7 @@ def _union_search(
     since: str | None,
     uid_range: str | None,
     from_filters: Sequence[str],
+    sent_since: str | None = None,
 ) -> list[int]:
     """Run one search per ``FROM`` filter and return the deduped, sorted union.
 
@@ -390,10 +398,14 @@ def _union_search(
     of independent server-side searches (findings: ``FROM`` is a substring match).
     """
     if not from_filters:
-        return client.uid_search(build_search_criteria(since=since, uid_range=uid_range))
+        return client.uid_search(
+            build_search_criteria(since=since, sent_since=sent_since, uid_range=uid_range)
+        )
     seen: set[int] = set()
     for term in from_filters:
-        criteria = build_search_criteria(since=since, uid_range=uid_range, from_addr=term)
+        criteria = build_search_criteria(
+            since=since, sent_since=sent_since, uid_range=uid_range, from_addr=term
+        )
         seen.update(client.uid_search(criteria))
     return sorted(seen)
 
@@ -440,7 +452,16 @@ def compute_uids(
 
     if depth.since is not None:
         since = iso_to_imap_date(depth.since)
-        uids = _union_search(client, since=since, uid_range=None, from_filters=from_filters)
+        # Also pre-filter on the Date header (SENTSINCE) so re-imported old
+        # history is excluded before any body is downloaded. One day of margin
+        # because SENTSINCE compares the header's date part disregarding its
+        # time zone; the UTC-normalized client-side discard in run_fetch stays
+        # the precise gate.
+        margin = datetime.strptime(depth.since, "%Y-%m-%d") - timedelta(days=1)
+        sent_since = iso_to_imap_date(margin.date().isoformat())
+        uids = _union_search(
+            client, since=since, uid_range=None, from_filters=from_filters, sent_since=sent_since
+        )
         return uids, uidvalidity
 
     # --count N: most recent N via a UID slice from the top.
@@ -458,6 +479,16 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
 
     Respects ``request.limit`` as a hard global message cap across all folders
     (the safety valve for testing) and ``request.dry_run`` (search + count only).
+
+    A date-based pull (``--since``, or ``--days`` resolved to it) discards any
+    fetched message whose own ``Date`` header predates the pull period instead
+    of storing it, counting it in ``discarded_early``. The server-side
+    ``SINCE`` search matches on INTERNALDATE (arrival in the archive folder),
+    so re-imported or late-delivered history arrives carrying much older
+    ``Date`` headers; without the discard, a pull for one period silently
+    accretes messages from far outside it. Messages with no parsable ``Date``
+    are kept. Count-based, incremental and explicit-UID pulls have no period
+    and never discard.
     """
     summary = FetchSummary()
     remaining = request.limit
@@ -483,16 +514,49 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
             summary.per_list[name] = len(uids)
             continue
 
+        # Skip re-downloading bodies the store already holds: a stored UID
+        # names the same message while the folder's UIDVALIDITY is unchanged
+        # (the cursor records the value stored rows were pulled under). The
+        # skipped messages are counted as duplicates, exactly as if their
+        # bodies had been fetched and the upsert had deduped them.
+        matched_uids = uids
+        stored_matched: set[int] = set()
+        cursor = store.get_pull_state(mlist.id)
+        if cursor is not None and cursor.uidvalidity == uidvalidity:
+            stored_uids = store.uids_for_list(mlist.id)
+            stored_matched = {u for u in matched_uids if u in stored_uids}
+            if stored_matched:
+                summary.duplicates += len(stored_matched)
+                log.debug("%s: %d already-stored uid(s) not re-fetched", name, len(stored_matched))
+        uids = [u for u in matched_uids if u not in stored_matched]
+
         if remaining is not None:
             uids = uids[:remaining] if remaining < len(uids) else uids
 
         list_count = _fetch_folder(
-            client, store, mlist.id, folder, uids, request.batch_size, summary
+            client,
+            store,
+            mlist.id,
+            folder,
+            uids,
+            request.batch_size,
+            summary,
+            min_date=request.depth.since,
         )
         summary.per_list[name] = list_count
 
-        if uids:
-            store.set_pull_state(mlist.id, uidvalidity, max(uids))
+        # Advance the cursor over the contiguous processed prefix of the
+        # search result — UIDs fetched this run or skipped as already stored.
+        # Never past a UID the --limit cap left unfetched, or a later
+        # --incremental pull would miss it.
+        processed = stored_matched.union(uids)
+        last_processed = None
+        for uid in matched_uids:
+            if uid not in processed:
+                break
+            last_processed = uid
+        if last_processed is not None:
+            store.set_pull_state(mlist.id, uidvalidity, last_processed)
         store.set_list_synced(mlist.id)
 
         # Record when the server last saw traffic on this list. A failure here
@@ -523,8 +587,17 @@ def _fetch_folder(
     uids: Sequence[int],
     batch_size: int,
     summary: FetchSummary,
+    *,
+    min_date: str | None = None,
 ) -> int:
-    """Fetch, parse and upsert ``uids`` from ``folder``. Returns rows fetched."""
+    """Fetch, parse and upsert ``uids`` from ``folder``. Returns rows fetched.
+
+    ``min_date`` (ISO ``YYYY-MM-DD``) is the start of a date-based pull's
+    period: a parsed message dated before it is discarded, not stored (see
+    :func:`run_fetch`). ``None`` disables the check. The comparison is
+    lexicographic — a stored date is a full UTC ISO-8601 timestamp, so any
+    timestamp on ``min_date``'s own day sorts after the bare date and is kept.
+    """
     name = list_name_for_folder(folder)
     fetched_here = 0
     for uid, raw in client.fetch_bodies(uids, batch_size=batch_size):
@@ -533,6 +606,11 @@ def _fetch_folder(
         except Exception:
             summary.parse_errors += 1
             log.warning("parse error for %s uid=%s", name, uid)
+            continue
+
+        if min_date is not None and parsed.date is not None and parsed.date < min_date:
+            summary.discarded_early += 1
+            log.debug("discarding %s uid=%s dated %s (before %s)", name, uid, parsed.date, min_date)
             continue
 
         address_id: int | None = None

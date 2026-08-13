@@ -1114,6 +1114,19 @@ class Store:
         ).fetchone()
         return row["u"] if row and row["u"] is not None else None
 
+    def uids_for_list(self, list_id: int) -> set[int]:
+        """Return every stored IMAP ``uid`` for ``list_id`` (rows with one).
+
+        A pull subtracts these from a search result before fetching bodies, so
+        already-stored messages are never re-downloaded (valid only while the
+        folder's UIDVALIDITY matches the stored cursor's — the caller checks).
+        """
+        rows = self.conn.execute(
+            "SELECT uid FROM messages WHERE list_id = ? AND uid IS NOT NULL",
+            (list_id,),
+        ).fetchall()
+        return {row["uid"] for row in rows}
+
     def set_list_synced(self, list_id: int, when: str | None = None) -> None:
         """Stamp ``lists.last_synced_at`` (defaults to now)."""
         self.conn.execute(

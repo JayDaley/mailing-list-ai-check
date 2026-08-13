@@ -35,6 +35,11 @@ def test_build_search_criteria_since_only():
     assert build_search_criteria(since="06-Jan-2025") == ["SINCE", "06-Jan-2025"]
 
 
+def test_build_search_criteria_sent_since_follows_since():
+    crit = build_search_criteria(since="01-May-2026", sent_since="30-Apr-2026")
+    assert crit == ["SINCE", "01-May-2026", "SENTSINCE", "30-Apr-2026"]
+
+
 # --- folder listing -----------------------------------------------------------
 
 

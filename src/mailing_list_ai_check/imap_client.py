@@ -65,15 +65,20 @@ def quote_folder(folder: str) -> str:
 def build_search_criteria(
     *,
     since: str | None = None,
+    sent_since: str | None = None,
     uid_range: str | None = None,
     from_addr: str | None = None,
 ) -> list[str]:
     """Build a server-side ``UID SEARCH`` criteria token list.
 
-    Any combination of a ``SINCE`` date (``DD-Mon-YYYY``), a ``UID`` range
-    (e.g. ``"42:*"`` for incremental pulls) and a single ``FROM`` substring is
-    AND-ed together, exactly as the findings verified works on the live server.
-    When nothing is supplied the criteria default to ``ALL``.
+    Any combination of a ``SINCE`` date (``DD-Mon-YYYY``), a ``SENTSINCE``
+    date, a ``UID`` range (e.g. ``"42:*"`` for incremental pulls) and a single
+    ``FROM`` substring is AND-ed together. ``SINCE`` matches on INTERNALDATE
+    (arrival in the folder); ``SENTSINCE`` matches on the message's own
+    ``Date`` header (RFC 3501 base search key, live-verified on the archive
+    server 2026-08-14), which lets a date-based pull exclude re-imported old
+    history before any body is downloaded. When nothing is supplied the
+    criteria default to ``ALL``.
 
     ``from_addr`` is quoted so multi-word display-name terms survive.
     """
@@ -82,6 +87,8 @@ def build_search_criteria(
         criteria += ["UID", uid_range]
     if since is not None:
         criteria += ["SINCE", since]
+    if sent_since is not None:
+        criteria += ["SENTSINCE", sent_since]
     if from_addr is not None:
         criteria += ["FROM", f'"{from_addr}"']
     return criteria or ["ALL"]

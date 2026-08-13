@@ -88,8 +88,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     depth = parser.add_mutually_exclusive_group()
     depth.add_argument("--count", type=int, metavar="N", help="most recent N messages per list")
-    depth.add_argument("--since", metavar="YYYY-MM-DD", help="messages on/after this date")
-    depth.add_argument("--days", type=int, metavar="N", help="messages from the last N days")
+    depth.add_argument(
+        "--since",
+        metavar="YYYY-MM-DD",
+        help=(
+            "messages on/after this date; a fetched message whose own Date header "
+            "is earlier is discarded, since the server-side search matches on "
+            "arrival time and can return re-imported older mail"
+        ),
+    )
+    depth.add_argument(
+        "--days",
+        type=int,
+        metavar="N",
+        help="messages from the last N days (same early-date discard as --since)",
+    )
     depth.add_argument(
         "--incremental",
         action="store_true",
