@@ -2116,6 +2116,7 @@ class Store:
         page: int = 1,
         per_page: int = DEFAULT_PER_PAGE,
         list_name: str | None = None,
+        include_excluded: bool = False,
     ) -> tuple[list[dict[str, Any]], int]:
         """Return ``(rows, total)`` of senders for the Senders pane (/api/senders).
 
@@ -2145,6 +2146,16 @@ class Store:
 
         ``total`` is the full match count before pagination.
 
+        Each entry also carries ``excluded_count`` (its messages classified
+        auto-generated at fetch time, which never reach extraction and so are
+        never scored) and the derived ``excluded_from_scoring``: true when the
+        sender has messages and *every* one of them is excluded, i.e. the sender
+        can never contribute a verdict. Those senders are dropped unless
+        ``include_excluded`` is true — the Senders pane's "Show all" switch —
+        because they are noise in a pane whose purpose is comparing detection
+        mixes. A sender with even one scoreable message is never dropped, and
+        neither is one with no messages at all, having nothing to exclude.
+
         When ``list_name`` is given, message joins are restricted (via an extra
         ``AND m.list_id = ?`` inside the ``messages`` ON clause) so that
         ``message_count``, ``label_counts`` and ``too_short_count`` reflect only
@@ -2167,7 +2178,8 @@ class Store:
         person_mix = self.conn.execute(
             "SELECT p.id AS person_id, p.canonical_name AS name, "
             "s.label AS label, COUNT(m.id) AS msg_count, "
-            "COUNT(CASE WHEN e.status = 'too_short' THEN 1 END) AS too_short_count "
+            "COUNT(CASE WHEN e.status = 'too_short' THEN 1 END) AS too_short_count, "
+            "COUNT(CASE WHEN m.auto_generated IS NOT NULL THEN 1 END) AS excluded_count "
             "FROM persons p "
             "LEFT JOIN addresses a ON a.person_id = p.id "
             "LEFT JOIN messages m ON m.address_id = a.id" + list_filter + " "
@@ -2182,7 +2194,8 @@ class Store:
         unlinked_mix = self.conn.execute(
             "SELECT a.id AS address_id, a.email AS email, a.display_name AS display_name, "
             "s.label AS label, COUNT(m.id) AS msg_count, "
-            "COUNT(CASE WHEN e.status = 'too_short' THEN 1 END) AS too_short_count "
+            "COUNT(CASE WHEN e.status = 'too_short' THEN 1 END) AS too_short_count, "
+            "COUNT(CASE WHEN m.auto_generated IS NOT NULL THEN 1 END) AS excluded_count "
             "FROM addresses a "
             "LEFT JOIN messages m ON m.address_id = a.id" + list_filter + " "
             "LEFT JOIN extractions e ON e.message_id = m.id "
@@ -2205,10 +2218,12 @@ class Store:
                     "message_count": 0,
                     "label_counts": {},
                     "too_short_count": 0,
+                    "excluded_count": 0,
                 },
             )
             entry["message_count"] += row["msg_count"]
             entry["too_short_count"] += row["too_short_count"]
+            entry["excluded_count"] += row["excluded_count"]
             if row["label"] is not None:
                 entry["label_counts"][row["label"]] = row["msg_count"]
         for row in person_addrs:
@@ -2229,18 +2244,27 @@ class Store:
                     "message_count": 0,
                     "label_counts": {},
                     "too_short_count": 0,
+                    "excluded_count": 0,
                 },
             )
             entry["message_count"] += row["msg_count"]
             entry["too_short_count"] += row["too_short_count"]
+            entry["excluded_count"] += row["excluded_count"]
             if row["label"] is not None:
                 entry["label_counts"][row["label"]] = row["msg_count"]
 
         entries = [*persons.values(), *addresses.values()]
+        for entry in entries:
+            entry["excluded_from_scoring"] = (
+                entry["message_count"] > 0 and entry["excluded_count"] == entry["message_count"]
+            )
 
         if list_name is not None:
             # Scoped to a list: only senders who actually posted to it.
             entries = [e for e in entries if e["message_count"] > 0]
+
+        if not include_excluded:
+            entries = [e for e in entries if not e["excluded_from_scoring"]]
 
         if q:
             needle = q.strip().lower()

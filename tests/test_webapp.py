@@ -539,6 +539,50 @@ def test_senders_default(client):
     ]
 
 
+def _seed_robot_sender(db_path, email="noreply@github.com", count=2):
+    """Add ``count`` auto-generated messages from ``email`` to the announce list."""
+    with Store(db_path) as store:
+        lst = store.upsert_list("announce", "Shared Folders/announce")
+        address = store.upsert_address(email, "Robot")
+        for i in range(count):
+            store.upsert_message(
+                message_id=f"<robot{i}@test>",
+                list_id=lst.id,
+                address_id=address.id,
+                subject="notification",
+                date="2026-04-01T10:00:00",
+                in_reply_to=None,
+                raw_body="body",
+                uid=None,
+                auto_generated="robot-sender",
+            )
+
+
+def test_senders_omits_never_scored_senders_by_default(db_path, client):
+    _seed_robot_sender(db_path)
+    body = client.get("/api/senders").get_json()
+    assert "Robot" not in [row["name"] for row in body["senders"]]
+    assert body["total"] == 5  # unchanged by the robot sender
+    assert body["include_excluded"] is False
+
+
+def test_senders_include_excluded_shows_them_flagged(db_path, client):
+    _seed_robot_sender(db_path)
+    body = client.get("/api/senders?include_excluded=true").get_json()
+    assert body["include_excluded"] is True
+    assert body["total"] == 6
+    robot = _senders_by_name(body)["Robot"]
+    assert robot["excluded_from_scoring"] is True
+    assert (robot["excluded_count"], robot["message_count"]) == (2, 2)
+    # A sender with scoreable mail is reported either way, and never flagged.
+    assert _senders_by_name(body)["Carol"]["excluded_from_scoring"] is False
+
+
+def test_senders_rejects_a_bad_include_excluded(client):
+    resp = client.get("/api/senders?include_excluded=maybe")
+    assert resp.status_code == 400
+
+
 def test_senders_person_and_unlinked_shape(client):
     senders = _senders_by_name(client.get("/api/senders").get_json())
 

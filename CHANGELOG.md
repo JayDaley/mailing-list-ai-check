@@ -37,6 +37,16 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.8.0] - 2026-08-14
+
+Summary: Hide senders whose mail is never scored from the Senders pane, behind a "Show all" switch.
+
+- Omit senders from `GET /api/senders` when every one of their messages is auto-generated, and so can never be scored; a sender with any scoreable message, or with no messages at all, is never omitted.
+- Add the `include_excluded` query parameter to `GET /api/senders` (boolean, default false) to include them, and echo it in the response.
+- Report `excluded_count` and `excluded_from_scoring` on each sender entry.
+- Add a "Show all" switch to the Senders pane header, off by default and persisted to localStorage; the pane refetches when it changes.
+- Mark an included sender with an "excluded" tag next to its address.
+
 ## [1.7.0] - 2026-08-14
 
 Summary: Discard messages a date-based pull fetches whose own Date header predates the pull period.

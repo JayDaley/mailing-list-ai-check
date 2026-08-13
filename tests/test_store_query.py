@@ -325,6 +325,73 @@ def test_sender_rows_person_grouping(store):
     assert bob["label_counts"] == {"AI": 1, "Mixed": 1}  # m13 unscored
 
 
+def _add_sender_message(store, email, key, *, auto_generated=None):
+    """Attach one message from ``email`` to the seeded ``announce`` list."""
+    list_id = next(
+        r["id"] for r in store.conn.execute("SELECT id FROM lists WHERE name='announce'")
+    )
+    address = store.upsert_address(email, email.split("@")[0])
+    return store.upsert_message(
+        message_id=f"<{key}@test>",
+        list_id=list_id,
+        address_id=address.id,
+        subject=key,
+        date="2026-04-01T10:00:00",
+        in_reply_to=None,
+        raw_body="body",
+        uid=None,
+        auto_generated=auto_generated,
+    ).message
+
+
+def test_sender_rows_hides_senders_whose_mail_is_all_excluded(store):
+    # A robot sender: every message auto-generated, so it can never be scored.
+    _add_sender_message(store, "noreply@github.com", "bot1", auto_generated="robot-sender")
+    _add_sender_message(store, "noreply@github.com", "bot2", auto_generated="robot-sender")
+
+    hidden = _by_name(store.sender_rows(per_page=200)[0])
+    assert "noreply" not in hidden
+
+    shown, total = store.sender_rows(per_page=200, include_excluded=True)
+    bot = _by_name(shown)["noreply"]
+    assert bot["excluded_from_scoring"] is True
+    assert (bot["excluded_count"], bot["message_count"]) == (2, 2)
+    # total counts the visible set, so it grows by exactly the shown sender.
+    assert total == store.sender_rows(per_page=200)[1] + 1
+
+
+def test_sender_rows_keeps_a_sender_with_any_scoreable_mail(store):
+    # One auto-generated message, one not: the sender still contributes verdicts.
+    _add_sender_message(store, "mixed@example.org", "mix1", auto_generated="precedence-bulk")
+    _add_sender_message(store, "mixed@example.org", "mix2")
+
+    entry = _by_name(store.sender_rows(per_page=200)[0])["mixed"]
+    assert entry["excluded_from_scoring"] is False
+    assert (entry["excluded_count"], entry["message_count"]) == (1, 2)
+
+
+def test_sender_rows_does_not_exclude_a_sender_with_no_messages(store):
+    store.upsert_address("silent@example.org", "Silent")
+    entry = _by_name(store.sender_rows(per_page=200)[0])["Silent"]
+    assert entry["excluded_from_scoring"] is False
+    assert (entry["excluded_count"], entry["message_count"]) == (0, 0)
+
+
+def test_sender_rows_excludes_a_person_whose_addresses_are_all_excluded(store):
+    # The rule applies to a linked person, not only a bare address.
+    msg = _add_sender_message(store, "bot@example.org", "pbot", auto_generated="robot-sender")
+    address_id = store.conn.execute(
+        "SELECT address_id FROM messages WHERE id = ?", (msg.id,)
+    ).fetchone()["address_id"]
+    person = store.create_person("Bot Person")
+    store.assign_address_to_person(address_id, person.id)
+
+    assert "Bot Person" not in _by_name(store.sender_rows(per_page=200)[0])
+    shown = _by_name(store.sender_rows(per_page=200, include_excluded=True)[0])
+    assert shown["Bot Person"]["excluded_from_scoring"] is True
+    assert shown["Bot Person"]["person_id"] == person.id
+
+
 def test_sender_rows_unlinked_addresses(store):
     senders = _by_name(store.sender_rows(per_page=200)[0])
 

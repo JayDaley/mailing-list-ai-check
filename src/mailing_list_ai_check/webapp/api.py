@@ -1565,7 +1565,13 @@ def list_senders() -> Any:
     mix), ``order`` (``asc``/``desc`` — defaults to the natural direction for the
     chosen sort: ``desc`` for count and ai, ``asc`` for
     name), ``page`` (default 1), ``per_page`` (default 60, clamped to
-    ``MAX_PER_PAGE``). Bad input yields a 400 like :func:`parse_filters`.
+    ``MAX_PER_PAGE``), ``include_excluded`` (boolean, default false — when
+    false, senders whose every message is auto-generated, and so can never be
+    scored, are omitted; the pane's "Show all" switch sets it true). Bad input
+    yields a 400 like :func:`parse_filters`.
+
+    Each entry reports ``excluded_count`` and ``excluded_from_scoring`` so the
+    pane can mark such senders when they are shown.
     """
     args = request.args
 
@@ -1598,8 +1604,16 @@ def list_senders() -> Any:
     else:
         per_page = min(per_page, MAX_PER_PAGE)
 
+    include_excluded = _parse_bool("include_excluded", args.get("include_excluded")) or False
+
     rows, total = get_store().sender_rows(
-        q=q, sort=sort, order=order, page=page, per_page=per_page, list_name=list_name
+        q=q,
+        sort=sort,
+        order=order,
+        page=page,
+        per_page=per_page,
+        list_name=list_name,
+        include_excluded=include_excluded,
     )
     return jsonify(
         {
@@ -1610,6 +1624,7 @@ def list_senders() -> Any:
             "sort": sort,
             "order": order,
             "list": list_name,
+            "include_excluded": include_excluded,
         }
     )
 

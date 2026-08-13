@@ -1,11 +1,16 @@
-// Small UI-preference store. Holds display switches that do not change what the
-// API returns: "anonymous mode" (hides sender-identifying UI), the draggable
-// pane split percentages (topPct / leftPct), and the table row density. All are
-// persisted to localStorage so the choices survive reloads.
+// Small UI-preference store: "anonymous mode" (hides sender-identifying UI),
+// the draggable pane split percentages (topPct / leftPct), the table row
+// density, and the Senders pane's "Show all" switch. All are persisted to
+// localStorage so the choices survive reloads.
+//
+// The first three are display-only. showAllSenders is the exception: it is a
+// preference in the same sense, but the filtering happens server-side (it sets
+// GET /api/senders?include_excluded), so changing it must refetch the pane.
 
 import { defineStore } from 'pinia'
 
 const STORAGE_KEY = 'mail-ai:anonymous'
+const SHOW_ALL_SENDERS_KEY = 'mail-ai:showAllSenders'
 const TOP_KEY = 'mail-ai:topPct'
 const LEFT_KEY = 'mail-ai:leftPct'
 const DENSITY_KEY = 'mail-ai:density'
@@ -63,12 +68,19 @@ export const useUiStore = defineStore('ui', {
     topPct: loadNum(TOP_KEY, 58, TOP_MIN, TOP_MAX),
     leftPct: loadNum(LEFT_KEY, 42, LEFT_MIN, LEFT_MAX),
     density: loadDensity(),
+    // Off by default: senders who can never be scored are hidden until asked for.
+    showAllSenders: loadBool(SHOW_ALL_SENDERS_KEY),
   }),
 
   actions: {
     setAnonymous(value) {
       this.anonymous = !!value
       persist(STORAGE_KEY, this.anonymous)
+    },
+
+    setShowAllSenders(value) {
+      this.showAllSenders = !!value
+      persist(SHOW_ALL_SENDERS_KEY, this.showAllSenders)
     },
 
     setTopPct(value) {

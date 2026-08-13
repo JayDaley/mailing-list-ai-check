@@ -24,10 +24,12 @@ import { get, postJson, putJson, del } from '../api'
 import { fmtDate, fmtInt } from '../lib/format'
 import { rugBarColor } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
+import { useUiStore } from '../stores/ui'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
 
 const filters = useFiltersStore()
+const ui = useUiStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -56,6 +58,8 @@ async function fetchPage(pageNo, append) {
       page: pageNo,
       per_page: 60,
       list: filters.list || undefined,
+      // Omitted when off, so the default request is unchanged.
+      include_excluded: ui.showAllSenders ? 'true' : undefined,
     }
     const data = await get('/senders', params)
     if (token !== fetchToken) return
@@ -98,6 +102,12 @@ async function loadSuggestions() {
 // A list filter narrows the table to that list's senders.
 watch(
   () => filters.list,
+  () => refresh(),
+)
+
+// "Show all" is applied server-side, so flipping it refetches from page 1.
+watch(
+  () => ui.showAllSenders,
   () => refresh(),
 )
 
@@ -354,6 +364,8 @@ const rows = computed(() => {
       count: fmtInt(e.message_count),
       counts: e.label_counts || {},
       tooShort: e.too_short_count || 0,
+      // Only ever true while "Show all" is on; the server omits these otherwise.
+      excluded: !!e.excluded_from_scoring,
       linkColor: isPerson ? '#2f6feb' : '#8a929b',
       linkTitle: isPerson ? 'Linked sender — manage addresses' : 'Link this address to a sender',
       popTop: up ? 'auto' : '22px',
@@ -440,6 +452,19 @@ async function assignToExisting(row) {
       <span class="pane-title">Senders</span>
       <span class="pane-subtitle">{{ paneSub }}</span>
       <span style="flex: 1;"></span>
+      <label
+        v-if="!detailMode"
+        class="showall-toggle"
+        title="Show senders whose mail is all auto-generated, and so is never scored"
+      >
+        Show all
+        <input
+          type="checkbox"
+          class="showall-checkbox"
+          :checked="ui.showAllSenders"
+          @change="ui.setShowAllSenders($event.target.checked)"
+        />
+      </label>
       <input
         v-if="!detailMode"
         type="search"
@@ -537,7 +562,15 @@ async function assignToExisting(row) {
             @click="showSender(row)"
             >{{ row.name }} <span class="linked-note">{{ row.linkedNote }}</span></span
           >
-          <span class="sender-addr mono" :title="row.emails">{{ row.emails }}</span>
+          <span class="sender-addr mono" :title="row.emails"
+            >{{ row.emails }}
+            <span
+              v-if="row.excluded"
+              class="excluded-tag"
+              title="All of this sender's mail is auto-generated, so none of it is scored"
+              >excluded</span
+            ></span
+          >
           <span class="sender-count mono">{{ row.count }}</span>
           <MixBar :counts="row.counts" :too-short="row.tooShort" :height="9" />
           <span style="text-align: right;">
@@ -758,6 +791,36 @@ async function assignToExisting(row) {
 }
 .mini-rug-bar:hover {
   opacity: 0.75;
+}
+/* Pane-header "Show all" switch: the header toggles' look at pane scale. */
+.showall-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.showall-checkbox {
+  accent-color: var(--accent);
+}
+/* Marks a sender none of whose mail is ever scored (only visible with "Show all"). */
+.excluded-tag {
+  margin-left: 5px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--font);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  vertical-align: middle;
 }
 .senders-search {
   font-size: 11px;
