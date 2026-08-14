@@ -366,6 +366,12 @@ const rows = computed(() => {
       tooShort: e.too_short_count || 0,
       // Only ever true while "Show all" is on; the server omits these otherwise.
       excluded: !!e.excluded_from_scoring,
+      // The server names an address after itself once it has presented three or
+      // more different From names; say so, or the substitution looks arbitrary.
+      nameTitle:
+        !isPerson && e.distinct_from_names >= 3
+          ? `${e.emails.join(', ')} — sent under ${e.distinct_from_names} different From names, so the address is shown`
+          : e.emails.join(', '),
       linkColor: isPerson ? '#2f6feb' : '#8a929b',
       linkTitle: isPerson ? 'Linked sender — manage addresses' : 'Link this address to a sender',
       popTop: up ? 'auto' : '22px',
@@ -561,7 +567,7 @@ async function assignToExisting(row) {
         <div v-for="row in rows" :key="row.key" class="senders-row">
           <span
             class="sender-name"
-            :title="row.emails"
+            :title="row.nameTitle"
             @click="showSender(row)"
             >{{ row.name }} <span class="linked-note">{{ row.linkedNote }}</span></span
           >

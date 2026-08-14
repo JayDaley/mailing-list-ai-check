@@ -558,6 +558,30 @@ def _seed_robot_sender(db_path, email="noreply@github.com", count=2):
             )
 
 
+def test_senders_names_a_many_named_address_by_its_address(db_path, client):
+    with Store(db_path) as store:
+        lst = store.upsert_list("announce", "Shared Folders/announce")
+        address = store.upsert_address("noreply@example.org", "First Seen Name")
+        for i, name in enumerate(("Person One", "Person Two", "Person Three")):
+            store.upsert_message(
+                message_id=f"<many{i}@test>",
+                list_id=lst.id,
+                address_id=address.id,
+                subject="notification",
+                date="2026-04-01T10:00:00",
+                in_reply_to=None,
+                raw_body="body",
+                uid=None,
+                from_name=name,
+            )
+
+    senders = _senders_by_name(client.get("/api/senders").get_json())
+    assert "First Seen Name" not in senders
+    entry = senders["noreply@example.org"]
+    assert entry["distinct_from_names"] == 3
+    assert entry["emails"] == ["noreply@example.org"]
+
+
 def test_senders_omits_never_scored_senders_by_default(db_path, client):
     _seed_robot_sender(db_path)
     body = client.get("/api/senders").get_json()

@@ -901,6 +901,29 @@ def _in_chunks(items: Sequence[Any], size: int = _IN_CHUNK) -> Iterator[Sequence
         yield items[start : start + size]
 
 
+#: How many different ``From`` display names one address may present before the
+#: Senders pane stops naming it after any of them. At or above this count no
+#: single name represents the address — a notification sender puts the acting
+#: person's name in ``From``, so the stored per-address name is only whichever
+#: was seen first — and the address itself is the honest label.
+MULTI_NAME_ADDRESS_THRESHOLD = 3
+
+
+def _address_display_name(email: str, display_name: str | None, distinct_names: int) -> str:
+    """The Senders pane's name for one address.
+
+    Its stored ``display_name`` normally, falling back to the address when there
+    is none. An address that has presented
+    :data:`MULTI_NAME_ADDRESS_THRESHOLD` or more different ``From`` names is
+    labelled with the address regardless, because naming it after one of them
+    attributes every message it sent to whichever person happened to be seen
+    first (see ``messages.from_name``, migration 015).
+    """
+    if distinct_names >= MULTI_NAME_ADDRESS_THRESHOLD:
+        return email
+    return display_name or email
+
+
 def ai_share(label_counts: Mapping[str, Any] | None, too_short_count: int = 0) -> float:
     """The ``AI`` fraction of one aggregate mix, in ``[0, 1]``.
 
@@ -2146,6 +2169,13 @@ class Store:
 
         ``total`` is the full match count before pagination.
 
+        An unlinked address entry is named by its stored ``display_name``, except
+        when it has presented :data:`MULTI_NAME_ADDRESS_THRESHOLD` or more
+        different ``From`` names, in which case the address itself is the name
+        (see :func:`_address_display_name`). ``distinct_from_names`` reports the
+        count the rule was applied to. A person's ``canonical_name`` is set by
+        hand and is never overridden this way.
+
         Each entry also carries ``excluded_count`` (its messages classified
         auto-generated at fetch time, which never reach extraction and so are
         never scored) and the derived ``excluded_from_scoring``: true when the
@@ -2204,6 +2234,17 @@ class Store:
             "GROUP BY a.id, s.label",
             list_params,
         ).fetchall()
+        # How many different From names each address has presented. Counted over
+        # every message, never scoped to list_name, so an address's displayed
+        # name does not change as the list filter moves.
+        name_counts = {
+            row["address_id"]: row["name_count"]
+            for row in self.conn.execute(
+                "SELECT address_id, COUNT(DISTINCT from_name) AS name_count "
+                "FROM messages WHERE address_id IS NOT NULL AND from_name IS NOT NULL "
+                "GROUP BY address_id"
+            )
+        }
 
         persons: dict[int, dict[str, Any]] = {}
         for row in person_mix:
@@ -2239,7 +2280,10 @@ class Store:
                 {
                     "type": "address",
                     "address_id": row["address_id"],
-                    "name": row["display_name"] or row["email"],
+                    "name": _address_display_name(
+                        row["email"], row["display_name"], name_counts.get(row["address_id"], 0)
+                    ),
+                    "distinct_from_names": name_counts.get(row["address_id"], 0),
                     "emails": [row["email"]],
                     "message_count": 0,
                     "label_counts": {},

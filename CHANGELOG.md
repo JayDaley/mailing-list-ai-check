@@ -37,6 +37,15 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.8.2] - 2026-08-14
+
+Summary: Name an address that has sent under three or more different From names by the address itself.
+
+- Name an unlinked address in the Senders pane by its address, not by its stored `display_name`, once it has presented `MULTI_NAME_ADDRESS_THRESHOLD` (3) or more different `From` names; no one of them represents the address.
+- Count the distinct names over all of an address's messages, never scoped to the list filter, so a sender's name does not change as that filter moves.
+- Report the count as `distinct_from_names` on each sender entry, and name it in the sender row's tooltip when the rule applies.
+- Leave a person's `canonical_name` alone, it being set by hand, and leave the stored `addresses.display_name` unchanged in every case.
+
 ## [1.8.1] - 2026-08-14
 
 Summary: Render the Senders pane's Show All control as the same toggle switch the Lists pane uses.

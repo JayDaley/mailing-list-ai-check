@@ -11,7 +11,12 @@ import math
 
 import pytest
 
-from mailing_list_ai_check.store import MessageFilters, Store, ai_share
+from mailing_list_ai_check.store import (
+    MULTI_NAME_ADDRESS_THRESHOLD,
+    MessageFilters,
+    Store,
+    ai_share,
+)
 
 from seed import seed
 
@@ -342,6 +347,81 @@ def _add_sender_message(store, email, key, *, auto_generated=None):
         uid=None,
         auto_generated=auto_generated,
     ).message
+
+
+def _add_named_message(store, email, key, from_name):
+    """Attach one message from ``email`` carrying its own ``From`` display name."""
+    list_id = next(
+        r["id"] for r in store.conn.execute("SELECT id FROM lists WHERE name='announce'")
+    )
+    address = store.upsert_address(email, "First Seen Name")
+    store.upsert_message(
+        message_id=f"<{key}@test>",
+        list_id=list_id,
+        address_id=address.id,
+        subject=key,
+        date="2026-04-01T10:00:00",
+        in_reply_to=None,
+        raw_body="body",
+        uid=None,
+        from_name=from_name,
+    )
+    return address
+
+
+def test_sender_rows_names_a_many_named_address_by_its_address(store):
+    # Three different From names on one address: no single name represents it,
+    # so the address is the label rather than whichever was stored first.
+    for i, name in enumerate(("Person One", "Person Two", "Person Three")):
+        _add_named_message(store, "noreply@example.org", f"mn{i}", name)
+
+    entry = _by_name(store.sender_rows(per_page=200)[0])["noreply@example.org"]
+    assert entry["distinct_from_names"] == MULTI_NAME_ADDRESS_THRESHOLD
+    assert entry["emails"] == ["noreply@example.org"]
+    # The stored display name is untouched; only the served label changes.
+    assert store.get_address(entry["address_id"]).display_name == "First Seen Name"
+
+
+def test_sender_rows_keeps_the_display_name_below_the_threshold(store):
+    for i, name in enumerate(("Person One", "Person Two")):
+        _add_named_message(store, "two@example.org", f"tn{i}", name)
+
+    senders = _by_name(store.sender_rows(per_page=200)[0])
+    assert "two@example.org" not in senders
+    assert senders["First Seen Name"]["distinct_from_names"] == 2
+
+
+def test_sender_rows_counts_distinct_names_not_messages(store):
+    # Ten messages under two names stays below the threshold.
+    for i in range(10):
+        _add_named_message(store, "repeat@example.org", f"rp{i}", "Alpha" if i % 2 else "Beta")
+
+    entry = _by_name(store.sender_rows(per_page=200)[0])["First Seen Name"]
+    assert (entry["distinct_from_names"], entry["message_count"]) == (2, 10)
+
+
+def test_sender_rows_name_rule_ignores_the_list_filter(store):
+    # The three names are spread across two lists; a list-scoped view must not
+    # re-name the sender just because that list saw fewer of them.
+    for i, name in enumerate(("Person One", "Person Two", "Person Three")):
+        _add_named_message(store, "spread@example.org", f"sp{i}", name)
+    quic = next(r["id"] for r in store.conn.execute("SELECT id FROM lists WHERE name='quic'"))
+    store.conn.execute("UPDATE messages SET list_id = ? WHERE message_id = '<sp2@test>'", (quic,))
+    store.conn.commit()
+
+    scoped = _by_name(store.sender_rows(per_page=200, list_name="quic")[0])
+    assert "spread@example.org" in scoped
+
+
+def test_sender_rows_does_not_rename_a_person(store):
+    # A person's canonical_name is set by hand and always wins.
+    address = None
+    for i, name in enumerate(("Person One", "Person Two", "Person Three")):
+        address = _add_named_message(store, "shared@example.org", f"pn{i}", name)
+    person = store.create_person("Chosen Name")
+    store.assign_address_to_person(address.id, person.id)
+
+    assert "Chosen Name" in _by_name(store.sender_rows(per_page=200)[0])
 
 
 def test_sender_rows_hides_senders_whose_mail_is_all_excluded(store):
