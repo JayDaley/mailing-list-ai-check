@@ -37,6 +37,17 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.9.0] - 2026-08-14
+
+Summary: Link each DMARC-rewritten address to the address it stands for, and raise the many-names threshold to five.
+
+- Link an address on `dmarc.ietf.org` to the address it was rewritten from, into one person, at the end of every non-dry-run pull; `maarten.simon=40sidn.nl@dmarc.ietf.org` and `maarten.simon@sidn.nl` become one sender.
+- Add `Store.link_dmarc_rewrites`, which reconciles every such pair in the store and is idempotent, and `dmarc_rewrite_original`, which unescapes a rewrite's `=XX` sequences back to the original address.
+- Name a person created by that linking after the original address's display name, the one its sender chose, rather than the rewrite's, which the list server sets.
+- Attach to the existing person when either address already has one, and leave a pair whose two addresses belong to different persons alone, logging it rather than merging two hand-made groupings.
+- Raise `MULTI_NAME_ADDRESS_THRESHOLD` from 3 to 5, so an individual who varies their own name across a few messages keeps their name while genuinely shared addresses do not.
+- Report `named_by_address` on each sender entry, so the dashboard no longer repeats the threshold.
+
 ## [1.8.2] - 2026-08-14
 
 Summary: Name an address that has sent under three or more different From names by the address itself.

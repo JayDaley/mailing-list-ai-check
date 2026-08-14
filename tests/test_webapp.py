@@ -31,7 +31,7 @@ from mailing_list_ai_check.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.fetcher import FetchSummary
 from mailing_list_ai_check.imap_client import ImapClient
 from mailing_list_ai_check.staleness import ExtractionDiff
-from mailing_list_ai_check.store import Store
+from mailing_list_ai_check.store import MULTI_NAME_ADDRESS_THRESHOLD, Store
 from mailing_list_ai_check.webapp import DEV_CORS_ORIGIN, api as webapp_api, create_app
 
 from seed import seed
@@ -562,7 +562,7 @@ def test_senders_names_a_many_named_address_by_its_address(db_path, client):
     with Store(db_path) as store:
         lst = store.upsert_list("announce", "Shared Folders/announce")
         address = store.upsert_address("noreply@example.org", "First Seen Name")
-        for i, name in enumerate(("Person One", "Person Two", "Person Three")):
+        for i in range(MULTI_NAME_ADDRESS_THRESHOLD):
             store.upsert_message(
                 message_id=f"<many{i}@test>",
                 list_id=lst.id,
@@ -572,13 +572,14 @@ def test_senders_names_a_many_named_address_by_its_address(db_path, client):
                 in_reply_to=None,
                 raw_body="body",
                 uid=None,
-                from_name=name,
+                from_name=f"Person {i}",
             )
 
     senders = _senders_by_name(client.get("/api/senders").get_json())
     assert "First Seen Name" not in senders
     entry = senders["noreply@example.org"]
-    assert entry["distinct_from_names"] == 3
+    assert entry["distinct_from_names"] == MULTI_NAME_ADDRESS_THRESHOLD
+    assert entry["named_by_address"] is True
     assert entry["emails"] == ["noreply@example.org"]
 
 

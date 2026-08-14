@@ -369,26 +369,35 @@ def _add_named_message(store, email, key, from_name):
     return address
 
 
+def _add_distinct_names(store, email, count, prefix="mn"):
+    """Give ``email`` ``count`` messages, each under a different From name."""
+    for i in range(count):
+        _add_named_message(store, email, f"{prefix}{i}", f"Person {i}")
+
+
 def test_sender_rows_names_a_many_named_address_by_its_address(store):
-    # Three different From names on one address: no single name represents it,
-    # so the address is the label rather than whichever was stored first.
-    for i, name in enumerate(("Person One", "Person Two", "Person Three")):
-        _add_named_message(store, "noreply@example.org", f"mn{i}", name)
+    # At the threshold no single name represents the address, so the address is
+    # the label rather than whichever name was stored first.
+    _add_distinct_names(store, "noreply@example.org", MULTI_NAME_ADDRESS_THRESHOLD)
 
     entry = _by_name(store.sender_rows(per_page=200)[0])["noreply@example.org"]
     assert entry["distinct_from_names"] == MULTI_NAME_ADDRESS_THRESHOLD
+    assert entry["named_by_address"] is True
     assert entry["emails"] == ["noreply@example.org"]
     # The stored display name is untouched; only the served label changes.
     assert store.get_address(entry["address_id"]).display_name == "First Seen Name"
 
 
 def test_sender_rows_keeps_the_display_name_below_the_threshold(store):
-    for i, name in enumerate(("Person One", "Person Two")):
-        _add_named_message(store, "two@example.org", f"tn{i}", name)
+    # One short of the threshold: an individual varying their own name a little
+    # keeps their name.
+    _add_distinct_names(store, "two@example.org", MULTI_NAME_ADDRESS_THRESHOLD - 1, prefix="tn")
 
     senders = _by_name(store.sender_rows(per_page=200)[0])
     assert "two@example.org" not in senders
-    assert senders["First Seen Name"]["distinct_from_names"] == 2
+    entry = senders["First Seen Name"]
+    assert entry["distinct_from_names"] == MULTI_NAME_ADDRESS_THRESHOLD - 1
+    assert entry["named_by_address"] is False
 
 
 def test_sender_rows_counts_distinct_names_not_messages(store):
@@ -401,10 +410,9 @@ def test_sender_rows_counts_distinct_names_not_messages(store):
 
 
 def test_sender_rows_name_rule_ignores_the_list_filter(store):
-    # The three names are spread across two lists; a list-scoped view must not
-    # re-name the sender just because that list saw fewer of them.
-    for i, name in enumerate(("Person One", "Person Two", "Person Three")):
-        _add_named_message(store, "spread@example.org", f"sp{i}", name)
+    # The names are spread across two lists; a list-scoped view must not re-name
+    # the sender just because that list saw fewer of them.
+    _add_distinct_names(store, "spread@example.org", MULTI_NAME_ADDRESS_THRESHOLD, prefix="sp")
     quic = next(r["id"] for r in store.conn.execute("SELECT id FROM lists WHERE name='quic'"))
     store.conn.execute("UPDATE messages SET list_id = ? WHERE message_id = '<sp2@test>'", (quic,))
     store.conn.commit()
@@ -416,8 +424,8 @@ def test_sender_rows_name_rule_ignores_the_list_filter(store):
 def test_sender_rows_does_not_rename_a_person(store):
     # A person's canonical_name is set by hand and always wins.
     address = None
-    for i, name in enumerate(("Person One", "Person Two", "Person Three")):
-        address = _add_named_message(store, "shared@example.org", f"pn{i}", name)
+    for i in range(MULTI_NAME_ADDRESS_THRESHOLD):
+        address = _add_named_message(store, "shared@example.org", f"pn{i}", f"Person {i}")
     person = store.create_person("Chosen Name")
     store.assign_address_to_person(address.id, person.id)
 

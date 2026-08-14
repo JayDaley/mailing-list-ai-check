@@ -575,6 +575,10 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
     # versa), so the reply-timing classification is refreshed once per run.
     if not request.dry_run:
         store.recompute_timing()
+        # A DMARC rewrite and the address it stands for can arrive in either
+        # order and on different lists, so the pairing is reconciled once per
+        # run rather than when either address is first seen.
+        store.link_dmarc_rewrites()
 
     return summary
 

@@ -1573,9 +1573,10 @@ def list_senders() -> Any:
     Each entry reports ``excluded_count`` and ``excluded_from_scoring`` so the
     pane can mark such senders when they are shown.
 
-    An unlinked address that has presented three or more different ``From``
-    names (``MULTI_NAME_ADDRESS_THRESHOLD``) is named by its address rather than
-    by any one of them; ``distinct_from_names`` reports that count.
+    An unlinked address that has presented ``MULTI_NAME_ADDRESS_THRESHOLD`` or
+    more different ``From`` names is named by its address rather than by any one
+    of them; ``distinct_from_names`` reports that count and ``named_by_address``
+    whether the rule applied, so a client never repeats the threshold.
     """
     args = request.args
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 import time
@@ -34,6 +35,8 @@ from typing import Any
 
 from . import __version__
 from .extraction import EXTRACTION_VERSION
+
+log = logging.getLogger(__name__)
 
 # --- Extraction status values -------------------------------------------------
 
@@ -906,7 +909,43 @@ def _in_chunks(items: Sequence[Any], size: int = _IN_CHUNK) -> Iterator[Sequence
 #: single name represents the address — a notification sender puts the acting
 #: person's name in ``From``, so the stored per-address name is only whichever
 #: was seen first — and the address itself is the honest label.
-MULTI_NAME_ADDRESS_THRESHOLD = 3
+#:
+#: Five rather than three: an individual who varies their own name across a few
+#: messages ("Blake Morrison", "Blake", "~blake") reaches three without being a
+#: shared address, while every genuinely shared address measured in the archive
+#: sits far above five (the datatracker's, at 330, highest).
+MULTI_NAME_ADDRESS_THRESHOLD = 5
+
+
+#: The IETF list server's DMARC From-rewriting domain. When a list rewrites a
+#: sender whose domain publishes a strict DMARC policy, the message is re-sent
+#: from ``<local>=40<domain>@dmarc.ietf.org`` — the original address with its
+#: characters hex-escaped as ``=XX`` (``@`` becoming ``=40``) and moved into the
+#: local part. The same person therefore appears under two addresses.
+DMARC_REWRITE_DOMAIN = "dmarc.ietf.org"
+
+_DMARC_ESCAPE_RE = re.compile(r"=([0-9A-Fa-f]{2})")
+
+
+def dmarc_rewrite_original(email: str) -> str | None:
+    """The address a :data:`DMARC_REWRITE_DOMAIN` rewrite stands for, or ``None``.
+
+    ``maarten.simon=40sidn.nl@dmarc.ietf.org`` unescapes to
+    ``maarten.simon@sidn.nl``. ``None`` for any address not on the rewriting
+    domain, and for one whose local part does not unescape to a single plausible
+    address — the escaping is mechanical, so anything else is not a rewrite this
+    should claim to understand.
+    """
+    local, _, domain = email.strip().lower().rpartition("@")
+    if not local or domain != DMARC_REWRITE_DOMAIN:
+        return None
+    decoded = _DMARC_ESCAPE_RE.sub(lambda match: chr(int(match.group(1), 16)), local)
+    original_local, separator, original_domain = decoded.partition("@")
+    if not separator or not original_local or not original_domain:
+        return None
+    if "@" in original_domain or not decoded.isascii() or any(c.isspace() for c in decoded):
+        return None
+    return decoded
 
 
 def _address_display_name(email: str, display_name: str | None, distinct_names: int) -> str:
@@ -1937,6 +1976,67 @@ class Store:
         )
         self.conn.commit()
 
+    def link_dmarc_rewrites(self) -> int:
+        """Link every DMARC-rewritten address to the address it stands for.
+
+        A list that rewrites a sender to survive their domain's DMARC policy
+        re-sends the message from ``<local>=40<domain>@dmarc.ietf.org`` (see
+        :func:`dmarc_rewrite_original`), so one person arrives under two
+        addresses and is counted as two senders. Each pair whose original is
+        also in the store is linked into one person.
+
+        Returns the number of pairs newly linked. Idempotent: a pair already
+        sharing a person is left alone, so this is safe to run after every pull.
+
+        Two addresses already attached to *different* persons are left alone and
+        logged. That grouping was made by hand, and silently merging two people
+        on the strength of an address-shaped guess is not a repair this should
+        make on its own.
+        """
+        rewrites = self.conn.execute(
+            "SELECT * FROM addresses WHERE email LIKE ?",
+            (f"%@{DMARC_REWRITE_DOMAIN}",),
+        ).fetchall()
+
+        linked = 0
+        for row in rewrites:
+            original_email = dmarc_rewrite_original(row["email"])
+            if original_email is None:
+                continue
+            original = self.conn.execute(
+                "SELECT * FROM addresses WHERE email = ?", (original_email,)
+            ).fetchone()
+            if original is None:
+                continue
+
+            rewrite_person, original_person = row["person_id"], original["person_id"]
+            if rewrite_person is not None and original_person is not None:
+                if rewrite_person != original_person:
+                    log.warning(
+                        "not linking %s to %s: already attached to different senders",
+                        row["email"],
+                        original_email,
+                    )
+                continue
+
+            if original_person is not None:
+                self.assign_address_to_person(row["id"], original_person)
+            elif rewrite_person is not None:
+                self.assign_address_to_person(original["id"], rewrite_person)
+            else:
+                # Name the new person after the original address, whose display
+                # name is the one the sender chose; the rewrite's is set by the
+                # list server.
+                name = original["display_name"] or row["display_name"] or original_email
+                person = self.create_person(name)
+                self.assign_address_to_person(original["id"], person.id)
+                self.assign_address_to_person(row["id"], person.id)
+            linked += 1
+
+        if linked:
+            log.info("linked %d DMARC-rewritten address pair(s)", linked)
+        return linked
+
     def addresses_for_person(self, person_id: int) -> list[Address]:
         """Return all addresses linked to ``person_id``."""
         rows = self.conn.execute(
@@ -2284,6 +2384,10 @@ class Store:
                         row["email"], row["display_name"], name_counts.get(row["address_id"], 0)
                     ),
                     "distinct_from_names": name_counts.get(row["address_id"], 0),
+                    # Whether the many-names rule chose the label, so the client
+                    # need not know the threshold to explain the substitution.
+                    "named_by_address": name_counts.get(row["address_id"], 0)
+                    >= MULTI_NAME_ADDRESS_THRESHOLD,
                     "emails": [row["email"]],
                     "message_count": 0,
                     "label_counts": {},

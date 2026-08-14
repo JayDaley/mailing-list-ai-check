@@ -460,6 +460,37 @@ def test_run_fetch_stores_each_messages_own_from_name():
     store.close()
 
 
+def test_run_fetch_links_dmarc_rewrites():
+    # The pull reconciles the pairing, so a rewrite and its original arriving on
+    # different runs (or different lists) still end up as one sender.
+    fd = _folder({1: (datetime(2025, 1, 1), "maarten.simon@sidn.nl")})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    run_fetch(client, store, _request())
+    store.upsert_address("maarten.simon=40sidn.nl@dmarc.ietf.org", "Maarten Simon")
+    assert store.upsert_address("maarten.simon@sidn.nl").person_id is None
+
+    fd2 = _folder({2: (datetime(2025, 1, 2), "maarten.simon=40sidn.nl@dmarc.ietf.org")})
+    client2 = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd2}))
+    run_fetch(client2, store, _request())
+
+    person_id = store.upsert_address("maarten.simon@sidn.nl").person_id
+    assert person_id is not None
+    assert store.upsert_address("maarten.simon=40sidn.nl@dmarc.ietf.org").person_id == person_id
+    store.close()
+
+
+def test_run_fetch_dry_run_does_not_link_dmarc_rewrites():
+    fd = _folder({1: (datetime(2025, 1, 1), "a@example.org")})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    store.upsert_address("maarten.simon@sidn.nl", "Maarten Simon")
+    store.upsert_address("maarten.simon=40sidn.nl@dmarc.ietf.org", "Maarten Simon")
+    run_fetch(client, store, _request(dry_run=True))
+    assert store.upsert_address("maarten.simon@sidn.nl").person_id is None
+    store.close()
+
+
 def test_run_fetch_sets_last_message_at():
     fd = _folder({u: (datetime(2025, 1, u), f"user{u}@example.org") for u in range(1, 4)})
     client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))

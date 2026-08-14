@@ -13,6 +13,7 @@ from mailing_list_ai_check.store import (
     EXTRACTION_STATUSES,
     Store,
     apply_migrations,
+    dmarc_rewrite_original,
     extraction_version_for_app_version,
     sha256_text,
     version_key,
@@ -924,6 +925,99 @@ def test_settings_persist_across_reopen(tmp_path):
 
 
 # --- persons ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "email,expected",
+    [
+        ("maarten.simon=40sidn.nl@dmarc.ietf.org", "maarten.simon@sidn.nl"),
+        ("xueyuan=40w3.org@dmarc.ietf.org", "xueyuan@w3.org"),
+        # Case is normalized, as everywhere else an address is handled.
+        ("Xueyuan=40W3.ORG@DMARC.IETF.ORG", "xueyuan@w3.org"),
+        # Escapes other than =40 unescape the same way (=2E is '.').
+        ("a=2Eb=40x.org@dmarc.ietf.org", "a.b@x.org"),
+        # Not the rewriting domain.
+        ("someone=40x.org@example.org", None),
+        ("plain@sidn.nl", None),
+        # Nothing to unescape, so no address inside the local part.
+        ("nobody@dmarc.ietf.org", None),
+        # Unescapes to something that is not a single address.
+        ("=40x.org@dmarc.ietf.org", None),
+        ("a=40b=40c@dmarc.ietf.org", None),
+    ],
+)
+def test_dmarc_rewrite_original(email, expected):
+    assert dmarc_rewrite_original(email) == expected
+
+
+def test_link_dmarc_rewrites_pairs_an_unlinked_rewrite(store):
+    original = store.upsert_address("maarten.simon@sidn.nl", "Maarten Simon")
+    rewrite = store.upsert_address("maarten.simon=40sidn.nl@dmarc.ietf.org", "Maarten Simon")
+
+    assert store.link_dmarc_rewrites() == 1
+
+    person_id = store.get_address(original.id).person_id
+    assert person_id is not None
+    assert store.get_address(rewrite.id).person_id == person_id
+    # Named after the original, whose display name the sender chose.
+    assert store.get_person(person_id).canonical_name == "Maarten Simon"
+    assert {a.email for a in store.addresses_for_person(person_id)} == {
+        "maarten.simon@sidn.nl",
+        "maarten.simon=40sidn.nl@dmarc.ietf.org",
+    }
+
+
+def test_link_dmarc_rewrites_is_idempotent(store):
+    store.upsert_address("maarten.simon@sidn.nl", "Maarten Simon")
+    store.upsert_address("maarten.simon=40sidn.nl@dmarc.ietf.org", "Maarten Simon")
+    assert store.link_dmarc_rewrites() == 1
+    assert store.link_dmarc_rewrites() == 0  # already paired
+    assert store.conn.execute("SELECT COUNT(*) AS c FROM persons").fetchone()["c"] == 1
+
+
+def test_link_dmarc_rewrites_joins_an_existing_person(store):
+    original = store.upsert_address("maarten.simon@sidn.nl", "Maarten Simon")
+    rewrite = store.upsert_address("maarten.simon=40sidn.nl@dmarc.ietf.org", "Maarten Simon")
+    person = store.create_person("Maarten Simon (chosen)")
+    store.assign_address_to_person(original.id, person.id)
+
+    assert store.link_dmarc_rewrites() == 1
+    assert store.get_address(rewrite.id).person_id == person.id
+    # No second person invented, and the hand-set name is kept.
+    assert store.conn.execute("SELECT COUNT(*) AS c FROM persons").fetchone()["c"] == 1
+    assert store.get_person(person.id).canonical_name == "Maarten Simon (chosen)"
+
+
+def test_link_dmarc_rewrites_joins_from_the_rewrite_side(store):
+    original = store.upsert_address("maarten.simon@sidn.nl", "Maarten Simon")
+    rewrite = store.upsert_address("maarten.simon=40sidn.nl@dmarc.ietf.org", "Maarten Simon")
+    person = store.create_person("Maarten Simon")
+    store.assign_address_to_person(rewrite.id, person.id)
+
+    assert store.link_dmarc_rewrites() == 1
+    assert store.get_address(original.id).person_id == person.id
+
+
+def test_link_dmarc_rewrites_leaves_two_different_persons_alone(store):
+    # Both sides already grouped by hand: merging two people on an
+    # address-shaped guess is not a repair this makes on its own.
+    original = store.upsert_address("maarten.simon@sidn.nl", "Maarten Simon")
+    rewrite = store.upsert_address("maarten.simon=40sidn.nl@dmarc.ietf.org", "Maarten Simon")
+    one = store.create_person("One")
+    two = store.create_person("Two")
+    store.assign_address_to_person(original.id, one.id)
+    store.assign_address_to_person(rewrite.id, two.id)
+
+    assert store.link_dmarc_rewrites() == 0
+    assert store.get_address(original.id).person_id == one.id
+    assert store.get_address(rewrite.id).person_id == two.id
+
+
+def test_link_dmarc_rewrites_skips_a_rewrite_with_no_original(store):
+    rewrite = store.upsert_address("nobody=40elsewhere.org@dmarc.ietf.org", "Nobody")
+    assert store.link_dmarc_rewrites() == 0
+    assert store.get_address(rewrite.id).person_id is None
+    assert store.conn.execute("SELECT COUNT(*) AS c FROM persons").fetchone()["c"] == 0
 
 
 def test_person_assignment_and_detach(store):
