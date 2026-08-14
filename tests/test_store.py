@@ -64,8 +64,8 @@ def test_migrations_are_idempotent(tmp_path):
             "v"
         ]
         row_count_after = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
-    assert version_before == version_after == 16
-    assert row_count_before == row_count_after == 16
+    assert version_before == version_after == 17
+    assert row_count_before == row_count_after == 17
 
 
 def test_reopening_database_is_a_noop(tmp_path):
@@ -77,7 +77,7 @@ def test_reopening_database_is_a_noop(tmp_path):
         rows = s.conn.execute("SELECT COUNT(*) AS c FROM lists").fetchone()["c"]
         version = s.conn.execute("SELECT COUNT(*) AS c FROM schema_version").fetchone()["c"]
     assert rows == 1
-    assert version == 16
+    assert version == 17
 
 
 def test_migration_013_undoes_the_003_rebadge(store):
@@ -131,6 +131,8 @@ def test_migration_013_undoes_the_003_rebadge(store):
     store.conn.execute("DROP INDEX idx_messages_timing_cpm")
     store.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
     store.conn.execute("DROP TABLE app_settings")
+    store.conn.execute("DROP INDEX IF EXISTS idx_messages_address_list_autogen")
+    store.conn.execute("DROP INDEX IF EXISTS idx_messages_address_from_name")
     store.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
     store.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
     store.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
@@ -167,6 +169,8 @@ def test_migration_004_present_on_migrated_db(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_list_autogen")
+        s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
         s.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
@@ -175,7 +179,7 @@ def test_migration_004_present_on_migrated_db(tmp_path):
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "raw_html" in cols
-    assert version == 16
+    assert version == 17
 
 
 def test_migration_005_adds_last_message_at_column(store):
@@ -201,6 +205,8 @@ def test_migration_005_present_on_migrated_db(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_list_autogen")
+        s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
         s.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
@@ -209,7 +215,7 @@ def test_migration_005_present_on_migrated_db(tmp_path):
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(lists)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "last_message_at" in cols
-    assert version == 16
+    assert version == 17
 
 
 def test_migration_006_present_on_migrated_db(tmp_path):
@@ -229,6 +235,8 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_list_autogen")
+        s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
         s.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
@@ -240,7 +248,7 @@ def test_migration_006_present_on_migrated_db(tmp_path):
         }
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "idx_messages_message_id" in indexes
-    assert version == 16
+    assert version == 17
 
 
 def test_expected_indexes_exist(store):
@@ -1088,6 +1096,8 @@ def test_migration_007_present_on_migrated_db(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_list_autogen")
+        s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
         s.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")
@@ -1096,7 +1106,7 @@ def test_migration_007_present_on_migrated_db(tmp_path):
         cols = {row["name"] for row in s.conn.execute("PRAGMA table_info(messages)").fetchall()}
         version = s.conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"]
     assert "pipeline_version" in cols
-    assert version == 16
+    assert version == 17
 
 
 def test_message_pipeline_version_roundtrips(store):
@@ -1246,6 +1256,8 @@ def _rewound_to_pre_011(db):
         s.conn.execute("DELETE FROM schema_version WHERE version >= 11")
         s.conn.execute("ALTER TABLE extractions DROP COLUMN extraction_version")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_list_autogen")
+        s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")
         s.conn.execute("ALTER TABLE messages DROP COLUMN from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN raw_headers")

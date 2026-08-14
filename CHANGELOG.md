@@ -37,6 +37,14 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.10.0] - 2026-08-14
+
+Summary: Index the Senders pane's aggregates, which took about 32 seconds per page on a 110,000-message store and now take about 0.1.
+
+- Add four covering indexes (migration 017): `messages(address_id, list_id, auto_generated)`, `messages(address_id, from_name)`, `extractions(message_id, status)` and `scores(extraction_id, label)`, each making one join step of the sender aggregates read index pages alone.
+- Run `ANALYZE` at the end of the migration, without which the planner prefers a UNIQUE autoindex to a covering index and the gain is roughly halved.
+- Measured on a 109,931-message store: an unfiltered page of the Senders pane fell from about 32 s to about 0.1 s, and a list-scoped one from about 6 s to about 0.02 s.
+
 ## [1.9.2] - 2026-08-14
 
 Summary: Add a search box to the Lists pane, matching the Senders pane's.
