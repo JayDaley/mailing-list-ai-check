@@ -156,7 +156,7 @@ const docsOpen = ref(false)
 
 <template>
   <header class="app-header">
-    <span class="brand">Mail AI Check</span>
+    <span class="brand">Mailing List AI Check</span>
     <button
       type="button"
       class="info-btn"

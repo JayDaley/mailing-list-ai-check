@@ -37,6 +37,13 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.9.1] - 2026-08-14
+
+Summary: Name the dashboard "Mailing List AI Check" in its header and window title.
+
+- Change the dashboard header's brand from "Mail AI Check" to "Mailing List AI Check".
+- Change the page title, which names the browser tab and window, to match.
+
 ## [1.9.0] - 2026-08-14
 
 Summary: Link each DMARC-rewritten address to the address it stands for, and raise the many-names threshold to five.
