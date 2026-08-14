@@ -37,6 +37,16 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.9.2] - 2026-08-14
+
+Summary: Add a search box to the Lists pane, matching the Senders pane's.
+
+- Add a "search lists…" box to the Lists pane header, filtering the index by a case-insensitive substring over a list's name or its server folder, as the Senders pane's box matches a sender's name or any of its addresses.
+- Filter in place rather than refetching, the whole index already being loaded, so the index narrows as each character is typed.
+- Show a distinct hint when a search matches nothing, separate from the existing hint for an index with no active lists.
+- Hide the box in the per-list stats mode, where there is no index to search.
+- Rename the remaining "Mail AI Check" occurrences in the design handoff document and the documentation-endpoint test fixture.
+
 ## [1.9.1] - 2026-08-14
 
 Summary: Name the dashboard "Mailing List AI Check" in its header and window title.

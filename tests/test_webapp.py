@@ -2347,7 +2347,7 @@ def docs_client(db_path, tmp_path):
     """A test client whose documentation root is a small synthetic repo tree."""
     root = tmp_path / "repo"
     (root / "docs" / "findings").mkdir(parents=True)
-    (root / "README.md").write_text("# Mail AI Check\n\nintro\n", encoding="utf-8")
+    (root / "README.md").write_text("# Mailing List AI Check\n\nintro\n", encoding="utf-8")
     (root / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
     (root / "docs" / "zeta.md").write_text("# Zeta\n", encoding="utf-8")
     (root / "docs" / "alpha.md").write_text("no heading here\n", encoding="utf-8")
@@ -2366,7 +2366,7 @@ def test_docs_index_order_and_titles(docs_client):
     # README and CHANGELOG lead; docs/ follows, sorted by file name.
     assert paths == ["README.md", "CHANGELOG.md", "docs/alpha.md", "docs/zeta.md"]
     titles = {d["path"]: d["title"] for d in body["docs"]}
-    assert titles["README.md"] == "Mail AI Check"
+    assert titles["README.md"] == "Mailing List AI Check"
     assert titles["docs/zeta.md"] == "Zeta"
     # No level-1 heading → the path is the title.
     assert titles["docs/alpha.md"] == "docs/alpha.md"
@@ -2382,8 +2382,8 @@ def test_docs_index_excludes_subdirectories_and_non_markdown(docs_client):
 def test_docs_get_returns_markdown(docs_client):
     body = docs_client.get("/api/docs/README.md").get_json()
     assert body["path"] == "README.md"
-    assert body["title"] == "Mail AI Check"
-    assert body["markdown"] == "# Mail AI Check\n\nintro\n"
+    assert body["title"] == "Mailing List AI Check"
+    assert body["markdown"] == "# Mailing List AI Check\n\nintro\n"
     nested = docs_client.get("/api/docs/docs/zeta.md").get_json()
     assert nested["markdown"] == "# Zeta\n"
 

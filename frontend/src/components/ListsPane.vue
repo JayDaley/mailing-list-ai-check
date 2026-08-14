@@ -402,14 +402,38 @@ function isActiveList(l) {
   return t >= Date.now() - ACTIVE_WINDOW_MS
 }
 
-const filteredLists = computed(() =>
+// Search over the index, as the Senders pane searches senders: a
+// case-insensitive substring over the list name or its server folder (the
+// folder being to a list what an address is to a sender). The whole index is
+// already loaded, so this filters in place and needs no debounce or refetch.
+const listQuery = ref('')
+function matchesQuery(l) {
+  const needle = listQuery.value.trim().toLowerCase()
+  if (!needle) return true
+  return (
+    String(l.name || '').toLowerCase().includes(needle) ||
+    String(l.folder || '').toLowerCase().includes(needle)
+  )
+}
+
+const visibleLists = computed(() =>
   showActive.value ? lists.value.filter(isActiveList) : lists.value,
 )
+const filteredLists = computed(() => visibleLists.value.filter(matchesQuery))
 const totalListCount = computed(() => lists.value.length)
 // Filtering hid everything, but the API did return rows → show a friendly hint
-// instead of a bare, rowless index.
+// instead of a bare, rowless index. The two causes need different hints: a
+// search that matched nothing is not the same as a list index with nothing
+// active in it.
 const showActiveEmpty = computed(
-  () => showActive.value && lists.value.length > 0 && filteredLists.value.length === 0,
+  () => showActive.value && lists.value.length > 0 && visibleLists.value.length === 0,
+)
+const showSearchEmpty = computed(
+  () =>
+    !showActiveEmpty.value &&
+    !!listQuery.value.trim() &&
+    visibleLists.value.length > 0 &&
+    filteredLists.value.length === 0,
 )
 
 // Index ordering. The default is message count desc; clicking the "Aggregate
@@ -751,6 +775,13 @@ function closeList() {
         <span class="switch" aria-hidden="true"><span class="switch-knob"></span></span>
         <span class="show-all-text">Show All</span>
       </label>
+      <input
+        v-if="mode !== 'list'"
+        v-model="listQuery"
+        type="search"
+        placeholder="search lists…"
+        class="lists-search"
+      />
       <span class="header-actions">
         <button v-if="!pullFormOpen" class="io-btn" @click="openPullForm">
           Add list
@@ -860,6 +891,9 @@ function closeList() {
         </div>
         <div v-if="showActiveEmpty" class="index-empty">
           No active lists — add a list, or switch to Show all.
+        </div>
+        <div v-else-if="showSearchEmpty" class="index-empty">
+          No lists match “{{ listQuery.trim() }}”.
         </div>
         <div
           v-for="l in listRows"
@@ -1459,6 +1493,18 @@ function closeList() {
   padding: 10px 2px;
   font-size: 11.5px;
   color: var(--text-muted);
+}
+
+/* Index search box, matching the Senders pane's. */
+.lists-search {
+  font-size: 11px;
+  height: 21px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  width: 150px;
+  box-sizing: border-box;
+  margin-left: auto;
 }
 
 /* --- "Show All" toggle switch --- */
