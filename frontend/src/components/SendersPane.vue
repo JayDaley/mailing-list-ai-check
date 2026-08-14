@@ -451,20 +451,23 @@ async function assignToExisting(row) {
     <div class="pane-header">
       <span class="pane-title">Senders</span>
       <span class="pane-subtitle">{{ paneSub }}</span>
-      <span style="flex: 1;"></span>
       <label
         v-if="!detailMode"
-        class="showall-toggle"
+        class="show-all"
         title="Show senders whose mail is all auto-generated, and so is never scored"
       >
-        Show all
         <input
           type="checkbox"
-          class="showall-checkbox"
+          class="show-all-input"
+          role="switch"
           :checked="ui.showAllSenders"
+          :aria-checked="ui.showAllSenders"
           @change="ui.setShowAllSenders($event.target.checked)"
         />
+        <span class="switch" aria-hidden="true"><span class="switch-knob"></span></span>
+        <span class="show-all-text">Show All</span>
       </label>
+      <span style="flex: 1;"></span>
       <input
         v-if="!detailMode"
         type="search"
@@ -792,21 +795,59 @@ async function assignToExisting(row) {
 .mini-rug-bar:hover {
   opacity: 0.75;
 }
-/* Pane-header "Show all" switch: the header toggles' look at pane scale. */
-.showall-toggle {
+/* --- "Show All" toggle switch: identical to the Lists pane's control --- */
+.show-all {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  margin-right: 8px;
+  gap: 6px;
+  height: 22px;
   cursor: pointer;
   user-select: none;
+}
+.show-all-text {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   white-space: nowrap;
 }
-.showall-checkbox {
-  accent-color: var(--accent);
+/* Native checkbox drives state/focus but is visually replaced by the switch. */
+.show-all-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  margin: 0;
+}
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 26px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--border);
+  transition: background 0.12s ease;
+  flex: none;
+}
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+  transition: transform 0.12s ease;
+}
+.show-all-input:checked + .switch {
+  background: var(--accent);
+}
+.show-all-input:checked + .switch .switch-knob {
+  transform: translateX(12px);
+}
+.show-all-input:focus-visible + .switch {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 /* Marks a sender none of whose mail is ever scored (only visible with "Show all"). */
 .excluded-tag {

@@ -37,6 +37,13 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.8.1] - 2026-08-14
+
+Summary: Render the Senders pane's Show All control as the same toggle switch the Lists pane uses.
+
+- Replace the Senders pane's plain checkbox with the sliding toggle switch of the Lists pane's Show All control, including its `role="switch"` and `aria-checked` state.
+- Move the control from the right of the pane header to immediately after the pane subtitle, where the Lists pane places its own.
+
 ## [1.8.0] - 2026-08-14
 
 Summary: Hide senders whose mail is never scored from the Senders pane, behind a "Show all" switch.
