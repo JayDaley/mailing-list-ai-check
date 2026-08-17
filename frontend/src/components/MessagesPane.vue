@@ -313,12 +313,13 @@ function clearAll() {
 
 // --- export / import ---
 // Export and import carry whole messages and their pipeline state, not the
-// filtered view: the export button opens a dialog for picking one or more lists
-// and an optional range of message dates (pre-ticked with the current list
-// filter, and no other filter is applied); import ingests an uploaded JSON Lines
+// filtered view: the export button opens a dialog for picking a format, one or
+// more lists and an optional range of message dates (pre-ticked with the current
+// list filter, and no other filter is applied); import ingests an uploaded JSON Lines
 // dump, zstd-compressed (as exports now are), gzipped (as older ones are) or
-// plain. Both surface their outcome in a transient toolbar status that
-// auto-clears.
+// plain. The dialog's stats format is the exception: it writes scores and
+// message metadata as CSV and is not re-importable. Both surface their outcome
+// in a transient toolbar status that auto-clears.
 const exportOpen = ref(false)
 const exporting = ref(false)
 const importing = ref(false)
@@ -357,12 +358,20 @@ function filenameFromDisposition(cd) {
 
 // `lists` empty means every list, which is what the endpoint reads an absent
 // `list` param as; buildQuery repeats the key for each name it is given.
-async function doExport({ lists: names, date_from, date_to }) {
+//
+// The two formats differ only in their endpoint and the one extra param: the
+// stats export takes the same selection and answers with a zip of CSV files,
+// `pseudonymous` sent only when it is set (an empty value is dropped anyway).
+async function doExport({ format, pseudonymous, lists: names, date_from, date_to }) {
   if (exporting.value) return
+  const stats = format === 'stats'
   exporting.value = true
   try {
-    const res = await fetch(apiUrl('/export', { list: names, date_from, date_to }), {
-      headers: { Accept: 'application/zstd' },
+    const path = stats ? '/export/stats' : '/export'
+    const params = { list: names, date_from, date_to }
+    if (stats && pseudonymous) params.pseudonymous = 'true'
+    const res = await fetch(apiUrl(path, params), {
+      headers: { Accept: stats ? 'application/zip' : 'application/zstd' },
     })
     if (!res.ok) {
       let msg = `Export failed (${res.status})`
@@ -376,7 +385,8 @@ async function doExport({ lists: names, date_from, date_to }) {
     }
     const blob = await res.blob()
     const fname =
-      filenameFromDisposition(res.headers.get('Content-Disposition')) || 'mailing-list-export.jsonl.zst'
+      filenameFromDisposition(res.headers.get('Content-Disposition')) ||
+      (stats ? 'mlac-stats.zip' : 'mailing-list-export.jsonl.zst')
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url

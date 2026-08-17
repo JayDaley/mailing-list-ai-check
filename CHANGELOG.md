@@ -37,6 +37,18 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.10.2] - 2026-08-17
+
+Summary: Add a stats export — scores and message metadata as CSV, with no message text, for analysis outside the app.
+
+- Add `stats_export.py`: a zip of `messages.csv`, `lists.csv`, `senders.csv`, `manifest.json` and a data-dictionary `README.md`, designed in `docs/stats-export.md`; not importable.
+- Include unscored and too-short messages in `messages.csv`, so share calculations over the file reproduce the dashboard's denominators.
+- Compute `lists.csv` and `senders.csv` aggregates over the exported scope with the dashboard's `ai_share` definition, so they sum exactly to `messages.csv`.
+- Add a pseudonymous variant that omits sender addresses, names and Message-IDs, keying senders `s1, s2, …` per export; reply links survive via a file-scoped `parent_key`.
+- Add the `mail-ai-export-stats` console script, taking the same selection flags as `mail-ai-export` plus `--pseudonymous`.
+- Add `GET /api/export/stats`, taking the same selection params as `GET /api/export` plus `pseudonymous`, streamed like the full export.
+- Add a Full / Stats format choice to the dashboard's export dialog, with a Pseudonymous option shown for the stats format.
+
 ## [1.10.1] - 2026-08-17
 
 Summary: Let an export select several lists and a range of message dates, from the dashboard, the CLI and the API alike.

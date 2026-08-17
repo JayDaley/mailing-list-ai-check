@@ -378,6 +378,43 @@ any number of them, searchable, pre-ticked with the pane's current list filter,
 or all lists when none is ticked — and an optional range of message dates. No
 other filter in the pane affects what is exported.
 
+### Stats export
+
+Export scores and message metadata for analysis outside the app — in a
+spreadsheet, pandas or R. The file is a zip of CSVs and carries no message
+text (no bodies, subjects, headers or extracted text) and cannot be imported;
+the full export above remains the only transfer format. The format is
+specified in [docs/stats-export.md](docs/stats-export.md).
+
+```bash
+# Per-message scores and metadata for named lists (writes stats.zip)
+mail-ai-export-stats announce last-call -o stats
+
+# Every list with a message in scope, bounded by message date
+mail-ai-export-stats --all-lists -o stats --date-from 2025-07-01
+
+# Pseudonymous variant: no addresses, names or Message-IDs
+mail-ai-export-stats --all-lists -o stats --pseudonymous
+```
+
+The archive holds `messages.csv` (one row per message in scope, scored or
+not, with label, the three Pangram fractions, timing band and extraction
+status), `lists.csv` and `senders.csv` (aggregates over the same scope, using
+the dashboard's AI-share definition), `manifest.json` (provenance: versions,
+selection, row counts) and a `README.md` data dictionary. Unscored and
+too-short messages are included so share calculations over the file reproduce
+the dashboard's numbers. List selection and the date range behave exactly as
+in `mail-ai-export`, including the `--date-to` edge described above.
+`--pseudonymous` omits sender addresses, names and Message-IDs, keying
+senders `s1, s2, …` within the file; reply relationships remain analysable
+through a file-scoped parent key. Like the full export, the command is a pure
+local database read.
+
+The dashboard's export dialog offers the same choice: a Full export (the
+re-importable archive) or a Stats export, with a Pseudonymous option.
+`GET /api/export/stats` takes the same parameters as `GET /api/export` plus
+`pseudonymous`.
+
 ## Costs and usage limits
 
 - **Pangram spend** is controlled three ways: the score cache never pays twice

@@ -39,12 +39,14 @@ from .pangram import (
     PangramError,
     generation_for_model,
 )
+from .stats_export import export_stats
 from .store import SETTING_PANGRAM_MODEL, Store, sha256_text
 
 log = logging.getLogger("mailing_list_ai_check.pull")
 extract_log = logging.getLogger("mailing_list_ai_check.extract")
 score_log = logging.getLogger("mailing_list_ai_check.score")
 export_log = logging.getLogger("mailing_list_ai_check.export")
+stats_export_log = logging.getLogger("mailing_list_ai_check.export-stats")
 import_log = logging.getLogger("mailing_list_ai_check.import")
 
 #: Client-enforced reliability floor (words). Below it, extractions are marked
@@ -1036,6 +1038,100 @@ def export_main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(exc))
 
     export_log.info("summary: %s", summary.as_line())
+    return 0
+
+
+# --- stats export command -------------------------------------------------------
+
+
+def build_stats_export_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="mail-ai-export-stats",
+        description=(
+            "Export the scores and message metadata of one or more lists as a zip "
+            "archive of CSV files for analysis outside the app, optionally limited "
+            "to a range of message dates. The archive carries no message text and "
+            "cannot be imported; '.zip' is appended to the output path unless it is "
+            "already there. A local database read only — no IMAP or Pangram calls."
+        ),
+    )
+    parser.add_argument(
+        "lists",
+        nargs="*",
+        help="one or more list names (e.g. 'announce' 'general'); omit with --all-lists",
+    )
+    parser.add_argument(
+        "--all-lists",
+        action="store_true",
+        help="export every list that has at least one message",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        help="output file path ('.zip' is appended unless already present); required",
+    )
+    parser.add_argument(
+        "--pseudonymous",
+        action="store_true",
+        help=(
+            "omit the sender addresses, names and Message-IDs, numbering senders "
+            "s1, s2, ... for this file alone"
+        ),
+    )
+    parser.add_argument(
+        "--date-from",
+        metavar="ISO",
+        help="export only messages dated on or after this ISO-8601 date/datetime",
+    )
+    parser.add_argument(
+        "--date-to",
+        metavar="ISO",
+        help=(
+            "export only messages dated on or before this ISO-8601 date/datetime "
+            "(a bare date excludes that day's messages, which carry a time)"
+        ),
+    )
+    parser.add_argument("--db", metavar="PATH", help="override the database path")
+    return parser
+
+
+def stats_export_main(argv: Sequence[str] | None = None) -> int:
+    parser = build_stats_export_parser()
+    args = parser.parse_args(argv)
+    if args.all_lists and args.lists:
+        parser.error("give either list names or --all-lists, not both")
+    if not args.all_lists and not args.lists:
+        parser.error("specify at least one list name, or --all-lists")
+    if not args.output:
+        parser.error("-o/--output is required")
+    date_from = _validated_date(parser, "--date-from", args.date_from)
+    date_to = _validated_date(parser, "--date-to", args.date_to)
+
+    config = Config.load()
+    db_path = args.db or config.database_path
+
+    logging.basicConfig(
+        level=getattr(logging, config.log_level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    list_names = args.lists or None
+    try:
+        with Store(db_path) as store:
+            summary = export_stats(
+                store,
+                list_names,
+                args.output,
+                all_lists=args.all_lists,
+                pseudonymous=args.pseudonymous,
+                date_from=date_from,
+                date_to=date_to,
+            )
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    stats_export_log.info("summary: %s", summary.as_line())
     return 0
 
 

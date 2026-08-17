@@ -54,6 +54,7 @@ from ..staleness import (
     diff as diff_extractions,
     reextract,
 )
+from ..stats_export import export_stats
 from ..store import (
     DEFAULT_PER_PAGE,
     MAX_PER_PAGE,
@@ -1778,23 +1779,30 @@ def _unlink_quietly(path: str) -> bool:
     return True
 
 
-@api_bp.get("/export")
-def export() -> Any:
-    """Download selected messages and their pipeline state as a zstd JSON Lines export.
+def _selected_lists(args: Any) -> list[str]:
+    """The ``list`` query params an export was given, de-duplicated in order.
 
-    Query param ``list`` (optional, repeatable) names the lists to export — one
-    ``list=`` per list, an unknown name being a 404; omitting it entirely exports
-    every list that has at least one message in scope. ``date_from`` / ``date_to``
-    (optional, ISO-8601 date or datetime) bound the exported messages by their
-    date, inclusive at both ends and each usable alone; they narrow the messages
-    only, never the format, so a ranged export imports like any other. When the
-    selection holds no message — an empty database, or a range nothing falls in —
-    the response is a 404. The file is built via
-    :func:`mailing_list_ai_check.export_import.export_lists` into a temporary
-    ``.jsonl.zst`` file and served as an ``application/zstd`` attachment named
-    ``mlac-export-<slug>-<YYYYMMDD>.jsonl.zst``, where ``<slug>`` is the one list's
-    name, ``<n>-lists`` for several, or ``all``. A local database read only — no
-    IMAP or Pangram calls, and message bodies are never logged.
+    A name sent twice does not ask the exporter for the same list twice. Empty
+    values are dropped, which keeps a bare ``?list=`` meaning "every list" rather
+    than "the list called ''".
+    """
+    names: list[str] = []
+    for raw in args.getlist("list"):
+        name = raw.strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _download_temp_file(
+    serve_path: str, temp_paths: set[str], *, filename: str, mimetype: str
+) -> Response:
+    """Stream a finished temporary export file back as an attachment, then delete it.
+
+    ``serve_path`` is the file to send and ``temp_paths`` every name the build may
+    have created (the ``mkstemp`` name and the path actually written); all of them
+    are removed. Shared by :func:`export` and :func:`export_stats_download`, whose
+    only differences are the builder, the name and the content type.
 
     Streaming and temp-file lifetime
     --------------------------------
@@ -1830,16 +1838,73 @@ def export() -> Any:
     outside our control while adding range/conditional handling that a file which
     exists for exactly one request cannot honour.
     """
+    fh = None
+    try:
+        fh = open(serve_path, "rb")
+        size = os.fstat(fh.fileno()).st_size
+    except BaseException:  # pragma: no cover - only a failing open/fstat gets here
+        if fh is not None:
+            fh.close()
+        for path in temp_paths:
+            _unlink_quietly(path)
+        raise
+
+    # Unlink while the descriptor is open, so the bytes stay readable through
+    # ``fh`` under a name that no longer exists. Whatever survives that (a
+    # platform that refuses to remove an open file) is retried in ``release``.
+    pending = {path for path in temp_paths if not _unlink_quietly(path)}
+
+    def release() -> None:
+        """Drop the descriptor, and any name the unlink above could not remove."""
+        fh.close()
+        for leftover in tuple(pending):
+            if _unlink_quietly(leftover):
+                pending.discard(leftover)
+
+    def stream() -> Iterator[bytes]:
+        try:
+            while chunk := fh.read(_EXPORT_CHUNK_BYTES):
+                yield chunk
+        finally:
+            release()
+
+    # The size is final: the export is complete and the file is already unlinked,
+    # so nothing can change it and Content-Length cannot go stale.
+    response = Response(
+        stream(),
+        mimetype=mimetype,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(size),
+        },
+    )
+    response.call_on_close(release)
+    return response
+
+
+@api_bp.get("/export")
+def export() -> Any:
+    """Download selected messages and their pipeline state as a zstd JSON Lines export.
+
+    Query param ``list`` (optional, repeatable) names the lists to export — one
+    ``list=`` per list, an unknown name being a 404; omitting it entirely exports
+    every list that has at least one message in scope. ``date_from`` / ``date_to``
+    (optional, ISO-8601 date or datetime) bound the exported messages by their
+    date, inclusive at both ends and each usable alone; they narrow the messages
+    only, never the format, so a ranged export imports like any other. When the
+    selection holds no message — an empty database, or a range nothing falls in —
+    the response is a 404. The file is built via
+    :func:`mailing_list_ai_check.export_import.export_lists` into a temporary
+    ``.jsonl.zst`` file and served as an ``application/zstd`` attachment named
+    ``mlac-export-<slug>-<YYYYMMDD>.jsonl.zst``, where ``<slug>`` is the one list's
+    name, ``<n>-lists`` for several, or ``all``. A local database read only — no
+    IMAP or Pangram calls, and message bodies are never logged.
+
+    The finished file is streamed and cleaned up by :func:`_download_temp_file`,
+    whose docstring covers the temp-file lifetime.
+    """
     store = get_store()
-    # Repeated ``list=`` params, de-duplicated in first-seen order so a name sent
-    # twice does not ask the exporter for the same list twice. Empty values are
-    # dropped, which keeps a bare ``?list=`` meaning "every list" rather than
-    # "the list called ''".
-    list_names: list[str] = []
-    for raw in request.args.getlist("list"):
-        name = raw.strip()
-        if name and name not in list_names:
-            list_names.append(name)
+    list_names = _selected_lists(request.args)
     date_from = _validate_iso("date_from", request.args.get("date_from"))
     date_to = _validate_iso("date_to", request.args.get("date_to"))
 
@@ -1850,7 +1915,6 @@ def export() -> Any:
     fd, tmp_path = tempfile.mkstemp(suffix=".jsonl.zst")
     os.close(fd)
     written_path = tmp_path
-    fh = None
     try:
         try:
             summary = export_lists(
@@ -1872,50 +1936,78 @@ def export() -> Any:
         # list always resolves — it is the range that can empty it.
         if summary.lists == 0 or summary.messages == 0:
             raise ApiError("nothing to export", 404)
-
-        fh = open(written_path, "rb")
-        size = os.fstat(fh.fileno()).st_size
     except BaseException:
-        if fh is not None:  # pragma: no cover - only a failing fstat gets here
-            fh.close()
         for path in {tmp_path, written_path}:
             _unlink_quietly(path)
         raise
 
-    # Unlink while the descriptor is open, so the bytes stay readable through
-    # ``fh`` under a name that no longer exists. Whatever survives that (a
-    # platform that refuses to remove an open file) is retried in ``release``.
-    pending = {path for path in (tmp_path, written_path) if not _unlink_quietly(path)}
-
-    def release() -> None:
-        """Drop the descriptor, and any name the unlink above could not remove."""
-        fh.close()
-        for leftover in tuple(pending):
-            if _unlink_quietly(leftover):
-                pending.discard(leftover)
-
-    def stream() -> Iterator[bytes]:
-        try:
-            while chunk := fh.read(_EXPORT_CHUNK_BYTES):
-                yield chunk
-        finally:
-            release()
-
     filename = (
         f"mlac-export-{_export_slug(list_names)}-{datetime.now().strftime('%Y%m%d')}.jsonl.zst"
     )
-    # The size is final: the export is complete and the file is already unlinked,
-    # so nothing can change it and Content-Length cannot go stale.
-    response = Response(
-        stream(),
+    return _download_temp_file(
+        written_path,
+        {tmp_path, written_path},
+        filename=filename,
         mimetype="application/zstd",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Length": str(size),
-        },
     )
-    response.call_on_close(release)
-    return response
+
+
+@api_bp.get("/export/stats")
+def export_stats_download() -> Any:
+    """Download the selected messages' scores and metadata as a CSV zip archive.
+
+    The selection params are the full export's: ``list`` (optional, repeatable,
+    an unknown name being a 404) and the inclusive ``date_from`` / ``date_to``
+    bounds (a malformed one being a 400), with an empty selection again a 404.
+    ``pseudonymous`` (boolean, default false) omits the sender addresses, names
+    and Message-IDs and numbers the senders instead.
+
+    The archive is built via
+    :func:`mailing_list_ai_check.stats_export.export_stats` into a temporary
+    ``.zip`` and served as an ``application/zip`` attachment named
+    ``mlac-stats-<slug>-<YYYYMMDD>.zip``, with the same ``<slug>`` rules as the
+    full export and the same streaming and temp-file handling (see
+    :func:`_download_temp_file`). It carries no message text and cannot be
+    imported. A local database read only — no IMAP or Pangram calls.
+    """
+    store = get_store()
+    list_names = _selected_lists(request.args)
+    date_from = _validate_iso("date_from", request.args.get("date_from"))
+    date_to = _validate_iso("date_to", request.args.get("date_to"))
+    pseudonymous = _parse_bool("pseudonymous", request.args.get("pseudonymous")) or False
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    written_path = tmp_path
+    try:
+        try:
+            summary = export_stats(
+                store,
+                list_names or None,
+                tmp_path,
+                all_lists=not list_names,
+                pseudonymous=pseudonymous,
+                date_from=date_from,
+                date_to=date_to,
+            )
+        except ValueError as exc:
+            # Unknown list name (the only ValueError export_stats raises for input).
+            raise ApiError(str(exc), 404) from exc
+        written_path = summary.path
+        if summary.lists == 0 or summary.messages == 0:
+            raise ApiError("nothing to export", 404)
+    except BaseException:
+        for path in {tmp_path, written_path}:
+            _unlink_quietly(path)
+        raise
+
+    filename = f"mlac-stats-{_export_slug(list_names)}-{datetime.now().strftime('%Y%m%d')}.zip"
+    return _download_temp_file(
+        written_path,
+        {tmp_path, written_path},
+        filename=filename,
+        mimetype="application/zip",
+    )
 
 
 @api_bp.post("/import")

@@ -242,6 +242,78 @@ def _resolve_pointer(pointer: Any, raw_body: str | None) -> str:
     raise ExportImportError(f"unknown extraction text pointer kind: {kind!r}")
 
 
+def _range_clause(column: str, date_from: str | None, date_to: str | None) -> str:
+    """A date-range SQL fragment for ``column``, appended to a message query.
+
+    ``column`` is the qualified date column of the query being extended, never
+    user input; the bounds themselves are passed separately (see
+    :func:`_range_params`) so that every query in one export selects the
+    identical set of messages. Empty when neither bound is given, which leaves
+    those queries byte-for-byte the ones an unranged export has always run.
+    """
+    clause = f" AND {column} >= ?" if date_from else ""
+    return clause + (f" AND {column} <= ?" if date_to else "")
+
+
+def _range_params(date_from: str | None, date_to: str | None) -> list[str]:
+    """The bound parameters :func:`_range_clause` leaves placeholders for."""
+    return [bound for bound in (date_from, date_to) if bound]
+
+
+def _select_lists(
+    conn: Any,
+    list_names: Sequence[str] | None,
+    *,
+    all_lists: bool,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[Any]:
+    """The ``lists`` rows an export selects, deduplicated by folder in file order.
+
+    Lists are chosen by ``lists.name`` (a name may match several rows — every
+    match is selected) or, with ``all_lists=True``, every list with at least one
+    message in the date range, ordered by folder. Passing both ``list_names`` and
+    ``all_lists`` — or neither — is a :class:`ValueError`, as is an unknown name.
+    A named list is selected whether or not the range leaves it any message.
+
+    Shared by :func:`export_lists` and
+    :func:`~.stats_export.export_stats` so the two exports, their CLIs and their
+    endpoints select the same lists from the same arguments.
+    """
+    has_names = list_names is not None and len(list_names) > 0
+    if all_lists and has_names:
+        raise ValueError("give either list names or all_lists=True, not both")
+    if not all_lists and not has_names:
+        raise ValueError("give one or more list names, or all_lists=True")
+
+    selected: list[Any] = []
+    seen_folders: set[str] = set()
+    if all_lists:
+        rows = conn.execute(
+            "SELECT * FROM lists l "
+            "WHERE EXISTS (SELECT 1 FROM messages m WHERE m.list_id = l.id"
+            f"{_range_clause('m.date', date_from, date_to)}) "
+            "ORDER BY l.folder",
+            _range_params(date_from, date_to),
+        ).fetchall()
+        for row in rows:
+            selected.append(row)
+            seen_folders.add(row["folder"])
+    else:
+        assert list_names is not None
+        for name in list_names:
+            matches = conn.execute(
+                "SELECT * FROM lists WHERE name = ? ORDER BY folder", (name,)
+            ).fetchall()
+            if not matches:
+                raise ValueError(f"unknown list name: {name!r}")
+            for row in matches:
+                if row["folder"] not in seen_folders:
+                    seen_folders.add(row["folder"])
+                    selected.append(row)
+    return selected
+
+
 def _file_generation(extraction: dict[str, Any], pipeline_version: str | None) -> int | None:
     """The extraction generation an imported ``extraction`` record stands for.
 
@@ -310,51 +382,19 @@ def export_lists(
     memory is independent of how much mail is being exported. Purely a local
     database read: no IMAP, no Pangram, no caps involved.
     """
-    has_names = list_names is not None and len(list_names) > 0
-    if all_lists and has_names:
-        raise ValueError("give either list names or all_lists=True, not both")
-    if not all_lists and not has_names:
-        raise ValueError("give one or more list names, or all_lists=True")
-
     conn = store.conn
 
     # The date range as a SQL fragment + bound params, appended to every query
-    # that walks messages so all three select the identical set. ``column`` is
-    # the qualified date column of the query being extended, never user input.
-    # Both are empty when neither bound is given, which leaves those queries
-    # byte-for-byte the ones an unranged export has always run.
+    # that walks messages so all three select the identical set.
     def range_clause(column: str) -> str:
-        clause = f" AND {column} >= ?" if date_from else ""
-        return clause + (f" AND {column} <= ?" if date_to else "")
+        return _range_clause(column, date_from, date_to)
 
-    range_params = [bound for bound in (date_from, date_to) if bound]
+    range_params = _range_params(date_from, date_to)
 
     # Resolve the selected list rows, deduplicated by folder in a stable order.
-    selected: list[Any] = []
-    seen_folders: set[str] = set()
-    if all_lists:
-        rows = conn.execute(
-            "SELECT * FROM lists l "
-            "WHERE EXISTS (SELECT 1 FROM messages m WHERE m.list_id = l.id"
-            f"{range_clause('m.date')}) "
-            "ORDER BY l.folder",
-            range_params,
-        ).fetchall()
-        for row in rows:
-            selected.append(row)
-            seen_folders.add(row["folder"])
-    else:
-        assert list_names is not None
-        for name in list_names:
-            matches = conn.execute(
-                "SELECT * FROM lists WHERE name = ? ORDER BY folder", (name,)
-            ).fetchall()
-            if not matches:
-                raise ValueError(f"unknown list name: {name!r}")
-            for row in matches:
-                if row["folder"] not in seen_folders:
-                    seen_folders.add(row["folder"])
-                    selected.append(row)
+    selected = _select_lists(
+        conn, list_names, all_lists=all_lists, date_from=date_from, date_to=date_to
+    )
 
     # Pre-pass: which addresses do the exported messages reference? The format
     # puts person and address records ahead of the messages that reference them

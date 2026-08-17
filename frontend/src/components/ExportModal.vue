@@ -1,7 +1,12 @@
 <script setup>
-// The export dialog: choose which lists to export and, optionally, a range of
-// message dates. The parent (MessagesPane) owns the download itself; this
-// component only collects the selection and emits it.
+// The export dialog: choose the export format, which lists to export and,
+// optionally, a range of message dates. The parent (MessagesPane) owns the
+// download itself; this component only collects the selection and emits it.
+//
+// Two formats are offered. The full export is the re-importable archive of
+// whole messages; the stats export is a CSV bundle of scores and metadata for
+// analysis elsewhere, with an option to leave sender identities and
+// Message-IDs out of it. List and date selection are shared between them.
 //
 // Selecting no list means every list, which is what the API's absent `list`
 // param means — the "All lists" row is therefore a shortcut that clears the
@@ -14,7 +19,9 @@
 //   - busy    {boolean}  a download is in flight → controls disabled
 // Emits:
 //   - close                                   Cancel, Escape or a backdrop click
-//   - export {lists, date_from, date_to}      the Export button
+//   - export {format, pseudonymous, lists, date_from, date_to}   the Export
+//     button; `format` is 'full' or 'stats' and `pseudonymous` is meaningful
+//     for the stats format only
 import { ref, computed, watch, onUnmounted } from 'vue'
 
 import { fmtInt } from '../lib/format'
@@ -27,18 +34,23 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'export'])
 
+const format = ref('full')
+const pseudonymous = ref(false)
 const selected = ref([])
 const search = ref('')
 const dateFrom = ref('')
 const dateTo = ref('')
 
-// Each opening starts from the pane's current list filter and an empty range,
-// so the dialog never carries a stale selection into a later export.
+// Each opening starts from the pane's current list filter, the full format and
+// an empty range, so the dialog never carries a stale selection into a later
+// export.
 watch(
   () => props.open,
   (open) => {
     if (open) {
       selected.value = props.preset.filter((n) => props.lists.some((l) => l.name === n))
+      format.value = 'full'
+      pseudonymous.value = false
       search.value = ''
       dateFrom.value = ''
       dateTo.value = ''
@@ -51,6 +63,16 @@ watch(
 onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 const allLists = computed(() => selected.value.length === 0)
+
+const isStats = computed(() => format.value === 'stats')
+
+// The intro describes the format in hand: the two produce different artifacts
+// with different contents, and the dates apply to both.
+const intro = computed(() =>
+  isStats.value
+    ? 'Exports scores and message metadata as CSV, without any message text. Leave the dates empty to export every message.'
+    : 'Exports whole messages and their pipeline state, not the filtered view. Leave the dates empty to export every message.',
+)
 
 // There are hundreds of lists to scroll, so the picker is searched by substring
 // (the Lists pane's box does the same). A search must never hide what is about
@@ -83,14 +105,22 @@ const rangeInverted = computed(
 )
 
 const summary = computed(() => {
+  const kind = isStats.value
+    ? pseudonymous.value
+      ? 'Stats, pseudonymous'
+      : 'Stats'
+    : 'Full'
   const scope = allLists.value
     ? 'All lists'
     : selected.value.length === 1
       ? `1 list`
       : `${selected.value.length} lists`
-  if (!dateFrom.value && !dateTo.value) return `${scope}, all dates`
-  if (dateFrom.value && dateTo.value) return `${scope}, ${dateFrom.value} to ${dateTo.value}`
-  return dateFrom.value ? `${scope}, from ${dateFrom.value}` : `${scope}, up to ${dateTo.value}`
+  if (!dateFrom.value && !dateTo.value) return `${kind} — ${scope}, all dates`
+  if (dateFrom.value && dateTo.value)
+    return `${kind} — ${scope}, ${dateFrom.value} to ${dateTo.value}`
+  return dateFrom.value
+    ? `${kind} — ${scope}, from ${dateFrom.value}`
+    : `${kind} — ${scope}, up to ${dateTo.value}`
 })
 
 function requestClose() {
@@ -104,6 +134,8 @@ function onKeydown(e) {
 function submit() {
   if (props.busy || rangeInverted.value) return
   emit('export', {
+    format: format.value,
+    pseudonymous: isStats.value && pseudonymous.value,
     lists: [...selected.value],
     date_from: dateFrom.value,
     date_to: dateTo.value,
@@ -116,10 +148,32 @@ function submit() {
     <div v-if="open" class="ex-overlay" @click.self="requestClose">
       <div class="ex-modal" role="dialog" aria-modal="true" aria-label="Export">
         <div class="ex-title">Export</div>
-        <div class="ex-intro">
-          Exports whole messages and their pipeline state, not the filtered view. Leave the
-          dates empty to export every message.
+        <div class="ex-intro">{{ intro }}</div>
+
+        <div class="ex-section-label">Format</div>
+        <div class="ex-formats">
+          <label class="ex-format">
+            <input v-model="format" type="radio" value="full" :disabled="busy" />
+            <span class="ex-format-name">Full</span>
+            <span class="ex-format-ext">.jsonl.zst</span>
+          </label>
+          <label class="ex-format">
+            <input v-model="format" type="radio" value="stats" :disabled="busy" />
+            <span class="ex-format-name">Stats</span>
+            <span class="ex-format-ext">.zip</span>
+          </label>
         </div>
+        <!-- Offered explicitly rather than following the dashboard's anonymous
+             mode, which is a display preference and does not reach the file. -->
+        <template v-if="isStats">
+          <label class="ex-check">
+            <input v-model="pseudonymous" type="checkbox" :disabled="busy" />
+            <span>Pseudonymous</span>
+          </label>
+          <div class="ex-note">
+            Leaves out sender addresses, names and Message-IDs. Lists, dates and threads remain.
+          </div>
+        </template>
 
         <div class="ex-section-head">
           <span class="ex-section-label">Lists</span>
@@ -233,6 +287,34 @@ function submit() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  margin-top: 12px;
+}
+.ex-formats {
+  display: flex;
+  gap: 18px;
+}
+.ex-format {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.ex-format-name {
+  color: var(--text-name);
+  font-weight: 600;
+}
+.ex-format-ext {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.ex-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  color: var(--text-name);
+  cursor: pointer;
 }
 .ex-search {
   width: 150px;
