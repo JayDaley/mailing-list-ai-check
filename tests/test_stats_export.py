@@ -37,6 +37,7 @@ import pytest
 
 from mailing_list_ai_check import __version__, codec, export_import
 from mailing_list_ai_check.cli import stats_export_main
+from mailing_list_ai_check.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.stats_export import (
     DATAPACKAGE_MEMBER,
     DATAPACKAGE_PROFILE,
@@ -509,7 +510,7 @@ def test_mlac_records_provenance_and_the_values_present(source, tmp_path):
     assert mlac["folders"] == [ANNOUNCE, LAST_CALL]
     # Only the versions actually present in the file, not everything the app knows.
     assert mlac["detector_versions"] == ["3.3.2", "4.0.0"]
-    assert mlac["extraction_versions"] == [1, 2]
+    assert mlac["extraction_versions"] == [1, EXTRACTION_VERSION]
     assert "date_from" not in mlac and "date_to" not in mlac
     # The single-variant format states no identity flag.
     assert "identified" not in mlac

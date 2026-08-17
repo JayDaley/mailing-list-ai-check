@@ -494,6 +494,96 @@ def test_find_quote_header_block_requires_signal_field():
     assert find_quote_header_block(lines) is None
 
 
+def test_find_quote_header_block_not_blocked_by_signature_contact_line():
+    # ERP fragment re-joining can glue a signature's last lines directly above
+    # the quote header. "Tel:"/"Email:" are header-shaped but not transport
+    # fields, so they must not disqualify the From: below them.
+    lines = (
+        "Thanks for clarifying.\n\n"
+        "Email: dick@example.org\n"
+        "Tel: +1 978-555-0100\n"
+        "From: Amaury Chamayou <amaury@example.com>\n"
+        "Sent: Sunday, November 16, 2025 12:16 PM\n"
+        "To: someone@example.org\n"
+        "Subject: Re: WGLC\n\n"
+        "Hi Dick,\n"
+    ).split("\n")
+    idx = find_quote_header_block(lines)
+    assert idx is not None
+    assert lines[idx].startswith("From: Amaury")
+
+
+def test_find_quote_header_block_folded_lines_without_indent():
+    # Archive renderings fold long header lines with no leading whitespace
+    # ("… On\nBehalf Of …"); the walk must read them as continuations rather
+    # than ending the run before the signal fields.
+    lines = (
+        "My reply.\n\n"
+        "From: wg@example.org [mailto:wg-bounces@example.org] On\n"
+        "Behalf Of Jordi Ros Giralt\n"
+        "Sent: Monday, June 1, 2026 9:00 AM\n"
+        "To: wg@example.org\n"
+        "Subject: Re: draft\n\n"
+        "Quoted.\n"
+    ).split("\n")
+    idx = find_quote_header_block(lines)
+    assert idx is not None
+    assert lines[idx].startswith("From: wg@example.org")
+
+
+def test_find_quote_header_block_double_spaced_fields():
+    # Some renderings put a blank line between every header field.
+    lines = (
+        "My reply.\n\n"
+        "From: Mahesh Jethanandani <mjethanandani@example.org>\n\n"
+        "Sent: Tuesday, June 23, 2026 2:33 PM\n\n"
+        "To: wg@example.org\n\n"
+        "Subject: Re: draft\n\n"
+        "Quoted content.\n"
+    ).split("\n")
+    idx = find_quote_header_block(lines)
+    assert idx is not None
+    assert lines[idx].startswith("From: Mahesh")
+
+
+def test_prose_from_line_without_address_gets_strict_walk():
+    # A paragraph whose first line starts "From:" but carries no address gets
+    # the strict walk: an unindented prose line ends the run before a signal
+    # field can qualify the paragraph as a quote header.
+    lines = (
+        "From: my perspective, the proposal is fine.\n"
+        "It aligns with what we said earlier in the thread.\n"
+        "Subject: naming is the only open question.\n"
+    ).split("\n")
+    assert find_quote_header_block(lines) is None
+
+
+def test_glued_signature_quote_header_extracts_author_only():
+    # End-to-end shape of the businesscyberguardian defect: a top-posted reply
+    # whose signature ends in contact lines, then an Outlook quote header with
+    # a folded To:, then the quoted thread. Only the reply and its signature
+    # survive stage 1.
+    body = (
+        "Thanks for clarifying. I suggest adding two more data elements.\n\n"
+        "Thanks,\n\nDick Brooks\n\n"
+        "Email: dick@example.org\n\n"
+        "Tel: +1 978-555-0100\n\n\n"
+        "From: Amaury Chamayou <amaury@example.com>\n"
+        "Sent: Sunday, November 16, 2025 12:16 PM\n"
+        "To: 'Antoine Delignat-Lavaud' <antdl@example.com>; 'Chris\n"
+        "Inacio' <inacio@example.org>; wg@example.org\n"
+        "Subject: Re: [EXTERNAL] Re: WGLC for the document\n\n"
+        "Hi Dick,\n\nCWT Claims are mandatory in Signed Statements.\n\n"
+        "Thank you,\nAmaury\n"
+    )
+    result = extract_new_text(body)
+    assert result.status == "ok"
+    assert result.method == "erp+custom"
+    assert "Amaury Chamayou" not in result.text
+    assert "CWT Claims" not in result.text
+    assert "Tel: +1 978-555-0100" in result.text  # signature survives stage 1
+
+
 def test_strip_after_chinese_original_message_divider():
     # The Chinese Outlook divider "-----邮件原件-----" (and QQ Mail's
     # "-----原始邮件-----") truncates like "-----Original Message-----".

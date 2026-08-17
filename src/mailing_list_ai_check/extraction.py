@@ -46,7 +46,13 @@ The custom pass fixes, in a general way, the cases where raw email-reply-parser
   and everything after it, is dropped. Localized label sets are recognized too
   (German; Chinese 发件人/发送时间/收件人/主题 with full-width colons, as
   produced by Alibaba Mail and Chinese Outlook), along with the dashed divider
-  Alibaba Mail draws above the block.
+  Alibaba Mail draws above the block. The truncation runs on the intact body
+  *before* ERP: re-joining ERP's edge-stripped fragments can glue a signature
+  line (``Tel:``/``Email:``) directly above the block's ``From:``, which would
+  otherwise disguise the block as pasted header evidence. When the ``From:``
+  line carries an address, the block is also recognized in the two mangled
+  renderings archives produce — folded header lines that lost their leading
+  whitespace, and a blank line between every field.
 - **"Original message" dividers**: the dashed ``-------- Original message
   --------`` (or ``-----Original Message-----`` / "Forwarded message") divider
   and everything after it is dropped — including when HTML-to-text conversion
@@ -114,7 +120,9 @@ lets an older app read a store written by a newer one as "not stale" rather than
 offering to downgrade good text.
 
 Known generations: **1** initial release; **2** the localized quote-header and
-custom signature-block rules (v1.2.0).
+custom signature-block rules (v1.2.0); **3** quote-header truncation before ERP,
+with folded and double-spaced header tolerance and the transport-header
+pasted-evidence guard (v1.11.0).
 """
 
 from __future__ import annotations
@@ -133,7 +141,7 @@ from .html_text import split_html_parts
 #: :mod:`html_text` together). Hand-incremented; see the module docstring for
 #: when and why. Stamped on every ``extractions`` row and compared with ``<`` by
 #: :mod:`staleness`, so it must only ever increase.
-EXTRACTION_VERSION: int = 2
+EXTRACTION_VERSION: int = 3
 
 # --- result -------------------------------------------------------------------
 
@@ -216,8 +224,10 @@ def is_quote_line(line: str) -> bool:
 
 # Full single-line attribution forms. Add a language by adding a pattern.
 _ATTRIBUTION_RES = (
-    # English: "On <date>, <who> wrote:"
-    re.compile(r"^[ \t]*On\b.*\bwrote:[ \t]*$"),
+    # English: "On <date>, <who> wrote:". No word boundary before "wrote" —
+    # ERP unwraps a line-wrapped attribution by deleting the newline, which can
+    # glue the author's address straight onto it ("…example.comwrote:").
+    re.compile(r"^[ \t]*On\b.*wrote:[ \t]*$"),
     # "<who> <a@b> wrote:" (no leading "On")
     re.compile(r"^.*<[^>]+@[^>]+>[ \t]+wrote:[ \t]*$"),
     # "<who> via Datatracker <a@b> wrote:" and similar are covered by the above.
@@ -233,7 +243,7 @@ _ATTRIBUTION_RES = (
 # appear on the following line(s). Structured per language for easy extension.
 _ATTRIBUTION_START_RE = re.compile(r"^[ \t]*(?:(?:On|Am|Le|El|El día)\b|\d{4}(?:年|[/.-]))")
 _ATTRIBUTION_END_RE = re.compile(
-    r"(?:\bwrote:|\bschrieb\b.*:|\ba écrit\s*:|\bescribió:|のメール:)[ \t]*$"
+    r"(?:wrote:|\bschrieb\b.*:|\ba écrit\s*:|\bescribió:|のメール:)[ \t]*$"
 )
 
 
@@ -446,13 +456,11 @@ _FROM_LINE_RE = re.compile(r"^[ \t]*(?:From:|发件人[ \t]*[:：])[ \t]*\S")
 _CJK_HEADER_LABEL = r"[\u4e00-\u9fff][\u4e00-\u9fff\u3000]{0,10}[ \t]*[:：]"
 
 # Any RFC5322-looking header field ("Name: …" / "Name:"), ASCII or CJK-labeled.
-# Used to (a) recognize that a ``From:`` sits *inside* an existing header run —
-# as with the pasted header "evidence" in the threadstarter-rfc2047-header
-# fixture, where every From: is preceded by another header line, so it is not
-# the top of a genuine quote header — and (b) walk the run once a real block has
-# started. Requiring whitespace or end-of-line after an ASCII label's colon
-# keeps "https://…" and other scheme-like prose (no space after the colon) from
-# matching.
+# Used to (a) delimit the header run above a ``From:`` that
+# :func:`_in_pasted_header_run` inspects for transport fields, and (b) walk the
+# run once a real block has started. Requiring whitespace or end-of-line after
+# an ASCII label's colon keeps "https://…" and other scheme-like prose (no
+# space after the colon) from matching.
 _HEADER_FIELD_RE = re.compile(
     rf"^[ \t]*(?:[A-Za-z][A-Za-z-]{{0,40}}:(?:[ \t]|$)|{_CJK_HEADER_LABEL})"
 )
@@ -469,28 +477,59 @@ _QUOTE_HEADER_SIGNAL_RE = re.compile(
 )
 
 
+# Transport/trace fields that a mail client's quote header never contains
+# (Outlook and its kin emit only From/Sent/Date/To/Cc/Subject). Their presence
+# in the header run directly above a ``From:`` marks the run as pasted header
+# *evidence* — a message quoted with its headers included, as in the
+# threadstarter-rfc2047-header fixture. A signature or banner line above the
+# ``From:`` (``Tel:``, ``Email:``, ``Classification:``) is header-shaped but
+# not transport, and does not disqualify the block.
+_TRANSPORT_HEADER_RE = re.compile(
+    r"^[ \t]*(?:Message-ID|References|In-Reply-To|Received|Return-Path"
+    r"|Resent-[A-Za-z-]+)[ \t]*:",
+    re.IGNORECASE,
+)
+
+
+def _in_pasted_header_run(lines: list[str], i: int) -> bool:
+    """True when the contiguous header-field run above ``lines[i]`` contains a
+    transport field: the ``From:`` then sits inside pasted header evidence
+    rather than opening a client's quote header.
+    """
+    j = i - 1
+    while j >= 0 and _HEADER_FIELD_RE.match(lines[j]):
+        if _TRANSPORT_HEADER_RE.match(lines[j]):
+            return True
+        j -= 1
+    return False
+
+
 def find_quote_header_block(lines: list[str]) -> int | None:
     """Return the index of the ``From:`` line that opens a forwarded/quote-header
     block, or ``None`` if the body has no such block.
 
-    A qualifying block: a ``From:`` line that is the *top* of its header run
-    (the line above it is blank, absent, or not itself a header field), followed
-    — allowing folded continuation lines — by at least one more header line, at
-    least one of which is a quote-header signal field (``Sent:``/``Date:``/
-    ``To:``/``Cc:``/``Subject:``/localized). The "top of the run" condition is
-    what distinguishes a real Outlook header (``From:`` first, after a blank line)
-    from pasted header *evidence* embedded in prose, where a ``From:`` is
-    preceded by ``Message-ID:``/``References:``/``In-Reply-To:`` — mirroring the
-    honorific-anchored "contact vs pasted From: header" distinction in
-    :data:`_CONTACT_RE`.
+    A qualifying block: a ``From:`` line that does not sit inside pasted header
+    evidence (see :func:`_in_pasted_header_run`), followed by at least one more
+    header line, at least one of which is a quote-header signal field
+    (``Sent:``/``Date:``/``To:``/``Cc:``/``Subject:``/localized).
+
+    When the ``From:`` line carries an address (``@``), the walk tolerates the
+    two mangled renderings mailing-list archives produce: folded header lines
+    that lost their leading whitespace ("From: … On\\nBehalf Of …",
+    ``<mailto:…>`` tails) read as continuations, and a single blank line
+    between fields (a double-spaced rendering) does not end the run when
+    another header field follows directly. Without an address the classic
+    strict walk applies — header fields and whitespace-indented continuations
+    only — so a prose line that happens to start "From: …" cannot reach across
+    its paragraph for a signal field.
     """
     n = len(lines)
     for i, line in enumerate(lines):
         if not _FROM_LINE_RE.match(line):
             continue
-        # The From: must open the run: the previous line must not be a header.
-        if i > 0 and _HEADER_FIELD_RE.match(lines[i - 1]):
+        if i > 0 and _in_pasted_header_run(lines, i):
             continue
+        tolerant = "@" in line
         header_lines = 1
         has_signal = False
         j = i + 1
@@ -501,8 +540,13 @@ def find_quote_header_block(lines: list[str]) -> int | None:
                 if _QUOTE_HEADER_SIGNAL_RE.match(nxt):
                     has_signal = True
                 j += 1
-            elif nxt[:1] in (" ", "\t") and nxt.strip():
+            elif nxt.strip() and (tolerant or nxt[:1] in (" ", "\t")):
                 # Folded continuation of the preceding header field.
+                j += 1
+            elif (
+                not nxt.strip() and tolerant and j + 1 < n and _HEADER_FIELD_RE.match(lines[j + 1])
+            ):
+                # Double-spaced rendering: a single blank between fields.
                 j += 1
             else:
                 break
@@ -768,15 +812,27 @@ def _core_extract(body: str, parent_body: str | None) -> tuple[str, str]:
     """
     normalized = normalize_body(body)
 
+    # Truncate at a forwarded/quote-header block *before* ERP. ERP strips each
+    # fragment's edges, so re-joining its fragments below can glue a signature
+    # line ("Tel: …") directly above the block's ``From:``, disguising a real
+    # quote header as pasted header evidence. On the intact body the blank line
+    # above the ``From:`` is still present, so the finder sees the true shape.
+    lines = normalized.split("\n")
+    pretruncated = find_quote_header_block(lines) is not None
+    if pretruncated:
+        normalized = "\n".join(strip_after_quote_header_block(lines))
+
     # Primary: join every ERP fragment that is not quoted — *including*
     # fragments ERP labels as a signature, which stage 1 must keep (stage 2
     # removes them). This is why we read fragments directly instead of
     # ``parse_reply``, which drops signature fragments. Forwarded quote-header
-    # blocks arrive as non-quoted "header" fragments here; the custom pass
+    # blocks that survive (ERP re-joining can reshape one out of the truncation
+    # above) arrive as non-quoted "header" fragments here; the custom pass
     # (``strip_after_quote_header_block`` / sign-off boundary) truncates them.
     message = EmailReplyParser.read(normalized)
     erp_out = "\n".join(frag.content for frag in message.fragments if not frag.quoted)
     cleaned = custom_clean(erp_out)
+    custom_changed = pretruncated or cleaned != erp_out.strip()
 
     # Over-strip guard: dashed-separator digests make ERP truncate at the
     # first "---" rule. If the primary path dropped most of the body's
@@ -789,10 +845,10 @@ def _core_extract(body: str, parent_body: str | None) -> tuple[str, str]:
             method = "custom-fallback"
         else:
             text = cleaned
-            method = "erp+custom" if cleaned != erp_out.strip() else "erp"
+            method = "erp+custom" if custom_changed else "erp"
     else:
         text = cleaned
-        method = "erp+custom" if cleaned != erp_out.strip() else "erp"
+        method = "erp+custom" if custom_changed else "erp"
 
     # Parent-diff assist: runs *after* guard resolution (so it never
     # perturbs the over-strip guard's denominator). We adopt the assisted text

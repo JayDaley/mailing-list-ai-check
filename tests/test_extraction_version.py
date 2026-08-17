@@ -35,14 +35,17 @@ FIXTURE_DIR = pathlib.Path(__file__).parent / "fixtures"
 ALL_STEMS = sorted(p.stem for p in FIXTURE_DIR.glob("*.eml"))
 
 #: SHA-256 of :func:`corpus_digest` over the fixture corpus, recorded against
-#: ``EXTRACTION_VERSION = 2``. Re-record it (and bump the constant) only when the
-#: change in behaviour is intended.
+#: ``EXTRACTION_VERSION = 3``. Re-record it (and bump the constant) only when the
+#: change in behaviour is intended. The generation-3 change (quote-header
+#: truncation before ERP, tolerant header walks) left every corpus output
+#: byte-identical — the shapes it fixes occur in stored mail, not in the corpus
+#: — so the digest value carries over from generation 2 unchanged.
 EXPECTED_DIGEST = "faf5f388795897201e92a58600b345c19656df939228bd87bd47ab1578f1db5f"
 
 #: The generation the digest above was recorded against. It exists so that a
 #: bump without a re-record, or a re-record without a bump, is visible in the
 #: diff of this file.
-DIGEST_EXTRACTION_VERSION = 2
+DIGEST_EXTRACTION_VERSION = 3
 
 
 def corpus_digest() -> str:

@@ -37,6 +37,17 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.11.0] - 2026-08-18
+
+Summary: Recognize Outlook quote-header blocks that the extraction previously missed, so top-posted replies no longer keep the quoted thread as new text (extraction generation 3).
+
+- Truncate at a quote-header block found on the intact body before email-reply-parser runs; fragment re-joining could glue a signature line above the `From:` and disguise the block.
+- Treat only transport fields (`Message-ID:`, `References:`, `In-Reply-To:`, `Received:`, `Return-Path:`, `Resent-*`) as pasted-header evidence, so a signature `Tel:` or banner `Classification:` line above a `From:` no longer hides a real block.
+- Recognize quote-header blocks whose `From:` line carries an address when header lines are folded without leading whitespace or separated by single blank lines.
+- Match the English attribution line without a word boundary before `wrote:`, covering the address glued onto it when email-reply-parser unwraps a wrapped attribution.
+- Report method `erp+custom` when the pre-ERP truncation removed content, matching the previous naming for the same cleanup.
+- Increment `EXTRACTION_VERSION` to 3; the fixture-corpus digest is unchanged because the affected shapes occur only in stored mail.
+
 ## [1.10.3] - 2026-08-18
 
 Summary: Key the stats export by mail-native identifiers, describe it with a standard Frictionless datapackage.json, and drop its pseudonymous variant (stats format version 2).
