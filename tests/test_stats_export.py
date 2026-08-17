@@ -1,24 +1,27 @@
 """Tests for the stats export (:mod:`mailing_list_ai_check.stats_export`).
 
 Written against ``docs/stats-export.md``: a zip archive of five members —
-``messages.csv`` (one row per message in scope, scored or not), the
-``lists.csv`` / ``senders.csv`` aggregates over the identical scope,
-``manifest.json`` and a data-dictionary ``README.md`` — in two variants, an
-identified one and a pseudonymous one whose identity columns are absent
-altogether.
+``messages.csv`` (one row per message in scope, scored or not), the ``lists.csv``
+aggregate over the identical scope, the two-column ``senders.csv`` grouping, the
+Frictionless Data Package descriptor ``datapackage.json`` and a data-dictionary
+``README.md``.
 
 The archive is an analysis artifact: nothing reads it back, so the assertions
-here are what an analyst would check. The aggregates are recomputed from
-``messages.csv`` and compared with the aggregate members, the row counts with
-the manifest, and the selected messages with the full export's for the same
-range.
+here are what an analyst would check. The list aggregates are recomputed from
+``messages.csv`` and compared with the aggregate member, the row counts with the
+descriptor, and the selected messages with the full export's for the same range.
+The descriptor is checked against the files it describes — its resource paths
+against the members, its declared fields against each header row, its keys and
+its enum vocabularies against the values the columns hold — and a real export is
+validated against the ``frictionless`` tool itself in local verification rather
+than as a test dependency.
 
 Fixtures are built through the public :class:`Store` API. The source database
 covers: two lists; a person posting from two addresses; two unlinked addresses,
-one of them never extracted; a message with no sender address; a reply whose
-parent is in the export and one whose parent is not; extractions that are
-scored, unscored and gated under the reliability floor; two detector versions
-and two extraction generations.
+one of them never extracted; an address with no message at all; a message with no
+sender address; a reply whose parent is in the export and one whose parent is
+not; extractions that are scored, unscored and gated under the reliability
+floor; two detector versions and two extraction generations.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ import csv
 import io
 import json
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -34,24 +38,26 @@ import pytest
 from mailing_list_ai_check import __version__, codec, export_import
 from mailing_list_ai_check.cli import stats_export_main
 from mailing_list_ai_check.stats_export import (
+    DATAPACKAGE_MEMBER,
+    DATAPACKAGE_PROFILE,
+    LABELS,
     LISTS_MEMBER,
-    MANIFEST_MEMBER,
     MESSAGES_MEMBER,
     README_MEMBER,
     SENDERS_MEMBER,
     STATS_FORMAT_NAME,
     STATS_FORMAT_VERSION,
+    TIMING_BANDS,
     export_stats,
 )
-from mailing_list_ai_check.store import Store, ai_share, sha256_text
+from mailing_list_ai_check.store import EXTRACTION_STATUSES, Store, ai_share, sha256_text
 
 # --- fixture data -------------------------------------------------------------
 
 ANNOUNCE = "Shared Folders/announce"
 LAST_CALL = "Shared Folders/last-call"
 
-# Message natural-key ids, in the order they are inserted and therefore emitted,
-# so <mN@example.org> carries the message key "mN".
+# Message natural keys, in the order they are inserted and therefore emitted.
 M1 = "<m1@example.org>"  # announce, Alice (person), scored AI
 M2 = "<m2@example.org>"  # announce, Bob, reply to M1, scored Human
 M3 = "<m3@example.org>"  # announce, no sender address, extracted but unscored
@@ -60,7 +66,7 @@ M5 = "<m5@example.org>"  # announce, Alice's second address, too_short
 M6 = "<m6@example.org>"  # last-call, Alice, reply to a parent outside the export
 
 # In-Reply-To as it can arrive: surrounded by whitespace and trailing CFWS. The
-# parent lookup normalises it exactly as the reply-timing recompute does.
+# column carries the stored value verbatim, tokens and all.
 M2_IN_REPLY_TO = f"  {M1} (the original)"
 OUTSIDE = "<outside@example.org>"
 
@@ -225,6 +231,8 @@ def _build_source(store: Store) -> dict[str, int]:
 
     return {
         "person": person.id,
+        "announce": announce.id,
+        "last_call": last_call.id,
         "alice": alice.id,
         "alice_work": alice_work.id,
         "bob": bob.id,
@@ -267,26 +275,36 @@ def _columns(path: Path, member: str) -> list[str]:
     return next(csv.reader(text))
 
 
-def _manifest(path: Path) -> dict:
-    return json.loads(_member_bytes(path, MANIFEST_MEMBER).decode("utf-8"))
+def _datapackage(path: Path) -> dict:
+    """The archive's descriptor, parsed."""
+    return json.loads(_member_bytes(path, DATAPACKAGE_MEMBER).decode("utf-8"))
 
 
-def _by_key(rows: list[dict[str, str]], column: str = "message_key") -> dict[str, dict[str, str]]:
-    return {row[column]: row for row in rows}
+def _mlac(path: Path) -> dict:
+    """The descriptor's custom provenance object."""
+    return _datapackage(path)["mlac"]
+
+
+def _resources(path: Path) -> dict[str, dict]:
+    """The descriptor's resources, keyed by resource name."""
+    return {resource["name"]: resource for resource in _datapackage(path)["resources"]}
+
+
+def _by_message_id(rows: list[dict[str, str]]) -> dict[str, dict[str, str]]:
+    """The message rows keyed by ``message_id``, for a scope with no cross-post."""
+    return {row["message_id"]: row for row in rows}
 
 
 def _recomputed(rows: list[dict[str, str]], column: str) -> dict[str, dict[str, object]]:
-    """The aggregates ``lists.csv`` / ``senders.csv`` hold, recomputed from the rows.
+    """The aggregates ``lists.csv`` holds, recomputed from the message rows.
 
-    Grouped by ``column`` (``folder`` or ``sender_key``), counting exactly what
-    the spec defines each aggregate column to be, so a mismatch is a bug in the
-    export rather than a restatement of its own arithmetic.
+    Grouped by ``column`` (``folder``), counting exactly what the spec defines
+    each aggregate column to be, so a mismatch is a bug in the export rather than
+    a restatement of its own arithmetic.
     """
     groups: dict[str, dict[str, object]] = {}
     for row in rows:
         key = row[column]
-        if not key:
-            continue  # a message with no sender address belongs to no sender
         group = groups.setdefault(
             key,
             {"messages": 0, "scored": 0, "too_short": 0, "human": 0, "mixed": 0, "ai": 0},
@@ -326,7 +344,7 @@ def test_archive_holds_exactly_the_five_members(source, tmp_path):
             MESSAGES_MEMBER,
             LISTS_MEMBER,
             SENDERS_MEMBER,
-            MANIFEST_MEMBER,
+            DATAPACKAGE_MEMBER,
             README_MEMBER,
         }
 
@@ -341,44 +359,169 @@ def test_zip_suffix_is_appended_once(source, tmp_path):
 
 
 def test_summary_counts_the_export(source, tmp_path):
+    """``senders`` is the senders.csv row count: four addresses, three senders."""
     summary = export_stats(source, None, tmp_path / "stats", all_lists=True)
-    assert (summary.lists, summary.senders, summary.messages, summary.scored) == (2, 3, 6, 3)
-    assert summary.as_line().startswith("lists=2 senders=3 messages=6 scored=3 path=")
+    assert (summary.lists, summary.senders, summary.messages, summary.scored) == (2, 4, 6, 3)
+    assert summary.as_line().startswith("lists=2 senders=4 messages=6 scored=3 path=")
 
 
-def test_manifest_matches_the_csv_row_counts(source, tmp_path):
+def test_datapackage_declares_the_v2_profile_and_the_package_identity(source, tmp_path):
+    """A standard descriptor: the profile, the package name, a title and a date."""
     path = _export(source, tmp_path)
-    manifest = _manifest(path)
-    assert manifest["rows"] == {
+    descriptor = _datapackage(path)
+    assert (
+        descriptor["$schema"]
+        == DATAPACKAGE_PROFILE
+        == ("https://datapackage.org/profiles/2.0/datapackage.json")
+    )
+    assert descriptor["name"] == STATS_FORMAT_NAME == "mlac-stats"
+    assert descriptor["title"] and descriptor["description"]
+    # An ISO-8601 UTC instant, parseable without help.
+    assert datetime.fromisoformat(descriptor["created"]).tzinfo is not None
+
+
+def test_datapackage_resources_name_the_archive_members(source, tmp_path):
+    """Three tabular resources, each pointing at the member it describes."""
+    path = _export(source, tmp_path)
+    resources = _resources(path)
+    assert list(resources) == ["messages", "lists", "senders"]
+    assert {name: resource["path"] for name, resource in resources.items()} == {
+        "messages": MESSAGES_MEMBER,
+        "lists": LISTS_MEMBER,
+        "senders": SENDERS_MEMBER,
+    }
+    for resource in resources.values():
+        assert (resource["format"], resource["mediatype"], resource["encoding"]) == (
+            "csv",
+            "text/csv",
+            "utf-8",
+        )
+
+
+def test_datapackage_fields_are_each_members_header_row(source, tmp_path):
+    """The declared schema and the file cannot disagree about columns or order."""
+    path = _export(source, tmp_path)
+    for name, member in (
+        ("messages", MESSAGES_MEMBER),
+        ("lists", LISTS_MEMBER),
+        ("senders", SENDERS_MEMBER),
+    ):
+        fields = _resources(path)[name]["schema"]["fields"]
+        assert [field["name"] for field in fields] == _columns(path, member)
+        # Every field is typed and documented, so the schema stands alone.
+        for field in fields:
+            assert field["type"] in {"string", "integer", "number", "datetime"}
+            assert field["description"]
+
+
+def test_datapackage_types_the_columns_by_what_they_hold(source, tmp_path):
+    path = _export(source, tmp_path)
+    schemas = {name: resource["schema"] for name, resource in _resources(path).items()}
+    types = {
+        member: {field["name"]: field["type"] for field in schema["fields"]}
+        for member, schema in schemas.items()
+    }
+    assert types["messages"]["message_id"] == types["messages"]["email"] == "string"
+    assert types["messages"]["date"] == types["messages"]["scored_at"] == "datetime"
+    assert types["messages"]["extraction_chars"] == "integer"
+    assert types["messages"]["extraction_version"] == "integer"
+    assert types["messages"]["timing_cpm"] == "number"
+    assert types["messages"]["fraction_ai"] == "number"
+    # A version string stays a string: "1.10.3" is not a number.
+    assert types["messages"]["pipeline_version"] == "string"
+    assert types["lists"]["messages"] == types["lists"]["ai"] == "integer"
+    assert types["lists"]["ai_share"] == "number"
+    assert types["lists"]["first_date"] == types["lists"]["last_date"] == "datetime"
+
+
+def test_datapackage_constrains_the_fractions_to_the_unit_interval(source, tmp_path):
+    path = _export(source, tmp_path)
+    fields = {field["name"]: field for field in _resources(path)["messages"]["schema"]["fields"]}
+    for name in ("fraction_ai", "fraction_ai_assisted", "fraction_human"):
+        assert fields[name]["constraints"] == {"minimum": 0, "maximum": 1}
+
+
+def test_datapackage_enums_are_the_stores_vocabularies(source, tmp_path):
+    """The closed sets come from the app's own constants, not from the rows present."""
+    path = _export(source, tmp_path)
+    fields = {field["name"]: field for field in _resources(path)["messages"]["schema"]["fields"]}
+    assert fields["label"]["constraints"]["enum"] == list(LABELS) == ["Human", "Mixed", "AI"]
+    assert fields["timing"]["constraints"]["enum"] == list(TIMING_BANDS)
+    assert fields["extraction_status"]["constraints"]["enum"] == list(EXTRACTION_STATUSES)
+    # Every value the file actually holds is in the vocabulary it declares.
+    for row in _rows(path, MESSAGES_MEMBER):
+        for column, vocabulary in (
+            ("label", LABELS),
+            ("timing", TIMING_BANDS),
+            ("extraction_status", EXTRACTION_STATUSES),
+        ):
+            assert row[column] == "" or row[column] in vocabulary
+
+
+def test_datapackage_states_the_keys_and_the_joins(source, tmp_path):
+    path = _export(source, tmp_path)
+    schemas = {name: resource["schema"] for name, resource in _resources(path).items()}
+    assert schemas["messages"]["primaryKey"] == ["folder", "message_id"]
+    assert schemas["lists"]["primaryKey"] == ["folder"]
+    assert schemas["senders"]["primaryKey"] == ["email"]
+    assert schemas["messages"]["foreignKeys"] == [
+        {"fields": ["folder"], "reference": {"resource": "lists", "fields": ["folder"]}},
+        {"fields": ["email"], "reference": {"resource": "senders", "fields": ["email"]}},
+    ]
+    # The aggregate and grouping members declare no join of their own.
+    assert "foreignKeys" not in schemas["lists"]
+    assert "foreignKeys" not in schemas["senders"]
+
+
+def test_datapackage_keys_hold_over_the_rows_they_describe(source, tmp_path):
+    """What the descriptor asserts is true of the files: unique keys, resolved joins."""
+    path = _export(source, tmp_path)
+    messages = _rows(path, MESSAGES_MEMBER)
+    pairs = [(row["folder"], row["message_id"]) for row in messages]
+    assert len(set(pairs)) == len(pairs)
+    folders = [row["folder"] for row in _rows(path, LISTS_MEMBER)]
+    assert len(set(folders)) == len(folders)
+    emails = [row["email"] for row in _rows(path, SENDERS_MEMBER)]
+    assert len(set(emails)) == len(emails)
+    assert {row["folder"] for row in messages} <= set(folders)
+    # A missing sender address is an empty field, which no join has to resolve.
+    assert {row["email"] for row in messages if row["email"]} <= set(emails)
+
+
+def test_datapackage_rows_match_the_csv_row_counts(source, tmp_path):
+    path = _export(source, tmp_path)
+    mlac = _mlac(path)
+    assert mlac["rows"] == {
         "messages": len(_rows(path, MESSAGES_MEMBER)),
         "lists": len(_rows(path, LISTS_MEMBER)),
         "senders": len(_rows(path, SENDERS_MEMBER)),
     }
-    assert manifest["rows"] == {"messages": 6, "lists": 2, "senders": 3}
+    # senders counts addresses, not the distinct keys they group into.
+    assert mlac["rows"] == {"messages": 6, "lists": 2, "senders": 4}
 
 
-def test_manifest_records_provenance_and_the_values_present(source, tmp_path):
+def test_mlac_records_provenance_and_the_values_present(source, tmp_path):
     path = _export(source, tmp_path)
-    manifest = _manifest(path)
-    assert manifest["format"] == STATS_FORMAT_NAME
-    assert manifest["stats_format_version"] == STATS_FORMAT_VERSION
-    assert manifest["app_version"] == __version__
-    assert manifest["schema_version"] > 0
-    assert manifest["identified"] is True
-    assert manifest["folders"] == [ANNOUNCE, LAST_CALL]
-    assert manifest["labels"] == ["Human", "Mixed", "AI"]
-    assert manifest["timing_bands"] == ["normal", "suspicious", "implausible"]
+    mlac = _mlac(path)
+    assert mlac["stats_format_version"] == STATS_FORMAT_VERSION == 2
+    assert mlac["app_version"] == __version__
+    assert mlac["schema_version"] > 0
+    assert mlac["folders"] == [ANNOUNCE, LAST_CALL]
     # Only the versions actually present in the file, not everything the app knows.
-    assert manifest["detector_versions"] == ["3.3.2", "4.0.0"]
-    assert manifest["extraction_versions"] == [1, 2]
-    assert "date_from" not in manifest and "date_to" not in manifest
+    assert mlac["detector_versions"] == ["3.3.2", "4.0.0"]
+    assert mlac["extraction_versions"] == [1, 2]
+    assert "date_from" not in mlac and "date_to" not in mlac
+    # The single-variant format states no identity flag.
+    assert "identified" not in mlac
+    # The vocabularies are schema constraints now, not provenance.
+    assert "labels" not in mlac and "timing_bands" not in mlac
 
 
-def test_manifest_records_the_range_only_when_bounded(source, tmp_path):
+def test_mlac_records_the_range_only_when_bounded(source, tmp_path):
     path = _export(source, tmp_path, date_from="2026-01-15", date_to="2026-02-01T23:59:59+00:00")
-    manifest = _manifest(path)
-    assert manifest["date_from"] == "2026-01-15"
-    assert manifest["date_to"] == "2026-02-01T23:59:59+00:00"
+    mlac = _mlac(path)
+    assert mlac["date_from"] == "2026-01-15"
+    assert mlac["date_to"] == "2026-02-01T23:59:59+00:00"
 
 
 def test_csv_conventions(source, tmp_path):
@@ -387,15 +530,41 @@ def test_csv_conventions(source, tmp_path):
     raw = _member_bytes(path, MESSAGES_MEMBER)
     assert b"\r\n" not in raw
     assert raw.endswith(b"\n")
-    assert raw.decode("utf-8").splitlines()[0].startswith("message_key,list,folder,date,sender_key")
+    assert raw.decode("utf-8").splitlines()[0].startswith("message_id,list,folder,date,email")
 
-    rows = _by_key(_rows(path, MESSAGES_MEMBER))
+    rows = _by_message_id(_rows(path, MESSAGES_MEMBER))
     # Never extracted, never scored: every derived column is empty, not "None".
-    assert rows["m4"]["label"] == ""
-    assert rows["m4"]["extraction_status"] == ""
-    assert rows["m4"]["fraction_ai"] == ""
-    # Booleans are words, not Python repr.
-    assert {row["is_reply"] for row in rows.values()} == {"true", "false"}
+    assert rows[M4]["label"] == ""
+    assert rows[M4]["extraction_status"] == ""
+    assert rows[M4]["fraction_ai"] == ""
+
+
+def test_message_columns_are_the_spec_order(source, tmp_path):
+    """Column order is part of the format, and holds no surrogate key."""
+    path = _export(source, tmp_path)
+    assert _columns(path, MESSAGES_MEMBER) == [
+        "message_id",
+        "list",
+        "folder",
+        "date",
+        "email",
+        "sender_name",
+        "in_reply_to",
+        "auto_generated",
+        "timing",
+        "timing_cpm",
+        "extraction_status",
+        "extraction_method",
+        "extraction_chars",
+        "extraction_version",
+        "pipeline_version",
+        "label",
+        "fraction_ai",
+        "fraction_ai_assisted",
+        "fraction_human",
+        "detector_version",
+        "scored_at",
+    ]
 
 
 def test_readme_documents_every_column_it_ships(source, tmp_path):
@@ -404,6 +573,24 @@ def test_readme_documents_every_column_it_ships(source, tmp_path):
     for member in (MESSAGES_MEMBER, LISTS_MEMBER, SENDERS_MEMBER):
         for column in _columns(path, member):
             assert f"`{column}`" in readme, f"{member}.{column} is undocumented"
+
+
+def test_readme_explains_the_descriptor(source, tmp_path):
+    """It names the standard, the command that checks the files, and the provenance."""
+    path = _export(source, tmp_path)
+    readme = _member_bytes(path, README_MEMBER).decode("utf-8")
+    assert "Frictionless Data" in readme
+    assert f"frictionless validate {DATAPACKAGE_MEMBER}" in readme
+    assert "`mlac`" in readme
+
+
+def test_readme_carries_the_interpretation_caveats(source, tmp_path):
+    path = _export(source, tmp_path)
+    readme = _member_bytes(path, README_MEMBER).decode("utf-8")
+    assert "`(folder, message_id)` is unique" in readme
+    assert "not a unique key" in readme
+    assert "normalising" in readme
+    assert "too-short" in readme
 
 
 # ==============================================================================
@@ -418,13 +605,11 @@ def test_messages_csv_holds_every_message_in_scope(source, tmp_path):
     stored = source.conn.execute("SELECT COUNT(*) AS c FROM messages").fetchone()["c"]
     assert len(rows) == stored == 6
     assert [row["message_id"] for row in rows] == [M1, M2, M3, M4, M5, M6]
-    # Keys are dense and in emission order.
-    assert [row["message_key"] for row in rows] == [f"m{n}" for n in range(1, 7)]
 
 
 def test_message_rows_equal_the_stored_values(source, tmp_path):
     path = _export(source, tmp_path)
-    rows = _by_key(_rows(path, MESSAGES_MEMBER))
+    rows = _rows(path, MESSAGES_MEMBER)
 
     stored = source.conn.execute(
         "SELECT l.name AS list, l.folder AS folder, m.message_id AS message_id, "
@@ -442,7 +627,7 @@ def test_message_rows_equal_the_stored_values(source, tmp_path):
     def blank(value):
         return "" if value is None else str(value)
 
-    for row, want in zip(rows.values(), stored, strict=True):
+    for row, want in zip(rows, stored, strict=True):
         assert row["list"] == want["list"]
         assert row["folder"] == want["folder"]
         assert row["message_id"] == want["message_id"]
@@ -466,56 +651,89 @@ def test_fractions_keep_their_stored_precision(source, tmp_path):
     source.conn.execute("UPDATE scores SET fraction_ai = ? WHERE id = 1", (1 / 3,))
     source.conn.commit()
     path = _export(source, tmp_path)
-    assert float(_by_key(_rows(path, MESSAGES_MEMBER))["m1"]["fraction_ai"]) == 1 / 3
+    assert float(_by_message_id(_rows(path, MESSAGES_MEMBER))[M1]["fraction_ai"]) == 1 / 3
 
 
-def test_sender_identity_columns_name_the_message_and_the_address(source, tmp_path):
+def test_sender_columns_name_the_address_and_the_from_name(source, tmp_path):
     path = _export(source, tmp_path)
-    rows = _by_key(_rows(path, MESSAGES_MEMBER))
+    rows = _by_message_id(_rows(path, MESSAGES_MEMBER))
     # The message's own From name wins over the address's display name.
-    assert (rows["m1"]["email"], rows["m1"]["sender_name"]) == (
-        "alice@example.org",
-        "Alice A. Smith",
-    )
+    assert (rows[M1]["email"], rows[M1]["sender_name"]) == ("alice@example.org", "Alice A. Smith")
     # With no From name of its own, the address's display name is reported.
-    assert (rows["m2"]["email"], rows["m2"]["sender_name"]) == ("bob@example.org", "Bob Jones")
-    # A message with no sender address has neither, and joins to no sender row.
-    assert (rows["m3"]["email"], rows["m3"]["sender_name"], rows["m3"]["sender_key"]) == (
-        "",
-        "",
-        "",
-    )
+    assert (rows[M2]["email"], rows[M2]["sender_name"]) == ("bob@example.org", "Bob Jones")
+
+
+def test_a_message_with_no_sender_has_an_empty_email_and_no_sender_row(source, tmp_path):
+    path = _export(source, tmp_path)
+    rows = _by_message_id(_rows(path, MESSAGES_MEMBER))
+    assert (rows[M3]["email"], rows[M3]["sender_name"]) == ("", "")
+    # It is counted in the list aggregate and under no sender.
+    emails = {row["email"] for row in _rows(path, SENDERS_MEMBER)}
+    assert "" not in emails
+    assert sum(int(row["messages"]) for row in _rows(path, LISTS_MEMBER)) == 6
 
 
 def test_timing_columns_come_from_the_stored_bands(source, tmp_path):
     path = _export(source, tmp_path)
-    rows = _by_key(_rows(path, MESSAGES_MEMBER))
+    rows = _by_message_id(_rows(path, MESSAGES_MEMBER))
     # M2 is the only reply whose parent is stored, so the only timed message.
-    assert rows["m2"]["timing"] == "normal"
-    assert float(rows["m2"]["timing_cpm"]) > 0
+    assert rows[M2]["timing"] == "normal"
+    assert float(rows[M2]["timing_cpm"]) > 0
     # Empty band and empty rate, together: neither is reported without the other.
-    assert (rows["m1"]["timing"], rows["m1"]["timing_cpm"]) == ("", "")
+    assert (rows[M1]["timing"], rows[M1]["timing_cpm"]) == ("", "")
 
 
-def test_parent_key_links_a_reply_to_its_in_scope_parent(source, tmp_path):
+def test_in_reply_to_is_the_stored_value(source, tmp_path):
+    """The header verbatim, tokens and all: normalising it is the analyst's job."""
     path = _export(source, tmp_path)
-    rows = _by_key(_rows(path, MESSAGES_MEMBER))
-    # The In-Reply-To carries whitespace and a comment; the parent resolves anyway.
-    assert (rows["m2"]["is_reply"], rows["m2"]["parent_key"]) == ("true", "m1")
-    # A reply whose parent is not in the export keeps is_reply and loses the link.
-    assert (rows["m6"]["is_reply"], rows["m6"]["parent_key"]) == ("true", "")
-    assert (rows["m1"]["is_reply"], rows["m1"]["parent_key"]) == ("false", "")
+    rows = _by_message_id(_rows(path, MESSAGES_MEMBER))
+    assert rows[M2]["in_reply_to"] == M2_IN_REPLY_TO
+    assert M1 in rows[M2]["in_reply_to"]
+    # A reply whose parent is outside the export still carries its header.
+    assert rows[M6]["in_reply_to"] == OUTSIDE
+    # A message that is not a reply has an empty field.
+    assert rows[M1]["in_reply_to"] == ""
 
 
-def test_a_range_that_excludes_the_parent_drops_only_the_link(source, tmp_path):
+def test_a_range_that_excludes_the_parent_keeps_in_reply_to(source, tmp_path):
     path = _export(source, tmp_path, date_from="2026-01-08")
-    rows = _by_key(_rows(path, MESSAGES_MEMBER))
-    reply = next(row for row in rows.values() if row["message_id"] == M2)
-    assert (reply["is_reply"], reply["parent_key"]) == ("true", "")
+    reply = _by_message_id(_rows(path, MESSAGES_MEMBER))[M2]
+    assert reply["in_reply_to"] == M2_IN_REPLY_TO
+    # The parent it names is not in the file, so the thread join finds nothing.
+    assert M1 not in {row["message_id"] for row in _rows(path, MESSAGES_MEMBER)}
+
+
+def test_a_cross_posted_message_appears_once_per_list(source, tmp_path):
+    """The same Message-ID on two lists: two rows, one per folder."""
+    source.upsert_message(
+        message_id=M1,
+        list_id=source.ids["last_call"],
+        address_id=source.ids["alice"],
+        subject="Intro",
+        date="2026-01-05T10:00:00+00:00",
+        in_reply_to=None,
+        raw_body="Body one",
+        uid=202,
+        from_name="Alice A. Smith",
+    )
+    path = _export(source, tmp_path)
+    rows = _rows(path, MESSAGES_MEMBER)
+    assert len(rows) == 7
+    copies = [row for row in rows if row["message_id"] == M1]
+    assert len(copies) == 2
+    assert sorted(row["folder"] for row in copies) == [ANNOUNCE, LAST_CALL]
+    # message_id is not unique, but (folder, message_id) is.
+    pairs = [(row["folder"], row["message_id"]) for row in rows]
+    assert len(set(pairs)) == len(pairs)
+    # The copy on the other list is a message of that list, so the aggregate moves.
+    aggregates = {row["folder"]: int(row["messages"]) for row in _rows(path, LISTS_MEMBER)}
+    assert aggregates == {ANNOUNCE: 5, LAST_CALL: 2}
+    # The address was already a sender, so senders.csv is unchanged.
+    assert len(_rows(path, SENDERS_MEMBER)) == 4
 
 
 # ==============================================================================
-# lists.csv / senders.csv
+# lists.csv
 # ==============================================================================
 
 
@@ -530,51 +748,18 @@ def test_list_aggregates_equal_the_message_rows(source, tmp_path):
     assert sum(int(row["messages"]) for row in rows.values()) == 6
 
 
-def test_sender_aggregates_equal_the_message_rows(source, tmp_path):
-    path = _export(source, tmp_path)
-    messages = _rows(path, MESSAGES_MEMBER)
-    recomputed = _recomputed(messages, "sender_key")
-    rows = {row["sender_key"]: row for row in _rows(path, SENDERS_MEMBER)}
-    assert set(rows) == set(recomputed)
-    for key, row in rows.items():
-        assert _as_counts(row) == recomputed[key]
-    # Every message but the one without a sender address is covered.
-    assert sum(int(row["messages"]) for row in rows.values()) == 5
-
-
 def test_ai_share_matches_the_dashboard_definition(source, tmp_path):
     path = _export(source, tmp_path)
-    for member in (LISTS_MEMBER, SENDERS_MEMBER):
-        for row in _rows(path, member):
-            counts = {label: int(row[label.lower()]) for label in ("Human", "Mixed", "AI")}
-            too_short = int(row["too_short"])
-            if int(row["scored"]) + too_short == 0:
-                assert row["ai_share"] == ""
-            else:
-                assert float(row["ai_share"]) == ai_share(counts, too_short)
+    for row in _rows(path, LISTS_MEMBER):
+        counts = {label: int(row[label.lower()]) for label in ("Human", "Mixed", "AI")}
+        too_short = int(row["too_short"])
+        if int(row["scored"]) + too_short == 0:
+            assert row["ai_share"] == ""
+        else:
+            assert float(row["ai_share"]) == ai_share(counts, too_short)
     announce = next(row for row in _rows(path, LISTS_MEMBER) if row["folder"] == ANNOUNCE)
     # 1 AI over 2 scored + 1 gated: the gated message is in the denominator.
     assert float(announce["ai_share"]) == 1 / 3
-
-
-def test_a_sender_with_nothing_scored_has_an_empty_share(source, tmp_path):
-    path = _export(source, tmp_path)
-    carol = next(row for row in _rows(path, SENDERS_MEMBER) if row["emails"] == "carol@example.org")
-    assert (carol["messages"], carol["scored"], carol["ai_share"]) == ("1", "0", "")
-
-
-def test_a_person_is_one_sender_across_their_addresses(source, tmp_path):
-    path = _export(source, tmp_path)
-    rows = {row["sender_key"]: row for row in _rows(path, SENDERS_MEMBER)}
-    key = f"p{source.ids['person']}"
-    assert rows[key]["sender_type"] == "person"
-    assert rows[key]["name"] == "Alice Smith"
-    assert rows[key]["emails"] == "alice@example.org;alice@work.example"
-    assert rows[key]["messages"] == "3"
-    # An unlinked address is its own sender, keyed by its address id.
-    assert rows[f"a{source.ids['bob']}"]["sender_type"] == "address"
-    # An address with no message in scope is not a sender at all.
-    assert not any("dave@example.org" in row["emails"] for row in rows.values())
 
 
 def test_a_named_list_with_nothing_in_range_is_a_zero_row(source, tmp_path):
@@ -589,71 +774,52 @@ def test_a_named_list_with_nothing_in_range_is_a_zero_row(source, tmp_path):
     assert rows[0]["ai_share"] == ""
     assert (rows[0]["first_date"], rows[0]["last_date"]) == ("", "")
     assert _rows(path, MESSAGES_MEMBER) == []
+    # No message, so no address, so no sender row either.
+    assert _rows(path, SENDERS_MEMBER) == []
 
 
 # ==============================================================================
-# PSEUDONYMOUS VARIANT
+# senders.csv
 # ==============================================================================
 
 
-def test_pseudonymous_export_omits_the_identity_columns(source, tmp_path):
-    path = _export(source, tmp_path, name="anon", pseudonymous=True)
-    message_columns = _columns(path, MESSAGES_MEMBER)
-    sender_columns = _columns(path, SENDERS_MEMBER)
-    for column in ("email", "sender_name", "message_id", "in_reply_to"):
-        assert column not in message_columns
-    for column in ("name", "emails"):
-        assert column not in sender_columns
-    # Omitted, not blanked: the remaining columns are unchanged and in order.
-    assert message_columns[:6] == [
-        "message_key",
-        "list",
-        "folder",
-        "date",
-        "sender_key",
-        "is_reply",
-    ]
-    assert _manifest(path)["identified"] is False
+def test_senders_csv_is_exactly_the_two_grouping_columns(source, tmp_path):
+    """No aggregates, no name: the grouping and nothing else."""
+    path = _export(source, tmp_path)
+    assert _columns(path, SENDERS_MEMBER) == ["sender_key", "email"]
 
 
-def test_pseudonymous_export_carries_no_identifying_value(source, tmp_path):
-    path = _export(source, tmp_path, name="anon", pseudonymous=True)
-    body = (
-        _member_bytes(path, MESSAGES_MEMBER)
-        + _member_bytes(path, SENDERS_MEMBER)
-        + _member_bytes(path, LISTS_MEMBER)
-    )
-    for secret in (b"alice@example.org", b"Alice", b"bob@example.org", M1.encode(), b"outside"):
-        assert secret not in body
+def test_senders_csv_covers_exactly_the_addresses_in_messages_csv(source, tmp_path):
+    path = _export(source, tmp_path)
+    first_seen: list[str] = []
+    for row in _rows(path, MESSAGES_MEMBER):
+        if row["email"] and row["email"] not in first_seen:
+            first_seen.append(row["email"])
+    rows = _rows(path, SENDERS_MEMBER)
+    # One row per address, in the order the messages first name them.
+    assert [row["email"] for row in rows] == first_seen
+    assert len(rows) == 4
+    # An address with no message in scope is not a sender at all.
+    assert "dave@example.org" not in first_seen
 
 
-def test_pseudonymous_sender_keys_are_dense_and_first_seen(source, tmp_path):
-    path = _export(source, tmp_path, name="anon", pseudonymous=True)
-    keys = [row["sender_key"] for row in _rows(path, SENDERS_MEMBER)]
-    assert keys == ["s1", "s2", "s3"]
-    rows = _by_key(_rows(path, MESSAGES_MEMBER))
-    # First seen at m1, and the same sender again at m5 from another address.
-    assert rows["m1"]["sender_key"] == "s1"
-    assert rows["m5"]["sender_key"] == "s1"
-    assert rows["m2"]["sender_key"] == "s2"
-    assert rows["m3"]["sender_key"] == ""  # no address, so no sender
+def test_a_persons_addresses_share_one_dense_key(source, tmp_path):
+    path = _export(source, tmp_path)
+    keys = {row["email"]: row["sender_key"] for row in _rows(path, SENDERS_MEMBER)}
+    # Alice's two addresses are one sender; the unlinked ones are their own.
+    assert keys["alice@example.org"] == keys["alice@work.example"] == "s1"
+    assert keys["bob@example.org"] == "s2"
+    assert keys["carol@example.org"] == "s3"
+    # Dense and assigned in first-seen message-emission order.
+    assert sorted(set(keys.values())) == ["s1", "s2", "s3"]
+    assert [row["sender_key"] for row in _rows(path, SENDERS_MEMBER)] == ["s1", "s2", "s3", "s1"]
 
 
-def test_pseudonymous_export_keeps_thread_shape(source, tmp_path):
-    path = _export(source, tmp_path, name="anon", pseudonymous=True)
-    rows = _by_key(_rows(path, MESSAGES_MEMBER))
-    assert (rows["m2"]["is_reply"], rows["m2"]["parent_key"]) == ("true", "m1")
-    assert (rows["m6"]["is_reply"], rows["m6"]["parent_key"]) == ("true", "")
-
-
-def test_both_variants_count_the_same_messages(source, tmp_path):
-    identified = _export(source, tmp_path, name="named")
-    pseudonymous = _export(source, tmp_path, name="anon", pseudonymous=True)
-    assert _manifest(identified)["rows"] == _manifest(pseudonymous)["rows"]
-    for member in (LISTS_MEMBER, SENDERS_MEMBER):
-        assert [_as_counts(row) for row in _rows(identified, member)] == [
-            _as_counts(row) for row in _rows(pseudonymous, member)
-        ]
+def test_sender_keys_follow_the_selected_scope(source, tmp_path):
+    """Keys are file-scoped: a narrower scope renumbers from s1."""
+    path = _export(source, tmp_path, list_names=["last-call"], all_lists=False)
+    rows = _rows(path, SENDERS_MEMBER)
+    assert rows == [{"sender_key": "s1", "email": "alice@example.org"}]
 
 
 # ==============================================================================
@@ -664,7 +830,7 @@ def test_both_variants_count_the_same_messages(source, tmp_path):
 def test_named_lists_select_only_their_messages(source, tmp_path):
     path = _export(source, tmp_path, list_names=["last-call"], all_lists=False)
     assert [row["message_id"] for row in _rows(path, MESSAGES_MEMBER)] == [M6]
-    assert _manifest(path)["folders"] == [LAST_CALL]
+    assert _mlac(path)["folders"] == [LAST_CALL]
 
 
 @pytest.mark.parametrize(
@@ -705,7 +871,7 @@ def test_a_bare_date_to_excludes_that_days_messages(source, tmp_path):
 
 def test_all_lists_skips_a_list_with_nothing_in_range(source, tmp_path):
     path = _export(source, tmp_path, date_to="2026-01-31")
-    assert _manifest(path)["folders"] == [ANNOUNCE]
+    assert _mlac(path)["folders"] == [ANNOUNCE]
     assert [row["folder"] for row in _rows(path, LISTS_MEMBER)] == [ANNOUNCE]
 
 
@@ -732,29 +898,31 @@ def test_stats_export_main_writes_the_archive(tmp_path, caplog):
     written = tmp_path / "cli-stats.zip"
     assert f"path={written}" in caplog.text
     assert len(_rows(written, MESSAGES_MEMBER)) == 6
-    assert _manifest(written)["identified"] is True
+    assert _mlac(written)["stats_format_version"] == 2
 
 
-def test_stats_export_main_pseudonymous_and_ranged(tmp_path):
+def test_stats_export_main_named_and_ranged(tmp_path):
     src = tmp_path / "src.db"
     _build_source_db(src)
-    out = tmp_path / "cli-anon.zip"
+    out = tmp_path / "cli-range.zip"
     rc = stats_export_main(
-        [
-            "announce",
-            "-o",
-            str(out),
-            "--db",
-            str(src),
-            "--pseudonymous",
-            "--date-from",
-            "2026-01-15",
-        ]
+        ["announce", "-o", str(out), "--db", str(src), "--date-from", "2026-01-15"]
     )
     assert rc == 0
-    assert _manifest(out)["identified"] is False
-    assert _manifest(out)["date_from"] == "2026-01-15"
-    assert "email" not in _columns(out, MESSAGES_MEMBER)
+    assert _mlac(out)["date_from"] == "2026-01-15"
+    assert _mlac(out)["folders"] == [ANNOUNCE]
+    assert "email" in _columns(out, MESSAGES_MEMBER)
+
+
+def test_stats_export_main_rejects_the_removed_pseudonymous_flag(tmp_path):
+    """Version 2 has one variant; the flag is gone rather than ignored."""
+    src = tmp_path / "src.db"
+    _build_source_db(src)
+    with pytest.raises(SystemExit) as exc:
+        stats_export_main(
+            ["--all-lists", "-o", str(tmp_path / "x.zip"), "--db", str(src), "--pseudonymous"]
+        )
+    assert exc.value.code == 2
 
 
 @pytest.mark.parametrize("flag", ["--date-from", "--date-to"], ids=["from", "to"])

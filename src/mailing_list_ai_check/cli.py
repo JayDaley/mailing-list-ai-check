@@ -1072,14 +1072,6 @@ def build_stats_export_parser() -> argparse.ArgumentParser:
         help="output file path ('.zip' is appended unless already present); required",
     )
     parser.add_argument(
-        "--pseudonymous",
-        action="store_true",
-        help=(
-            "omit the sender addresses, names and Message-IDs, numbering senders "
-            "s1, s2, ... for this file alone"
-        ),
-    )
-    parser.add_argument(
         "--date-from",
         metavar="ISO",
         help="export only messages dated on or after this ISO-8601 date/datetime",
@@ -1124,7 +1116,6 @@ def stats_export_main(argv: Sequence[str] | None = None) -> int:
                 list_names,
                 args.output,
                 all_lists=args.all_lists,
-                pseudonymous=args.pseudonymous,
                 date_from=date_from,
                 date_to=date_to,
             )

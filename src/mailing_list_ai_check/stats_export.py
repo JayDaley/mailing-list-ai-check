@@ -1,8 +1,9 @@
 """One-way export of scores and message metadata for statistical analysis.
 
-Writes a zip archive of CSV files — one row per message, plus per-list and
-per-sender aggregates, a manifest and a data dictionary — for analysis outside
-the app, in a spreadsheet, pandas or R. The full format and semantics live in
+Writes a zip archive of CSV files — one row per message, a per-list aggregate,
+the sender grouping, a Frictionless Data Package descriptor and a data dictionary
+— for analysis outside the app, in a spreadsheet, pandas or R. The full format
+and semantics live in
 ``docs/stats-export.md``; this module is the authoritative implementation of
 that spec. It complements :mod:`.export_import`, which moves complete databases
 between installs: nothing here is ever read back by the app, and the archive
@@ -13,22 +14,26 @@ Four properties follow from that purpose:
 
 - **Denominators, not only hits.** Every message in scope is exported, scored or
   not, because a share calculation needs the messages that were never scored and
-  those gated under the reliability floor. ``lists.csv`` and ``senders.csv`` are
-  aggregates over the identical scope, so their counts sum to ``messages.csv``
-  and an analyst can verify one against the other.
+  those gated under the reliability floor. ``lists.csv`` aggregates the identical
+  scope, so its counts sum to ``messages.csv`` and an analyst can verify one
+  against the other.
 - **Open everywhere.** Zip and CSV rather than the full export's zstd JSON
   Lines: the audience is analysis tools, not this app, and the archive bundles
-  its own data dictionary with the data.
-- **Two identity variants.** An identified export carries sender addresses,
-  names and Message-IDs; a pseudonymous one omits those columns outright — not
-  blanked, so a file's header row states what it holds — and numbers senders
-  ``s1``, ``s2``, … in first-seen order. Keys are sequential rather than hashed,
-  because a hash of a known address is reversible by dictionary.
+  its own data dictionary with the data. It describes itself in a standard
+  ``datapackage.json``, so the unzipped directory is a valid Frictionless Data
+  Package: the CSVs can be validated against their declared schemas, and a
+  reader that understands data packages loads them with the right types.
+- **Mail-native identity.** A row names its message by RFC 5322 Message-ID and
+  its sender by address, never by one of this app's row ids or a file-scoped
+  surrogate. ``message_id`` is consequently not unique — a message cross-posted
+  to several exported lists appears once per list, and ``(folder, message_id)``
+  is the unique pair. The one synthetic value in the format is
+  ``senders.csv``'s ``sender_key``, which exists to express the grouping mail
+  itself cannot: the several addresses the app has linked to one person.
 - **The message pass streams.** Rows are written into the zip member one at a
   time (:meth:`zipfile.ZipFile.open` in write mode), so no message row is held
-  beyond the one being written. The pre-pass that precedes it holds only what
-  cross-references need: the sender of each referenced address, and the key of
-  each message in scope so a reply can name its parent.
+  beyond the one being written. The pre-pass that precedes it holds only the
+  addresses the messages in scope refer to, never a message row.
 
 Purely a local database read: no IMAP, no Pangram, no caps involved.
 """
@@ -47,15 +52,25 @@ from typing import Any
 
 from . import __version__
 from .export_import import _range_clause, _range_params, _select_lists
-from .store import TIMING_IMPLAUSIBLE_CPM, TIMING_SUSPICIOUS_CPM, Store, _parent_message_id
+from .store import (
+    EXTRACTION_STATUSES,
+    TIMING_IMPLAUSIBLE_CPM,
+    TIMING_SUSPICIOUS_CPM,
+    Store,
+)
 
-#: Format identifiers written into ``manifest.json``. :data:`STATS_FORMAT_VERSION`
-#: is this format's own number, independent of the app version and of the full
-#: export's ``FORMAT_VERSION``. Nothing reads the file back, so the version exists
-#: for analysts and their scripts rather than for rejection logic: an added
-#: column does not bump it, a removed or re-defined one does.
+#: Format identifiers written into ``datapackage.json``.
+#: :data:`STATS_FORMAT_VERSION` is this format's own number, independent of the
+#: app version and of the full export's ``FORMAT_VERSION``. Nothing reads the file
+#: back, so the version exists for analysts and their scripts rather than for
+#: rejection logic: an added column does not bump it, a removed or re-defined one
+#: does. Version 1 carried surrogate ``message_key`` / ``sender_key`` columns in
+#: ``messages.csv``, a per-sender aggregate ``senders.csv``, a pseudonymous
+#: variant and a bespoke ``manifest.json``; version 2 identifies rows by
+#: ``message_id`` and ``email``, reduces ``senders.csv`` to the two-column
+#: grouping, has one variant only, and describes itself in ``datapackage.json``.
 STATS_FORMAT_NAME = "mlac-stats"
-STATS_FORMAT_VERSION = 1
+STATS_FORMAT_VERSION = 2
 
 #: Suffix of the archive, appended to the caller's path unless already present.
 ZIP_SUFFIX = ".zip"
@@ -64,80 +79,201 @@ ZIP_SUFFIX = ".zip"
 MESSAGES_MEMBER = "messages.csv"
 LISTS_MEMBER = "lists.csv"
 SENDERS_MEMBER = "senders.csv"
-MANIFEST_MEMBER = "manifest.json"
+DATAPACKAGE_MEMBER = "datapackage.json"
 README_MEMBER = "README.md"
 
+#: Resource names in :data:`DATAPACKAGE_MEMBER`: the member names without their
+#: suffix, which is what a foreign key's ``reference.resource`` names.
+MESSAGES_RESOURCE = "messages"
+LISTS_RESOURCE = "lists"
+SENDERS_RESOURCE = "senders"
+
+#: The Data Package profile the descriptor declares, and the package's identity.
+#: The descriptor is a standard Frictionless Data Package (v2), so the unzipped
+#: archive validates with ``frictionless validate datapackage.json``.
+DATAPACKAGE_PROFILE = "https://datapackage.org/profiles/2.0/datapackage.json"
+PACKAGE_TITLE = "Mailing List AI Check stats export"
+PACKAGE_DESCRIPTION = "Scores and message metadata for analysis; no message text."
+
 #: Pangram ``prediction_short`` values, which ``scores.label`` stores verbatim,
-#: and the reply-timing bands — both listed in the manifest so a consumer knows
-#: the closed sets behind the ``label`` and ``timing`` columns without having to
-#: infer them from the rows present.
+#: and the reply-timing bands :func:`~.store.classify_timing` assigns. Both are
+#: written into the descriptor as ``enum`` constraints, so a consumer reads the
+#: closed set behind the ``label`` and ``timing`` columns off the schema rather
+#: than inferring it from the rows present. ``extraction_status``'s vocabulary is
+#: :data:`~.store.EXTRACTION_STATUSES`, the column's own definition.
 LABELS = ("Human", "Mixed", "AI")
 TIMING_BANDS = ("normal", "suspicious", "implausible")
 
-#: ``messages.csv`` columns in file order. The identity columns are dropped from
-#: a pseudonymous export (see :data:`_MESSAGE_IDENTITY_COLUMNS`); column order is
-#: part of the format.
+#: A fraction's declared range: the detector's fractions and ``ai_share`` are
+#: proportions, so the schema bounds them rather than leaving them unbounded
+#: numbers.
+_FRACTION_CONSTRAINTS: dict[str, Any] = {"minimum": 0, "maximum": 1}
+
+
+@dataclass(frozen=True)
+class _Column:
+    """One CSV column: its name, its declared type, and what it means.
+
+    The single definition of a column, from which both the descriptor's Table
+    Schema field and the archive README's data-dictionary row are generated, so
+    the two cannot describe the same column differently. ``description`` is the
+    dictionary wording, one sentence, Markdown as the README renders it.
+    """
+
+    name: str
+    type: str
+    description: str
+    constraints: dict[str, Any] | None = None
+
+    def as_field(self) -> dict[str, Any]:
+        """This column as a Table Schema field."""
+        field: dict[str, Any] = {
+            "name": self.name,
+            "type": self.type,
+            "description": self.description,
+        }
+        if self.constraints is not None:
+            field["constraints"] = dict(self.constraints)
+        return field
+
+
+#: ``messages.csv`` columns in file order, which is part of the format. The row
+#: is identified by ``message_id`` — not unique, ``(folder, message_id)`` is —
+#: and its sender by ``email``.
 _MESSAGE_COLUMNS = (
-    "message_key",
-    "list",
-    "folder",
-    "date",
-    "sender_key",
-    "email",
-    "sender_name",
-    "is_reply",
-    "parent_key",
-    "message_id",
-    "in_reply_to",
-    "auto_generated",
-    "timing",
-    "timing_cpm",
-    "extraction_status",
-    "extraction_method",
-    "extraction_chars",
-    "extraction_version",
-    "pipeline_version",
-    "label",
-    "fraction_ai",
-    "fraction_ai_assisted",
-    "fraction_human",
-    "detector_version",
-    "scored_at",
+    _Column(
+        "message_id",
+        "string",
+        "RFC 5322 Message-ID; not unique (see the caveats below)",
+    ),
+    _Column("list", "string", "the mailing list's name; not unique across lists"),
+    _Column(
+        "folder",
+        "string",
+        f"the list's IMAP folder, its unique key; joins to `{LISTS_MEMBER}`",
+    ),
+    _Column("date", "datetime", "the message's `Date`, UTC ISO-8601; empty when it had none"),
+    _Column(
+        "email",
+        "string",
+        "sender address, empty when the message has none; joins to "
+        f"`{SENDERS_MEMBER}` on its `email`",
+    ),
+    _Column(
+        "sender_name",
+        "string",
+        "the message's `From` name, falling back to the address's display name",
+    ),
+    _Column("in_reply_to", "string", "stored `In-Reply-To` value, empty when not a reply"),
+    _Column(
+        "auto_generated",
+        "string",
+        "the marker that classified the message auto-generated, empty when none",
+    ),
+    _Column(
+        "timing",
+        "string",
+        "reply-timing band: `normal`, `suspicious`, `implausible`, or empty",
+        {"enum": list(TIMING_BANDS)},
+    ),
+    _Column(
+        "timing_cpm",
+        "number",
+        "the characters-per-minute rate behind the band, empty exactly where `timing` is",
+    ),
+    _Column(
+        "extraction_status",
+        "string",
+        "`ok`, `empty`, `too_short`, `failed`, or empty when never extracted",
+        {"enum": list(EXTRACTION_STATUSES)},
+    ),
+    _Column(
+        "extraction_method",
+        "string",
+        "the extraction routine that produced the text, empty when never extracted",
+    ),
+    _Column(
+        "extraction_chars",
+        "integer",
+        "characters of extracted text, empty when never extracted",
+    ),
+    _Column(
+        "extraction_version",
+        "integer",
+        "generation of the extraction routine, may be empty",
+    ),
+    _Column(
+        "pipeline_version",
+        "string",
+        "app version that last processed the message, may be empty",
+    ),
+    _Column(
+        "label",
+        "string",
+        "detector verdict `Human`, `Mixed` or `AI`; empty when unscored",
+        {"enum": list(LABELS)},
+    ),
+    _Column(
+        "fraction_ai",
+        "number",
+        "detector fraction of fully AI text, in [0, 1]; empty when unscored",
+        _FRACTION_CONSTRAINTS,
+    ),
+    _Column(
+        "fraction_ai_assisted",
+        "number",
+        "detector fraction of AI-assisted text, in [0, 1]; empty when unscored",
+        _FRACTION_CONSTRAINTS,
+    ),
+    _Column(
+        "fraction_human",
+        "number",
+        "detector fraction of human text, in [0, 1]; empty when unscored",
+        _FRACTION_CONSTRAINTS,
+    ),
+    _Column(
+        "detector_version",
+        "string",
+        "the detector build that produced the score, empty when unscored",
+    ),
+    _Column(
+        "scored_at", "datetime", "when the score was written, UTC ISO-8601; empty when unscored"
+    ),
 )
-_MESSAGE_IDENTITY_COLUMNS = frozenset({"email", "sender_name", "message_id", "in_reply_to"})
 
 #: ``lists.csv`` columns in file order.
 _LIST_COLUMNS = (
-    "list",
-    "folder",
-    "messages",
-    "scored",
-    "too_short",
-    "human",
-    "mixed",
-    "ai",
-    "ai_share",
-    "first_date",
-    "last_date",
+    _Column("list", "string", f"as in `{MESSAGES_MEMBER}`"),
+    _Column("folder", "string", f"as in `{MESSAGES_MEMBER}`"),
+    _Column("messages", "integer", "messages in scope"),
+    _Column("scored", "integer", "messages with a score"),
+    _Column(
+        "too_short",
+        "integer",
+        "messages gated under the reliability floor (`extraction_status = too_short`)",
+    ),
+    _Column("human", "integer", "scored messages labelled `Human`"),
+    _Column("mixed", "integer", "scored messages labelled `Mixed`"),
+    _Column("ai", "integer", "scored messages labelled `AI`"),
+    _Column(
+        "ai_share",
+        "number",
+        "`ai / (scored + too_short)`, empty when that denominator is 0",
+        _FRACTION_CONSTRAINTS,
+    ),
+    _Column("first_date", "datetime", "oldest `date` in scope, empty when none"),
+    _Column("last_date", "datetime", "newest `date` in scope, empty when none"),
 )
 
-#: ``senders.csv`` columns in file order, with the same identity rule.
+#: ``senders.csv`` columns in file order: the sender grouping, and nothing else.
 _SENDER_COLUMNS = (
-    "sender_key",
-    "sender_type",
-    "name",
-    "emails",
-    "messages",
-    "scored",
-    "too_short",
-    "human",
-    "mixed",
-    "ai",
-    "ai_share",
-    "first_date",
-    "last_date",
+    _Column("sender_key", "string", "synthetic key `s1`, `s2`, … identifying one sender"),
+    _Column(
+        "email",
+        "string",
+        f"one address belonging to that sender; joins to `{MESSAGES_MEMBER}`",
+    ),
 )
-_SENDER_IDENTITY_COLUMNS = frozenset({"name", "emails"})
 
 #: The join chain every query in this module walks: a message, its extraction if
 #: it has one, and that extraction's score if it has one. Both joins are on
@@ -148,9 +284,9 @@ _MESSAGE_JOINS = (
     "LEFT JOIN scores sc ON sc.extraction_id = e.id"
 )
 
-#: The aggregate expressions shared by ``lists.csv`` and ``senders.csv``, so the
-#: two tables count the same things over the same scope. The label literals are
-#: the constants in :data:`LABELS` (no user input), so inlining them is safe.
+#: The aggregate expressions behind ``lists.csv``, counted over the same scope as
+#: the message pass so the two tables agree. The label literals are the constants
+#: in :data:`LABELS` (no user input), so inlining them is safe.
 _AGGREGATE_COLUMNS = (
     "COUNT(*) AS messages, "
     "COUNT(sc.id) AS scored, "
@@ -163,7 +299,7 @@ _AGGREGATE_COLUMNS = (
 
 #: The per-message columns, named so the streaming pass reads them by name.
 _MESSAGE_SELECT = (
-    "SELECT m.id AS id, m.message_id AS message_id, m.date AS date, "
+    "SELECT m.message_id AS message_id, m.date AS date, "
     "m.in_reply_to AS in_reply_to, m.address_id AS address_id, m.from_name AS from_name, "
     "m.auto_generated AS auto_generated, m.timing AS timing, m.timing_cpm AS timing_cpm, "
     "m.pipeline_version AS pipeline_version, "
@@ -177,7 +313,11 @@ _MESSAGE_SELECT = (
 
 @dataclass(frozen=True)
 class StatsExportSummary:
-    """Tally of one :func:`export_stats` run."""
+    """Tally of one :func:`export_stats` run.
+
+    ``senders`` counts the rows of ``senders.csv`` — the addresses with a message
+    in scope, not the distinct senders they group into.
+    """
 
     lists: int
     senders: int
@@ -212,13 +352,6 @@ def zip_path(path: str | Path) -> Path:
     return p.with_name(p.name + ZIP_SUFFIX)
 
 
-def _columns(columns: Sequence[str], identity: frozenset[str], identified: bool) -> list[str]:
-    """``columns`` less the identity ones when the export is pseudonymous."""
-    if identified:
-        return list(columns)
-    return [column for column in columns if column not in identity]
-
-
 def _cell(value: Any) -> Any:
     """One CSV field: NULL as an empty field, a boolean as ``true`` / ``false``.
 
@@ -248,7 +381,7 @@ def _share(ai: int, scored: int, too_short: int) -> float | str:
 
 
 def _aggregate_row(row: Any) -> dict[str, Any]:
-    """The shared aggregate columns of one ``GROUP BY`` row, as a dict."""
+    """The aggregate columns of one ``GROUP BY`` row, as a dict."""
     return {
         "messages": row["messages"],
         "scored": row["scored"],
@@ -275,25 +408,18 @@ def _empty_aggregate() -> dict[str, Any]:
     }
 
 
-def _merge_aggregate(into: dict[str, Any], row: dict[str, Any]) -> None:
-    """Add one address's aggregate into the sender it rolls up to."""
-    for key in ("messages", "scored", "too_short", "human", "mixed", "ai"):
-        into[key] += row[key]
-    for key, pick in (("first_date", min), ("last_date", max)):
-        dates = [d for d in (into[key], row[key]) if d]
-        into[key] = pick(dates) if dates else None
-
-
 class _CsvMember:
     """One CSV member of the archive, written row by row.
 
     Wraps the binary stream :meth:`zipfile.ZipFile.open` returns in a UTF-8 text
     layer and a :mod:`csv` writer with ``\\n`` line endings, so a caller writes
-    dicts keyed by column name and never sees the encoding.
+    dicts keyed by column name and never sees the encoding. The header row is the
+    member's :class:`_Column` definitions in order, the same order the
+    descriptor's Table Schema declares.
     """
 
-    def __init__(self, archive: zipfile.ZipFile, name: str, columns: Sequence[str]) -> None:
-        self.columns = list(columns)
+    def __init__(self, archive: zipfile.ZipFile, name: str, columns: Sequence[_Column]) -> None:
+        self.columns = [column.name for column in columns]
         self._raw = archive.open(name, "w")
         self._text = io.TextIOWrapper(self._raw, encoding="utf-8", newline="")
         self._writer = csv.writer(self._text, lineterminator="\n")
@@ -315,6 +441,113 @@ class _CsvMember:
         self.close()
 
 
+# --- Data Package descriptor ----------------------------------------------------
+
+
+def _resource(
+    name: str,
+    member: str,
+    columns: Sequence[_Column],
+    primary_key: Sequence[str],
+    foreign_keys: Sequence[dict[str, Any]] = (),
+) -> dict[str, Any]:
+    """One CSV member as a Data Package resource with a full Table Schema.
+
+    The fields are the member's :class:`_Column` definitions in file order, so the
+    declared schema and the header row cannot disagree. ``primary_key`` states the
+    member's uniqueness fact and ``foreign_keys`` its joins.
+    """
+    schema: dict[str, Any] = {
+        "fields": [column.as_field() for column in columns],
+        "primaryKey": list(primary_key),
+    }
+    if foreign_keys:
+        schema["foreignKeys"] = [dict(key) for key in foreign_keys]
+    return {
+        "name": name,
+        "path": member,
+        "format": "csv",
+        "mediatype": "text/csv",
+        "encoding": "utf-8",
+        "schema": schema,
+    }
+
+
+def _resources() -> list[dict[str, Any]]:
+    """The three CSV members as resources, in the order they are written.
+
+    ``messages.csv``'s two foreign keys are the joins the format promises: its
+    ``folder`` names a row of ``lists.csv`` and its ``email`` a row of
+    ``senders.csv``.
+    """
+    return [
+        _resource(
+            MESSAGES_RESOURCE,
+            MESSAGES_MEMBER,
+            _MESSAGE_COLUMNS,
+            ["folder", "message_id"],
+            [
+                {
+                    "fields": ["folder"],
+                    "reference": {"resource": LISTS_RESOURCE, "fields": ["folder"]},
+                },
+                {
+                    "fields": ["email"],
+                    "reference": {"resource": SENDERS_RESOURCE, "fields": ["email"]},
+                },
+            ],
+        ),
+        _resource(LISTS_RESOURCE, LISTS_MEMBER, _LIST_COLUMNS, ["folder"]),
+        _resource(SENDERS_RESOURCE, SENDERS_MEMBER, _SENDER_COLUMNS, ["email"]),
+    ]
+
+
+def _datapackage(
+    *,
+    schema_version: int,
+    folders: Sequence[str],
+    date_from: str | None,
+    date_to: str | None,
+    rows: dict[str, int],
+    detector_versions: Sequence[str],
+    extraction_versions: Sequence[int],
+) -> dict[str, Any]:
+    """The archive's ``datapackage.json``: a Frictionless Data Package descriptor.
+
+    Standard properties carry what the standard can say — each CSV is a resource
+    with a Table Schema typing every column, ``primaryKey`` states its uniqueness
+    fact and ``foreignKeys`` its joins — so the unzipped archive validates under
+    ``frictionless validate datapackage.json`` and a data-package reader loads the
+    files with the right types. App-specific provenance that has no standard home
+    lives under the custom ``mlac`` property, which the standard permits: this
+    format's own version, the app and schema versions behind the file, the
+    selected folders and date range, the row counts, and the distinct detector and
+    extraction versions the rows actually carry.
+    """
+    return {
+        "$schema": DATAPACKAGE_PROFILE,
+        "name": STATS_FORMAT_NAME,
+        "title": PACKAGE_TITLE,
+        "description": PACKAGE_DESCRIPTION,
+        "created": _utcnow_iso(),
+        "mlac": {
+            "stats_format_version": STATS_FORMAT_VERSION,
+            "app_version": __version__,
+            "schema_version": schema_version,
+            "folders": list(folders),
+            # Provenance for a partial export, so a file can say which messages
+            # it was asked for rather than only which it holds. Absent (not
+            # null) when the bound was not given.
+            **({"date_from": date_from} if date_from else {}),
+            **({"date_to": date_to} if date_to else {}),
+            "rows": dict(rows),
+            "detector_versions": list(detector_versions),
+            "extraction_versions": list(extraction_versions),
+        },
+        "resources": _resources(),
+    }
+
+
 # --- Export -------------------------------------------------------------------
 
 
@@ -324,7 +557,6 @@ def export_stats(
     out_path: str | Path,
     *,
     all_lists: bool = False,
-    pseudonymous: bool = False,
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> StatsExportSummary:
@@ -340,10 +572,11 @@ def export_stats(
     day's messages, whose stored value carries a time. A named list is exported
     whether or not the range leaves it any message.
 
-    Every message in scope is exported whether or not it was scored. With
-    ``pseudonymous`` the identity columns are omitted and senders are numbered
-    ``s1``, ``s2``, … in first-seen order, assigned per export and deliberately
-    unstable across exports.
+    Every message in scope is exported whether or not it was scored, named by its
+    Message-ID and its sender's address. ``senders.csv`` carries the sender
+    grouping those addresses roll up to, keyed ``s1``, ``s2``, … in the order the
+    addresses are first seen; the keys are file-scoped and mean nothing to the
+    app.
 
     :data:`ZIP_SUFFIX` is appended to ``out_path`` unless it is already there;
     the returned summary's ``path`` is the path actually written, so a caller
@@ -355,7 +588,6 @@ def export_stats(
     selected = _select_lists(
         conn, list_names, all_lists=all_lists, date_from=date_from, date_to=date_to
     )
-    identified = not pseudonymous
     range_clause = _range_clause("m.date", date_from, date_to)
     range_params = _range_params(date_from, date_to)
     # List ids are integers read from the database, never user input, so they are
@@ -363,88 +595,46 @@ def export_stats(
     # SQLite's bound-parameter limit is not.
     scope = f" WHERE m.list_id IN ({','.join(str(int(lst['id'])) for lst in selected)})"
 
-    # Pre-pass. Two cross-references have to be resolvable before a message row
-    # can be written: the sender its address rolls up to (a person groups several
-    # addresses, and a pseudonymous key is an ordinal over first sightings), and
-    # the key of the message its In-Reply-To names, which may be emitted later or
-    # on another list. Only those are collected — a message contributes its
-    # Message-ID and an ordinal, never a row — so what is held scales with the
-    # messages in scope rather than with their size.
-    addresses: dict[int, Any] = {}  # address id -> addresses row
-    sender_of_address: dict[int, str] = {}  # address id -> canonical sender id
-    senders: dict[str, dict[str, Any]] = {}  # canonical sender id -> sender record
-    person_names: dict[int, str] = {}
-    parents: dict[str, list[tuple[int, str]]] = {}  # Message-ID -> [(list id, key)]
+    # Pre-pass. One cross-reference has to be resolvable before a message row can
+    # be written: the address it was sent from, both for the ``email`` and
+    # ``sender_name`` columns and for the sender the address rolls up to, since a
+    # person groups several addresses and their shared key is an ordinal over
+    # first sightings. Only the addresses are collected — a message contributes
+    # nothing — so what is held scales with the addresses in scope rather than
+    # with the messages or their size.
+    addresses: dict[int, Any] = {}  # address id -> addresses row, in first-seen order
+    sender_key_of_address: dict[int, str] = {}  # address id -> senders.csv key
+    sender_keys: dict[str, str] = {}  # grouping id -> "s<n>"
 
-    def register_address(address_id: int) -> str:
-        """The canonical sender id for one address, registering it on first sight."""
-        known = sender_of_address.get(address_id)
-        if known is not None:
-            return known
+    def register_address(address_id: int) -> None:
+        """Record one address and the sender it belongs to, on first sight."""
+        if address_id in sender_key_of_address:
+            return
         row = conn.execute(
             "SELECT id, email, display_name, person_id FROM addresses WHERE id = ?",
             (address_id,),
         ).fetchone()
         if row is None:  # pragma: no cover - address_id came from a live FK
-            sender_of_address[address_id] = ""
-            return ""
+            sender_key_of_address[address_id] = ""
+            return
         addresses[address_id] = row
         person_id = row["person_id"]
         # A linked person is one sender across its addresses; an unlinked address
         # is its own sender — the grouping the dashboard's Senders pane applies.
-        canonical = f"p{person_id}" if person_id is not None else f"a{address_id}"
-        record = senders.get(canonical)
-        if record is None:
-            if person_id is not None and person_id not in person_names:
-                person = conn.execute(
-                    "SELECT canonical_name FROM persons WHERE id = ?", (person_id,)
-                ).fetchone()
-                person_names[person_id] = person["canonical_name"] if person else ""
-            record = {
-                "key": f"s{len(senders) + 1}" if pseudonymous else canonical,
-                "type": "person" if person_id is not None else "address",
-                "name": person_names[person_id] if person_id is not None else row["display_name"],
-                "emails": [],
-                **_empty_aggregate(),
-            }
-            senders[canonical] = record
-        if row["email"] not in record["emails"]:
-            record["emails"].append(row["email"])
-        sender_of_address[address_id] = canonical
-        return canonical
+        grouping = f"p{person_id}" if person_id is not None else f"a{address_id}"
+        key = sender_keys.get(grouping)
+        if key is None:
+            key = f"s{len(sender_keys) + 1}"
+            sender_keys[grouping] = key
+        sender_key_of_address[address_id] = key
 
-    ordinal = 0
     for lst in selected:
         for row in conn.execute(
-            f"SELECT m.id AS id, m.message_id AS message_id, m.address_id AS address_id "
-            f"FROM messages m WHERE m.list_id = ?{range_clause} ORDER BY m.id",
+            "SELECT m.address_id AS address_id FROM messages m "
+            f"WHERE m.list_id = ?{range_clause} AND m.address_id IS NOT NULL ORDER BY m.id",
             [lst["id"], *range_params],
         ):
-            ordinal += 1
-            parents.setdefault(row["message_id"], []).append((lst["id"], f"m{ordinal}"))
-            if row["address_id"] is not None:
-                register_address(row["address_id"])
-
-    def parent_key(list_id: int, message_id: str, in_reply_to: str | None) -> str:
-        """The exported key of the message ``in_reply_to`` names, else empty.
-
-        The header is normalised by :func:`~.store._parent_message_id`, the same
-        lookup the reply-timing recompute applies, so a thread reconstructed here
-        is the one the ``timing`` column was computed over. A parent stored on
-        several lists resolves to the copy on the reply's own list, then to the
-        first emitted; a message naming itself has no parent, as in the timing
-        pass.
-        """
-        if not in_reply_to:
-            return ""
-        parent_mid = _parent_message_id(in_reply_to)
-        if parent_mid == message_id:
-            return ""
-        candidates = parents.get(parent_mid, [])
-        chosen = next((c for c in candidates if c[0] == list_id), None)
-        if chosen is None:
-            chosen = candidates[0] if candidates else None
-        return chosen[1] if chosen else ""
+            register_address(row["address_id"])
 
     n_messages = 0
     n_scored = 0
@@ -455,11 +645,7 @@ def export_stats(
     with zipfile.ZipFile(written_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         # The streaming pass: one message row is live at a time, serialised into
         # the open member before the next is read.
-        with _CsvMember(
-            archive,
-            MESSAGES_MEMBER,
-            _columns(_MESSAGE_COLUMNS, _MESSAGE_IDENTITY_COLUMNS, identified),
-        ) as member:
+        with _CsvMember(archive, MESSAGES_MEMBER, _MESSAGE_COLUMNS) as member:
             for lst in selected:
                 for row in conn.execute(
                     f"{_MESSAGE_SELECT}{_MESSAGE_JOINS} WHERE m.list_id = ?{range_clause} "
@@ -475,27 +661,17 @@ def export_stats(
                         extraction_versions.add(row["extraction_version"])
 
                     address = addresses.get(row["address_id"]) if row["address_id"] else None
-                    canonical = (
-                        sender_of_address.get(row["address_id"]) if row["address_id"] else None
-                    )
-                    sender = senders.get(canonical) if canonical else None
                     member.write(
                         {
-                            "message_key": f"m{n_messages}",
+                            "message_id": row["message_id"],
                             "list": lst["name"],
                             "folder": lst["folder"],
                             "date": row["date"],
-                            "sender_key": sender["key"] if sender else "",
                             "email": address["email"] if address else "",
                             # The message's own From name, falling back to the
                             # display name stored for its address.
                             "sender_name": row["from_name"]
                             or (address["display_name"] if address else None),
-                            "is_reply": bool(row["in_reply_to"]),
-                            "parent_key": parent_key(
-                                lst["id"], row["message_id"], row["in_reply_to"]
-                            ),
-                            "message_id": row["message_id"],
                             "in_reply_to": row["in_reply_to"],
                             "auto_generated": row["auto_generated"],
                             "timing": row["timing"],
@@ -514,8 +690,8 @@ def export_stats(
                         }
                     )
 
-        # The aggregates: one GROUP BY per table over the identical scope, so
-        # their counts sum to the rows just written.
+        # The aggregates: one GROUP BY over the identical scope, so their counts
+        # sum to the rows just written.
         list_aggregates = {
             row["list_id"]: _aggregate_row(row)
             for row in conn.execute(
@@ -538,62 +714,41 @@ def export_stats(
                     }
                 )
 
-        # Grouped by address, then folded into the sender each address rolls up
-        # to, which is how a person's several addresses become one row.
-        for row in conn.execute(
-            f"SELECT m.address_id AS address_id, {_AGGREGATE_COLUMNS}{_MESSAGE_JOINS}"
-            f"{scope}{range_clause} AND m.address_id IS NOT NULL GROUP BY m.address_id",
-            range_params,
-        ):
-            canonical = sender_of_address.get(row["address_id"])
-            if canonical and canonical in senders:
-                _merge_aggregate(senders[canonical], _aggregate_row(row))
-        with _CsvMember(
-            archive,
-            SENDERS_MEMBER,
-            _columns(_SENDER_COLUMNS, _SENDER_IDENTITY_COLUMNS, identified),
-        ) as member:
-            for record in senders.values():
+        # The sender grouping: one row per address with a message in scope, in the
+        # order the pre-pass first saw them, so a person's addresses repeat their
+        # shared key and an unlinked address holds one of its own.
+        with _CsvMember(archive, SENDERS_MEMBER, _SENDER_COLUMNS) as member:
+            for address_id, address in addresses.items():
                 member.write(
                     {
-                        **record,
-                        "sender_key": record["key"],
-                        "sender_type": record["type"],
-                        "emails": ";".join(sorted(record["emails"])),
-                        "ai_share": _share(record["ai"], record["scored"], record["too_short"]),
+                        "sender_key": sender_key_of_address[address_id],
+                        "email": address["email"],
                     }
                 )
 
         schema_row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        manifest = {
-            "format": STATS_FORMAT_NAME,
-            "stats_format_version": STATS_FORMAT_VERSION,
-            "app_version": __version__,
-            "schema_version": schema_row["v"] if schema_row and schema_row["v"] is not None else 0,
-            "exported_at": _utcnow_iso(),
-            "folders": [lst["folder"] for lst in selected],
-            # Provenance for a partial export, so a file can say which messages
-            # it was asked for rather than only which it holds. Absent (not
-            # null) when the bound was not given.
-            **({"date_from": date_from} if date_from else {}),
-            **({"date_to": date_to} if date_to else {}),
-            "identified": identified,
-            "rows": {
+        descriptor = _datapackage(
+            schema_version=schema_row["v"] if schema_row and schema_row["v"] is not None else 0,
+            folders=[lst["folder"] for lst in selected],
+            date_from=date_from,
+            date_to=date_to,
+            rows={
                 "messages": n_messages,
                 "lists": len(selected),
-                "senders": len(senders),
+                # senders.csv rows: addresses, not the senders they group into.
+                "senders": len(addresses),
             },
-            "labels": list(LABELS),
-            "timing_bands": list(TIMING_BANDS),
-            "detector_versions": sorted(detector_versions),
-            "extraction_versions": sorted(extraction_versions),
-        }
-        archive.writestr(MANIFEST_MEMBER, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-        archive.writestr(README_MEMBER, _readme(identified))
+            detector_versions=sorted(detector_versions),
+            extraction_versions=sorted(extraction_versions),
+        )
+        archive.writestr(
+            DATAPACKAGE_MEMBER, json.dumps(descriptor, ensure_ascii=False, indent=2) + "\n"
+        )
+        archive.writestr(README_MEMBER, _readme())
 
     return StatsExportSummary(
         lists=len(selected),
-        senders=len(senders),
+        senders=len(addresses),
         messages=n_messages,
         scored=n_scored,
         path=str(written_path),
@@ -603,109 +758,29 @@ def export_stats(
 # --- Data dictionary ------------------------------------------------------------
 
 
-def _table(rows: Iterable[tuple[str, str]]) -> str:
-    """A two-column Markdown table of ``(column, meaning)`` pairs."""
-    lines = ["| column | meaning |", "|---|---|"]
-    lines += [f"| `{column}` | {meaning} |" for column, meaning in rows]
+def _table(columns: Iterable[_Column]) -> str:
+    """A Markdown table of the column dictionary: name, declared type, meaning.
+
+    Generated from the same :class:`_Column` definitions the descriptor's Table
+    Schema is, so the prose dictionary and the machine-readable schema describe
+    every column identically.
+    """
+    lines = ["| column | type | meaning |", "|---|---|---|"]
+    lines += [f"| `{c.name}` | {c.type} | {c.description} |" for c in columns]
     return "\n".join(lines)
 
 
-def _readme(identified: bool) -> str:
+def _readme() -> str:
     """The archive's ``README.md``: the data dictionary for this exact file.
 
-    Written for someone who has only the zip, so it describes the columns the
-    file actually carries — a pseudonymous export documents no identity column,
-    having none — and the caveats that stop the obvious misreadings.
+    Written for someone who has only the zip, so it describes every column of
+    every member and the caveats that stop the obvious misreadings.
     """
-    message_rows = [
-        ("message_key", "file-scoped key `m1`, `m2`, … in the order rows appear"),
-        ("list", "the mailing list's name; not unique across lists"),
-        ("folder", "the list's IMAP folder, its unique key; joins to `lists.csv`"),
-        ("date", "the message's `Date`, UTC ISO-8601; empty when it had none"),
-        ("sender_key", "joins to `senders.csv`; empty when the message has no sender address"),
-        ("email", "sender address, empty when the message has none"),
-        ("sender_name", "the message's `From` name, falling back to the address's display name"),
-        ("is_reply", "`true` when the message carries an `In-Reply-To` header"),
-        ("parent_key", "`message_key` of the parent when it is in this file, else empty"),
-        ("message_id", "RFC 5322 Message-ID"),
-        ("in_reply_to", "raw `In-Reply-To` value, empty when not a reply"),
-        (
-            "auto_generated",
-            "the marker that classified the message auto-generated, empty when none",
-        ),
-        ("timing", "reply-timing band: `normal`, `suspicious`, `implausible`, or empty"),
-        (
-            "timing_cpm",
-            "the characters-per-minute rate behind the band, empty exactly where `timing` is",
-        ),
-        (
-            "extraction_status",
-            "`ok`, `empty`, `too_short`, `failed`, or empty when never extracted",
-        ),
-        (
-            "extraction_method",
-            "the extraction routine that produced the text, empty when never extracted",
-        ),
-        ("extraction_chars", "characters of extracted text, empty when never extracted"),
-        ("extraction_version", "generation of the extraction routine, may be empty"),
-        ("pipeline_version", "app version that last processed the message, may be empty"),
-        ("label", "detector verdict `Human`, `Mixed` or `AI`; empty when unscored"),
-        ("fraction_ai", "detector fraction in [0, 1], empty when unscored"),
-        ("fraction_ai_assisted", "as above"),
-        ("fraction_human", "as above"),
-        ("detector_version", "the detector build that produced the score, empty when unscored"),
-        ("scored_at", "UTC ISO-8601, empty when unscored"),
-    ]
-    aggregate_rows = [
-        ("messages", "messages in scope"),
-        ("scored", "messages with a score"),
-        (
-            "too_short",
-            "messages gated under the reliability floor (`extraction_status = too_short`)",
-        ),
-        ("human", "scored messages labelled `Human`"),
-        ("mixed", "scored messages labelled `Mixed`"),
-        ("ai", "scored messages labelled `AI`"),
-        ("ai_share", "`ai / (scored + too_short)`, empty when that denominator is 0"),
-        ("first_date", "oldest `date` in scope, empty when none"),
-        ("last_date", "newest `date` in scope, empty when none"),
-    ]
-    list_rows = [
-        ("list", f"as in `{MESSAGES_MEMBER}`"),
-        ("folder", f"as in `{MESSAGES_MEMBER}`"),
-        *aggregate_rows,
-    ]
-    sender_rows = [
-        ("sender_key", "the key `messages.csv` joins on"),
-        ("sender_type", "`person` when the sender is a linked group of addresses, else `address`"),
-        ("name", "the person's canonical name, or the address's display name; empty when none"),
-        ("emails", "the sender's addresses with a message in scope, `;`-separated"),
-        *aggregate_rows,
-    ]
-    if not identified:
-        message_rows = [row for row in message_rows if row[0] not in _MESSAGE_IDENTITY_COLUMNS]
-        sender_rows = [row for row in sender_rows if row[0] not in _SENDER_IDENTITY_COLUMNS]
-
     bands = f"{int(TIMING_SUSPICIOUS_CPM)}, `implausible` from {int(TIMING_IMPLAUSIBLE_CPM)}"
-    # Pre-wrapped, because this paragraph goes into a Markdown file rather than
-    # through a formatter.
-    identity = (
-        """This is an **identified** export: sender addresses and names are present, and
-`message_id` / `in_reply_to` are the real header values. `sender_key` is
-`p<person id>` or `a<address id>`, stable across exports from the same
-database."""
-        if identified
-        else """This is a **pseudonymous** export: the identity columns (`email`, `sender_name`,
-`name`, `emails`, `message_id`, `in_reply_to`) are omitted rather than blanked,
-so the header rows state what the file holds. `sender_key` is `s1`, `s2`, … in
-first-seen order, assigned for this file alone and not comparable with any other
-export. Pseudonymous is not anonymous: list names, dates and thread shapes
-remain, and mailing-list archives are public."""
-    )
 
     return f"""# Mailing-list AI check — statistics export
 
-One row per message, plus per-list and per-sender aggregates, from an
+One row per message, plus a per-list aggregate and the sender grouping, from an
 AI-detection pipeline run over one or more mailing lists. The archive carries no
 message content: no bodies, no extracted text, no subjects, no raw headers and
 no detector responses. Nothing here is read back by the application that wrote
@@ -717,39 +792,61 @@ it; this is an analysis artifact.
 |---|---|
 | `{MESSAGES_MEMBER}` | one row per message in scope, scored or not |
 | `{LISTS_MEMBER}` | one row per exported list, aggregated over the same scope |
-| `{SENDERS_MEMBER}` | one row per sender with a message in scope |
-| `{MANIFEST_MEMBER}` | provenance, row counts and the values present in the file |
+| `{SENDERS_MEMBER}` | the sender grouping: synthetic key to email address |
+| `{DATAPACKAGE_MEMBER}` | a Frictionless Data Package descriptor: a schema per CSV, plus this file's provenance |
 | `{README_MEMBER}` | this file |
 
 The CSV files are UTF-8, RFC 4180, with a header row and `\\n` line endings. A
 NULL is an empty field, booleans are `true` / `false`, dates are the stored UTC
 ISO-8601 strings, and fractions are written at full stored precision, unrounded.
 
-{identity}
+Rows are named by mail's own values: a message by its `message_id`, a sender by
+its `email`. None of the application's internal row ids appear. The export is
+not anonymised: sender addresses and names are present, as are the real header
+values.
+
+## `{DATAPACKAGE_MEMBER}`
+
+`{DATAPACKAGE_MEMBER}` is a standard [Frictionless Data
+Package](https://datapackage.org/) descriptor, so this archive unzips into a
+valid data package. Each CSV is a resource with a schema typing every column and
+stating the keys: after unzipping, `frictionless validate {DATAPACKAGE_MEMBER}`
+checks the files against those schemas, and a reader that understands data
+packages loads them with the right types instead of hand-written parsing.
+
+This file's own provenance — the format version, the versions of the application
+and its database schema, the lists and date range selected, the row counts, and
+the detector and extraction versions the rows carry — is under the descriptor's
+`mlac` key, where the standard permits application-specific properties.
 
 ## `{MESSAGES_MEMBER}`
 
 Every message in scope, whether or not it was scored: a share calculation needs
 the messages that carry no verdict as much as those that do.
 
-{_table(message_rows)}
+{_table(_MESSAGE_COLUMNS)}
 
 ## `{LISTS_MEMBER}`
 
 One row per exported list. The counts are over the messages in this file, so
 they sum exactly to `{MESSAGES_MEMBER}`.
 
-{_table(list_rows)}
+{_table(_LIST_COLUMNS)}
 
 ## `{SENDERS_MEMBER}`
 
-One row per sender with at least one message in scope. A sender is a linked
-person when the address belongs to one, otherwise the bare address, so a person
-who posts from several addresses is one row. A message with no sender address
-at all has an empty `sender_key`: it is counted in the list aggregate, and in no
-sender row.
+The sender grouping, and nothing else: one row per address that appears in
+`{MESSAGES_MEMBER}`. Addresses the application has linked to one person share a
+`sender_key`, one row each; an unlinked address is its own sender with a single
+row. A message with no sender address at all has an empty `email` and no row
+here: it is counted in the list aggregate, and under no sender.
 
-{_table(sender_rows)}
+The keys are assigned in the order the addresses are first seen and hold for
+this file alone — they are not comparable with any other export. Per-sender
+aggregates are not shipped: `{MESSAGES_MEMBER}` carries `email` on every row, so
+grouping by sender is one join away.
+
+{_table(_SENDER_COLUMNS)}
 
 ## Reading the numbers
 
@@ -759,19 +856,26 @@ sender row.
   application's own figures. The reliability floor gates messages under 50 words
   of authored text: they are never sent to the detector, so they are neither
   human nor AI, but they are messages.
+- `message_id` is not a unique key: a message cross-posted to several exported
+  lists appears once per list, with the same `message_id` and a different
+  `folder`. `(folder, message_id)` is unique.
+- Threads join `in_reply_to` to `message_id`. Most resolve directly; a small
+  minority of `In-Reply-To` headers carry extra tokens — surrounding whitespace,
+  a trailing comment, more than one Message-ID — and need normalising to the
+  first bracketed Message-ID before the join.
 - Scores in one file may come from different detector versions and different
-  extraction generations. Both are per-row columns and are listed in
-  `{MANIFEST_MEMBER}`; an aggregate over a mixed file mixes them.
+  extraction generations. Both are per-row columns, and the distinct values this
+  file carries are listed under `mlac` in `{DATAPACKAGE_MEMBER}`; an aggregate
+  over a mixed file mixes them.
 - A reply's timing band is the implied composition rate of its new text, in
   characters per minute of the gap between the parent message and the reply:
-  `suspicious` from {bands}. An empty band means the rate could not be computed
-  — the message is not a reply, its parent is not stored, a date is missing or
-  unusable, or the message has no extracted text — not that it was normal.
-- The date range, when one was applied, is recorded in `{MANIFEST_MEMBER}`. Its
+  `suspicious` from {bands}.
+  An empty band means the rate could not be computed — the message is not a
+  reply, its parent is not stored, a date is missing or unusable, or the message
+  has no extracted text — not that it was normal.
+- The date range, when one was applied, is recorded under `mlac` in
+  `{DATAPACKAGE_MEMBER}`. Its
   comparison is lexical over the stored dates, so a bare `date_to` day
   ("2026-03-01") excludes that day's messages, whose stored value carries a
   time.
-- `parent_key` links a reply to its parent only when the parent is in this file.
-  A reply whose parent falls outside the selected lists or date range keeps
-  `is_reply` true and an empty `parent_key`.
 """

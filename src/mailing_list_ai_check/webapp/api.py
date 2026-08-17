@@ -1959,8 +1959,6 @@ def export_stats_download() -> Any:
     The selection params are the full export's: ``list`` (optional, repeatable,
     an unknown name being a 404) and the inclusive ``date_from`` / ``date_to``
     bounds (a malformed one being a 400), with an empty selection again a 404.
-    ``pseudonymous`` (boolean, default false) omits the sender addresses, names
-    and Message-IDs and numbers the senders instead.
 
     The archive is built via
     :func:`mailing_list_ai_check.stats_export.export_stats` into a temporary
@@ -1974,7 +1972,6 @@ def export_stats_download() -> Any:
     list_names = _selected_lists(request.args)
     date_from = _validate_iso("date_from", request.args.get("date_from"))
     date_to = _validate_iso("date_to", request.args.get("date_to"))
-    pseudonymous = _parse_bool("pseudonymous", request.args.get("pseudonymous")) or False
 
     fd, tmp_path = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
@@ -1986,7 +1983,6 @@ def export_stats_download() -> Any:
                 list_names or None,
                 tmp_path,
                 all_lists=not list_names,
-                pseudonymous=pseudonymous,
                 date_from=date_from,
                 date_to=date_to,
             )

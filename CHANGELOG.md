@@ -37,6 +37,17 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.10.3] - 2026-08-18
+
+Summary: Key the stats export by mail-native identifiers, describe it with a standard Frictionless datapackage.json, and drop its pseudonymous variant (stats format version 2).
+
+- Identify `messages.csv` rows by `message_id` (not unique: a cross-posted message appears once per exported list) instead of a file-scoped `message_key`, dropping the `parent_key` and `is_reply` columns; threads join `in_reply_to` to `message_id`.
+- Identify senders in `messages.csv` by `email` instead of an app-specific `sender_key`.
+- Reduce `senders.csv` to the two-column sender grouping — synthetic `sender_key`, `email` — one row per address in the file, a person's addresses sharing a key; the per-sender aggregate columns are removed.
+- Remove the pseudonymous variant: the `--pseudonymous` CLI flag, the `pseudonymous` API param and the dialog checkbox.
+- Replace the bespoke `manifest.json` with a Frictionless Data Package `datapackage.json`: a typed Table Schema per CSV (enum vocabularies, fraction bounds, primary and foreign keys) with app provenance and row counts under a custom `mlac` property.
+- Raise `STATS_FORMAT_VERSION` to 2 and document the version-1 differences in `docs/stats-export.md`.
+
 ## [1.10.2] - 2026-08-17
 
 Summary: Add a stats export — scores and message metadata as CSV, with no message text, for analysis outside the app.

@@ -359,17 +359,15 @@ function filenameFromDisposition(cd) {
 // `lists` empty means every list, which is what the endpoint reads an absent
 // `list` param as; buildQuery repeats the key for each name it is given.
 //
-// The two formats differ only in their endpoint and the one extra param: the
-// stats export takes the same selection and answers with a zip of CSV files,
-// `pseudonymous` sent only when it is set (an empty value is dropped anyway).
-async function doExport({ format, pseudonymous, lists: names, date_from, date_to }) {
+// The two formats differ only in their endpoint: the stats export takes the
+// same selection and answers with a zip of CSV files.
+async function doExport({ format, lists: names, date_from, date_to }) {
   if (exporting.value) return
   const stats = format === 'stats'
   exporting.value = true
   try {
     const path = stats ? '/export/stats' : '/export'
     const params = { list: names, date_from, date_to }
-    if (stats && pseudonymous) params.pseudonymous = 'true'
     const res = await fetch(apiUrl(path, params), {
       headers: { Accept: stats ? 'application/zip' : 'application/zstd' },
     })

@@ -392,28 +392,27 @@ mail-ai-export-stats announce last-call -o stats
 
 # Every list with a message in scope, bounded by message date
 mail-ai-export-stats --all-lists -o stats --date-from 2025-07-01
-
-# Pseudonymous variant: no addresses, names or Message-IDs
-mail-ai-export-stats --all-lists -o stats --pseudonymous
 ```
 
 The archive holds `messages.csv` (one row per message in scope, scored or
-not, with label, the three Pangram fractions, timing band and extraction
-status), `lists.csv` and `senders.csv` (aggregates over the same scope, using
-the dashboard's AI-share definition), `manifest.json` (provenance: versions,
-selection, row counts) and a `README.md` data dictionary. Unscored and
-too-short messages are included so share calculations over the file reproduce
-the dashboard's numbers. List selection and the date range behave exactly as
-in `mail-ai-export`, including the `--date-to` edge described above.
-`--pseudonymous` omits sender addresses, names and Message-IDs, keying
-senders `s1, s2, …` within the file; reply relationships remain analysable
-through a file-scoped parent key. Like the full export, the command is a pure
-local database read.
+not, keyed by Message-ID and sender email, with label, the three Pangram
+fractions, timing band and extraction status), `lists.csv` (per-list
+aggregates over the same scope, using the dashboard's AI-share definition),
+`senders.csv` (the sender grouping: a synthetic key and an email per row, a
+person's addresses sharing a key), `datapackage.json` (a standard [Frictionless
+Data Package](https://datapackage.org/) descriptor: per-file column schemas,
+provenance, row counts) and a `README.md` data dictionary. Rows are identified
+by mail-native values — Message-IDs and email addresses — never by the app's
+internal ids; a Message-ID is therefore not unique when a message was
+cross-posted to several exported lists. Unscored and too-short messages are
+included so share calculations over the file reproduce the dashboard's
+numbers. List selection and the date range behave exactly as in
+`mail-ai-export`, including the `--date-to` edge described above. Like the
+full export, the command is a pure local database read.
 
 The dashboard's export dialog offers the same choice: a Full export (the
-re-importable archive) or a Stats export, with a Pseudonymous option.
-`GET /api/export/stats` takes the same parameters as `GET /api/export` plus
-`pseudonymous`.
+re-importable archive) or a Stats export. `GET /api/export/stats` takes the
+same parameters as `GET /api/export`.
 
 ## Costs and usage limits
 

@@ -1225,9 +1225,9 @@ def test_export_empty_db_404(tmp_path):
 
 # --- /api/export/stats ---------------------------------------------------------
 #
-# The same selection as /api/export over the same seed, plus the pseudonymous
-# variant. The archive's own contents are covered by tests/test_stats_export.py;
-# what is asserted here is the HTTP surface.
+# The same selection as /api/export over the same seed. The archive's own
+# contents are covered by tests/test_stats_export.py; what is asserted here is
+# the HTTP surface.
 
 
 def _archive(body):
@@ -1235,9 +1235,15 @@ def _archive(body):
     return zipfile.ZipFile(io.BytesIO(body))
 
 
-def _stats_manifest(body):
+def _stats_datapackage(body):
+    """The archive's Frictionless descriptor, parsed."""
     with _archive(body) as archive:
-        return json.loads(archive.read("manifest.json").decode("utf-8"))
+        return json.loads(archive.read("datapackage.json").decode("utf-8"))
+
+
+def _stats_mlac(body):
+    """The descriptor's custom provenance object."""
+    return _stats_datapackage(body)["mlac"]
 
 
 def _stats_columns(body, member="messages.csv"):
@@ -1259,12 +1265,13 @@ def test_export_stats_all_lists(client):
             "messages.csv",
             "lists.csv",
             "senders.csv",
-            "manifest.json",
+            "datapackage.json",
             "README.md",
         }
-    # The whole seed: 15 messages over 3 lists, from 5 senders (2 persons and
-    # 3 unlinked addresses).
-    assert _stats_manifest(resp.data)["rows"] == {"messages": 15, "lists": 3, "senders": 5}
+    # The whole seed: 15 messages over 3 lists, from 6 addresses (a1+a2 and a3
+    # grouped into 2 persons, a4/a5/a6 unlinked) — senders counts the rows of
+    # senders.csv, which is one per address.
+    assert _stats_mlac(resp.data)["rows"] == {"messages": 15, "lists": 3, "senders": 6}
 
 
 def test_export_stats_declares_the_exact_body_length(client):
@@ -1276,54 +1283,61 @@ def test_export_stats_single_list(client):
     resp = client.get("/api/export/stats?list=announce")
     assert resp.status_code == 200
     assert 'filename="mlac-stats-announce-' in resp.headers["Content-Disposition"]
-    manifest = _stats_manifest(resp.data)
-    assert manifest["folders"] == ["Shared Folders/announce"]
-    assert manifest["rows"]["messages"] == 7
+    mlac = _stats_mlac(resp.data)
+    assert mlac["folders"] == ["Shared Folders/announce"]
+    assert mlac["rows"]["messages"] == 7
 
 
 def test_export_stats_several_lists(client):
     resp = client.get("/api/export/stats?list=announce&list=quic")
     assert resp.status_code == 200
     assert 'filename="mlac-stats-2-lists-' in resp.headers["Content-Disposition"]
-    assert _stats_manifest(resp.data)["rows"]["messages"] == 10
+    assert _stats_mlac(resp.data)["rows"]["messages"] == 10
 
 
 def test_export_stats_date_range_narrows_the_messages(client):
     resp = client.get("/api/export/stats?date_from=2026-01-01&date_to=2026-01-31")
     assert resp.status_code == 200
-    manifest = _stats_manifest(resp.data)
-    assert manifest["rows"]["messages"] == 5  # m1, m8, m2, m3, m13
-    assert (manifest["date_from"], manifest["date_to"]) == ("2026-01-01", "2026-01-31")
+    mlac = _stats_mlac(resp.data)
+    assert mlac["rows"]["messages"] == 5  # m1, m8, m2, m3, m13
+    assert (mlac["date_from"], mlac["date_to"]) == ("2026-01-01", "2026-01-31")
 
 
-def test_export_stats_is_identified_by_default(client):
+def test_export_stats_names_senders_by_address(client):
+    """One variant only: the addresses are present and senders.csv groups them."""
+    mlac = _stats_mlac(client.get("/api/export/stats").data)
+    assert mlac["stats_format_version"] == 2
+    assert "identified" not in mlac
+
+
+def test_export_stats_members_carry_the_version_2_columns(client):
     resp = client.get("/api/export/stats")
-    assert _stats_manifest(resp.data)["identified"] is True
-    assert "email" in _stats_columns(resp.data)
+    assert _stats_columns(resp.data)[:5] == ["message_id", "list", "folder", "date", "email"]
+    assert _stats_columns(resp.data, "senders.csv") == ["sender_key", "email"]
 
 
-@pytest.mark.parametrize("value", ["1", "true", "yes"], ids=["1", "true", "yes"])
-def test_export_stats_pseudonymous_omits_the_identity_columns(client, value):
-    resp = client.get(f"/api/export/stats?pseudonymous={value}")
+def test_export_stats_descriptor_describes_the_served_members(client):
+    """The download is a data package, not only a zip of files."""
+    descriptor = _stats_datapackage(client.get("/api/export/stats").data)
+    assert descriptor["$schema"] == "https://datapackage.org/profiles/2.0/datapackage.json"
+    assert descriptor["name"] == "mlac-stats"
+    assert [resource["path"] for resource in descriptor["resources"]] == [
+        "messages.csv",
+        "lists.csv",
+        "senders.csv",
+    ]
+    messages = descriptor["resources"][0]
+    assert [field["name"] for field in messages["schema"]["fields"]] == _stats_columns(
+        client.get("/api/export/stats").data
+    )
+    assert messages["schema"]["primaryKey"] == ["folder", "message_id"]
+
+
+def test_export_stats_ignores_an_unknown_query_param(client):
+    """The removed ``pseudonymous`` param is an unknown one, not an error."""
+    resp = client.get("/api/export/stats?pseudonymous=true")
     assert resp.status_code == 200
-    manifest = _stats_manifest(resp.data)
-    assert manifest["identified"] is False
-    assert manifest["rows"]["messages"] == 15  # the same messages, fewer columns
-    columns = _stats_columns(resp.data)
-    assert "email" not in columns and "message_id" not in columns
-    assert "name" not in _stats_columns(resp.data, "senders.csv")
-
-
-@pytest.mark.parametrize("value", ["0", "false", "no"], ids=["0", "false", "no"])
-def test_export_stats_pseudonymous_false_is_identified(client, value):
-    resp = client.get(f"/api/export/stats?pseudonymous={value}")
-    assert _stats_manifest(resp.data)["identified"] is True
-
-
-def test_export_stats_rejects_a_malformed_pseudonymous_400(client):
-    resp = client.get("/api/export/stats?pseudonymous=perhaps")
-    assert resp.status_code == 400
-    assert "pseudonymous" in resp.get_json()["error"]
+    assert "email" in _stats_columns(resp.data)
 
 
 @pytest.mark.parametrize("param", ["date_from", "date_to"], ids=["from", "to"])
