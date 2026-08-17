@@ -575,6 +575,162 @@ def test_export_all_lists_covers_every_list_with_messages(source, tmp_path):
     assert folders == {ANNOUNCE, LAST_CALL}
 
 
+def test_export_several_named_lists_covers_all_of_them(source, tmp_path):
+    """Naming both lists exports both, and every address either references."""
+    out = tmp_path / "both.jsonl"
+    summary = export_import.export_lists(source, ["announce", "last-call"], out)
+    records = _read_records(summary.path)
+
+    assert set(_message_by_id(records)) == {M1, M2, M3, M4, M5, M6}
+    assert records[0]["folders"] == [ANNOUNCE, LAST_CALL]
+    assert (summary.lists, summary.messages) == (2, 6)
+
+
+# --- date-range exports -------------------------------------------------------
+#
+# Fixture message dates: M1 2026-01-05, M2 2026-01-10, M3 2026-01-15,
+# M4 2026-01-20, M6 2026-01-25 (announce), M5 2026-02-01 (last-call). All carry
+# a 10:00:00+00:00 time, which is what makes the bare-day bound test below sharp.
+
+
+def test_export_date_from_keeps_only_later_messages(source, tmp_path):
+    summary = export_import.export_lists(
+        source, None, tmp_path / "from.jsonl", all_lists=True, date_from="2026-01-20"
+    )
+    records = _read_records(summary.path)
+    assert set(_message_by_id(records)) == {M4, M6, M5}
+    assert summary.messages == 3
+
+
+def test_export_date_to_keeps_only_earlier_messages(source, tmp_path):
+    summary = export_import.export_lists(
+        source, None, tmp_path / "to.jsonl", all_lists=True, date_to="2026-01-15T23:59:59+00:00"
+    )
+    assert set(_message_by_id(_read_records(summary.path))) == {M1, M2, M3}
+    assert summary.messages == 3
+
+
+def test_export_both_bounds_are_inclusive(source, tmp_path):
+    """A range spanning two message timestamps exactly includes both of them."""
+    summary = export_import.export_lists(
+        source,
+        None,
+        tmp_path / "span.jsonl",
+        all_lists=True,
+        date_from="2026-01-10T10:00:00+00:00",
+        date_to="2026-01-20T10:00:00+00:00",
+    )
+    assert set(_message_by_id(_read_records(summary.path))) == {M2, M3, M4}
+
+
+def test_export_bare_to_day_excludes_that_days_messages(source, tmp_path):
+    """The documented sharp edge: the comparison is lexical over stored ISO text.
+
+    ``2026-01-20`` sorts before ``2026-01-20T10:00:00+00:00``, so M4 falls
+    outside a range ending on its own day. The dashboard's date filter behaves
+    the same way, which is the point — a range means the same thing in both.
+    """
+    summary = export_import.export_lists(
+        source, None, tmp_path / "bare.jsonl", all_lists=True, date_to="2026-01-20"
+    )
+    assert M4 not in _message_by_id(_read_records(summary.path))
+
+
+def test_export_range_narrows_a_named_list(source, tmp_path):
+    """The range applies to named lists as well as to --all-lists."""
+    summary = export_import.export_lists(
+        source, ["announce"], tmp_path / "named.jsonl", date_from="2026-01-15"
+    )
+    assert set(_message_by_id(_read_records(summary.path))) == {M3, M4, M6}
+    assert (summary.lists, summary.messages) == (1, 3)
+
+
+def test_export_range_drops_addresses_only_referenced_outside_it(source, tmp_path):
+    """The address pre-pass sees the same messages as the streaming pass.
+
+    Within announce from 2026-01-15 only M3 (no sender), M4 (Carol) and M6
+    (Alice's second address) survive. Bob sends only M2, and Alice's first
+    address only M1, so both must be absent from the file — an address record
+    for a message that is not there is exactly what the two passes disagreeing
+    about the range would produce.
+    """
+    summary = export_import.export_lists(
+        source, ["announce"], tmp_path / "narrow.jsonl", date_from="2026-01-15"
+    )
+    records = _read_records(summary.path)
+    emails = {r["email"] for r in _messages_of_type(records, "address")}
+    assert emails == {"alice@work.example", "carol@example.org"}
+
+
+def test_export_all_lists_skips_a_list_with_nothing_in_range(source, tmp_path):
+    """last-call's only message is in February, so a January range omits the list."""
+    summary = export_import.export_lists(
+        source, None, tmp_path / "jan.jsonl", all_lists=True, date_to="2026-01-31"
+    )
+    records = _read_records(summary.path)
+    assert {r["folder"] for r in _messages_of_type(records, "list")} == {ANNOUNCE}
+    assert records[0]["folders"] == [ANNOUNCE]
+    assert summary.lists == 1
+
+
+def test_export_range_ships_no_pull_cursor(source, tmp_path):
+    """A partial file cannot claim a list is pulled up to its cursor.
+
+    The unranged export of the same store does carry last-call's cursor, so the
+    absence here is the range's doing and not a missing fixture.
+    """
+    ranged = export_import.export_lists(
+        source, None, tmp_path / "ranged.jsonl", all_lists=True, date_from="2026-01-01"
+    )
+    assert _messages_of_type(_read_records(ranged.path), "pull_state") == []
+
+    whole = _read_records(_export_all(source, tmp_path, "whole.jsonl"))
+    assert [r["folder"] for r in _messages_of_type(whole, "pull_state")] == [LAST_CALL]
+
+
+def test_import_of_a_ranged_export_leaves_the_target_cursorless(source, target, tmp_path):
+    """So the next pull starts where the target actually is, not above the gap."""
+    summary = export_import.export_lists(
+        source, None, tmp_path / "part2.jsonl", all_lists=True, date_from="2026-02-01"
+    )
+    export_import.import_file(target, summary.path)
+    assert _pull_states_by_folder(target) == {}
+
+
+def test_export_header_records_the_range_only_when_bounded(source, tmp_path):
+    """The bounds are provenance in the header, and absent when not given."""
+    bounded = export_import.export_lists(
+        source,
+        None,
+        tmp_path / "bounded.jsonl",
+        all_lists=True,
+        date_from="2026-01-10",
+        date_to="2026-01-20",
+    )
+    header = _read_records(bounded.path)[0]
+    assert (header["date_from"], header["date_to"]) == ("2026-01-10", "2026-01-20")
+
+    plain = _read_records(_export_all(source, tmp_path, "unbounded.jsonl"))[0]
+    assert "date_from" not in plain and "date_to" not in plain
+
+
+def test_export_range_roundtrips_as_a_normal_import(source, target, tmp_path):
+    """A ranged file is an ordinary export: it imports, carrying just its subset."""
+    summary = export_import.export_lists(
+        source, None, tmp_path / "part.jsonl", all_lists=True, date_from="2026-01-20"
+    )
+    export_import.import_file(target, summary.path)
+
+    assert set(_messages_by_key(target)) == {
+        (ANNOUNCE, M4),
+        (ANNOUNCE, M6),
+        (LAST_CALL, M5),
+    }
+    # Only the addresses those three messages reference came across: Carol (M4),
+    # Alice's second address (M6) and her first (M5).
+    assert _counts(target)["addresses"] == 3
+
+
 def test_export_rejects_names_and_all_lists_together(source, tmp_path):
     with pytest.raises(ValueError):
         export_import.export_lists(source, ["announce"], tmp_path / "x.jsonl", all_lists=True)
@@ -1758,6 +1914,58 @@ def test_export_main_no_compress_logs_the_given_path(tmp_path, caplog):
         assert export_main(["--all-lists", "-o", str(out), "--db", str(src), "--no-compress"]) == 0
     assert f"path={out}" in caplog.text
     assert f"path={out}{codec.COMPRESSED_SUFFIX}" not in caplog.text
+
+
+def test_export_main_applies_a_date_range(tmp_path):
+    """--date-from / --date-to reach the exporter, and the header records them."""
+    src = tmp_path / "src.db"
+    _build_source_db(src)
+    out = tmp_path / "cli-range.jsonl"
+    rc = export_main(
+        [
+            "--all-lists",
+            "-o",
+            str(out),
+            "--db",
+            str(src),
+            "--date-from",
+            "2026-01-10",
+            "--date-to",
+            "2026-01-20T23:59:59+00:00",
+        ]
+    )
+    assert rc == 0
+    records = _read_records(codec.compressed_path(out))
+    assert set(_message_by_id(records)) == {M2, M3, M4}
+    assert (records[0]["date_from"], records[0]["date_to"]) == (
+        "2026-01-10",
+        "2026-01-20T23:59:59+00:00",
+    )
+
+
+def test_export_main_accepts_one_bound_alone(tmp_path):
+    src = tmp_path / "src.db"
+    _build_source_db(src)
+    out = tmp_path / "cli-from.jsonl"
+    assert (
+        export_main(["--all-lists", "-o", str(out), "--db", str(src), "--date-from", "2026-02-01"])
+        == 0
+    )
+    records = _read_records(codec.compressed_path(out))
+    assert set(_message_by_id(records)) == {M5}
+    assert "date_to" not in records[0]
+
+
+@pytest.mark.parametrize("flag", ["--date-from", "--date-to"], ids=["from", "to"])
+def test_export_main_rejects_an_unparseable_date(tmp_path, flag):
+    """A typo is a usage error, not a silently wrong lexical range."""
+    src = tmp_path / "src.db"
+    _build_source_db(src)
+    with pytest.raises(SystemExit) as exc:
+        export_main(
+            ["--all-lists", "-o", str(tmp_path / "x.jsonl"), "--db", str(src), flag, "last week"]
+        )
+    assert exc.value.code == 2
 
 
 def test_export_main_rejects_names_and_all_lists(tmp_path):

@@ -6,12 +6,16 @@
 
 const BASE = '/api'
 
+// An array value repeats its key (`list=a&list=b`), which is how the API reads
+// its repeatable params; empty entries are dropped like scalar ones.
 function buildQuery(params) {
   if (!params) return ''
   const usp = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === '') continue
-    usp.append(key, value)
+    for (const one of Array.isArray(value) ? value : [value]) {
+      if (one === undefined || one === null || one === '') continue
+      usp.append(key, one)
+    }
   }
   const s = usp.toString()
   return s ? `?${s}` : ''

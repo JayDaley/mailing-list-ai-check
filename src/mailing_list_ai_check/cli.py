@@ -937,7 +937,8 @@ def build_export_parser() -> argparse.ArgumentParser:
         prog="mail-ai-export",
         description=(
             "Export one or more lists' messages, extractions and scores to a "
-            "portable JSON Lines file. The file is zstd-compressed by default and "
+            "portable JSON Lines file, optionally limited to a range of message "
+            "dates. The file is zstd-compressed by default and "
             "'.zst' is appended to the output path unless it is already there; "
             "--no-compress writes plain JSON Lines to the path as given. "
             "A local database read only — no IMAP or Pangram calls."
@@ -964,8 +965,39 @@ def build_export_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write plain uncompressed JSON Lines to the output path as given",
     )
+    parser.add_argument(
+        "--date-from",
+        metavar="ISO",
+        help="export only messages dated on or after this ISO-8601 date/datetime",
+    )
+    parser.add_argument(
+        "--date-to",
+        metavar="ISO",
+        help=(
+            "export only messages dated on or before this ISO-8601 date/datetime "
+            "(a bare date excludes that day's messages, which carry a time)"
+        ),
+    )
     parser.add_argument("--db", metavar="PATH", help="override the database path")
     return parser
+
+
+def _validated_date(parser: argparse.ArgumentParser, flag: str, value: str | None) -> str | None:
+    """``value`` if it parses as ISO-8601, else exit with a usage error.
+
+    Checked here rather than in the exporter because an unparseable bound is a
+    typo that would otherwise export a silently wrong range: the comparison is
+    lexical, so any string is a valid bound as far as SQLite is concerned.
+    """
+    if not value:
+        return None
+    from datetime import datetime
+
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        parser.error(f"{flag} must be an ISO-8601 date or datetime")
+    return value
 
 
 def export_main(argv: Sequence[str] | None = None) -> int:
@@ -977,6 +1009,8 @@ def export_main(argv: Sequence[str] | None = None) -> int:
         parser.error("specify at least one list name, or --all-lists")
     if not args.output:
         parser.error("-o/--output is required")
+    date_from = _validated_date(parser, "--date-from", args.date_from)
+    date_to = _validated_date(parser, "--date-to", args.date_to)
 
     config = Config.load()
     db_path = args.db or config.database_path
@@ -995,6 +1029,8 @@ def export_main(argv: Sequence[str] | None = None) -> int:
                 args.output,
                 all_lists=args.all_lists,
                 compress=not args.no_compress,
+                date_from=date_from,
+                date_to=date_to,
             )
     except ValueError as exc:
         parser.error(str(exc))

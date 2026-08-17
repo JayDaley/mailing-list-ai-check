@@ -37,6 +37,22 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.10.1] - 2026-08-17
+
+Summary: Let an export select several lists and a range of message dates, from the dashboard, the CLI and the API alike.
+
+- Add `date_from` / `date_to` to `export_lists()`, bounding the exported messages by `messages.date` inclusively at both ends, each usable alone, with the lexical comparison the dashboard's date filter already applies.
+- Apply the range in the address pre-pass as well as the streaming pass, so a sender whose only messages fall outside it is not written to the file.
+- Select only lists holding a message in range under `all_lists`; a list named explicitly is still exported whether or not the range leaves it any.
+- Omit every `pull_state` record from a ranged export, a cursor being an assertion that a list is present up to `last_uid` that a partial file cannot make.
+- Record the requested range in the header as optional `date_from` / `date_to` keys, additive within format version 2 and read by nothing on import.
+- Accept a repeatable `list` param on `GET /api/export`, de-duplicated in first-seen order, alongside validated `date_from` / `date_to` params.
+- Return 404 from `GET /api/export` when the selection holds no message, rather than serving a file with nothing in it.
+- Name a multi-list download `mlac-export-<n>-lists-<date>.jsonl.zst`, keeping the list's own name for a single-list export.
+- Add `--date-from` / `--date-to` to `mail-ai-export`, each validated as ISO-8601 at parse time so a typo cannot become a silently wrong lexical range.
+- Replace the dashboard's one-click export with a dialog offering a searchable multi-list picker, pre-ticked with the pane's current list filter, and from/to date inputs.
+- Repeat array-valued params in the frontend's query builder, so one key can carry several values.
+
 ## [1.10.0] - 2026-08-14
 
 Summary: Index the Senders pane's aggregates, which took about 32 seconds per page on a 110,000-message store and now take about 0.1.

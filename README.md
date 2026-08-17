@@ -329,6 +329,9 @@ mail-ai-export --all-lists -o all-lists.jsonl
 # Export without compression (writes plain-lists.jsonl as given)
 mail-ai-export --all-lists -o plain-lists.jsonl --no-compress
 
+# Export only the messages dated within a range (either bound may stand alone)
+mail-ai-export announce -o q1.jsonl --date-from 2026-01-01 --date-to 2026-03-31
+
 # Import into another database
 mail-ai-import export.jsonl.zst
 
@@ -340,6 +343,14 @@ mail-ai-import export.jsonl.zst --dry-run
 requires `-o/--output`. The file is zstd-compressed and `.zst` is appended to
 the output path unless it is already there; the summary line reports the path
 actually written. `--no-compress` writes plain JSON Lines to the path as given.
+
+`--date-from` and `--date-to` limit the export to messages dated within the
+range. Both bounds are inclusive and either can be used alone. The comparison is
+the one the dashboard's date filter uses, so a range selects the same messages
+in both; a bare `--date-to` day therefore excludes that day's own messages,
+whose stored dates carry a time. A ranged export omits each list's pull cursor,
+because the file no longer covers the list up to that point and a target
+inheriting the cursor would skip the mail left out on its next pull.
 
 `mail-ai-import` needs no flag for compression: it identifies the container from
 the file's leading bytes rather than its name, so zstd, gzip and uncompressed
@@ -362,7 +373,10 @@ build; for files written before the field existed it is inferred from the app
 version in the file.
 
 Export and import are also available from the dashboard's **Messages** pane, via
-its Export and Import buttons.
+its Export and Import buttons. Export opens a dialog for choosing the lists —
+any number of them, searchable, pre-ticked with the pane's current list filter,
+or all lists when none is ticked — and an optional range of message dates. No
+other filter in the pane affects what is exported.
 
 ## Costs and usage limits
 

@@ -1748,11 +1748,17 @@ def delete_person(person_id: int) -> Any:
 # --- export / import ----------------------------------------------------------
 
 
-def _export_slug(list_name: str | None) -> str:
-    """A filename-safe slug for the export: the sanitized list name, or ``all``."""
-    if list_name is None:
+def _export_slug(list_names: Sequence[str]) -> str:
+    """A filename-safe slug for the export's selection.
+
+    One list gives its sanitized name, several give ``<n>-lists``, and none —
+    the whole-database export — gives ``all``.
+    """
+    if not list_names:
         return "all"
-    slug = re.sub(r"[^A-Za-z0-9._-]", "-", list_name)
+    if len(list_names) > 1:
+        return f"{len(list_names)}-lists"
+    slug = re.sub(r"[^A-Za-z0-9._-]", "-", list_names[0])
     return slug or "list"
 
 
@@ -1774,15 +1780,20 @@ def _unlink_quietly(path: str) -> bool:
 
 @api_bp.get("/export")
 def export() -> Any:
-    """Download a list's messages and pipeline state as a zstd JSON Lines export.
+    """Download selected messages and their pipeline state as a zstd JSON Lines export.
 
-    Query param ``list`` (optional) names one list to export (an unknown name is a
-    404); omitting it exports every list that has at least one message. When there
-    is nothing to export — an empty database, or no list has any message — the
-    response is a 404. The file is built via
+    Query param ``list`` (optional, repeatable) names the lists to export — one
+    ``list=`` per list, an unknown name being a 404; omitting it entirely exports
+    every list that has at least one message in scope. ``date_from`` / ``date_to``
+    (optional, ISO-8601 date or datetime) bound the exported messages by their
+    date, inclusive at both ends and each usable alone; they narrow the messages
+    only, never the format, so a ranged export imports like any other. When the
+    selection holds no message — an empty database, or a range nothing falls in —
+    the response is a 404. The file is built via
     :func:`mailing_list_ai_check.export_import.export_lists` into a temporary
     ``.jsonl.zst`` file and served as an ``application/zstd`` attachment named
-    ``mlac-export-<slug>-<YYYYMMDD>.jsonl.zst``. A local database read only — no
+    ``mlac-export-<slug>-<YYYYMMDD>.jsonl.zst``, where ``<slug>`` is the one list's
+    name, ``<n>-lists`` for several, or ``all``. A local database read only — no
     IMAP or Pangram calls, and message bodies are never logged.
 
     Streaming and temp-file lifetime
@@ -1820,7 +1831,17 @@ def export() -> Any:
     exists for exactly one request cannot honour.
     """
     store = get_store()
-    list_name = request.args.get("list") or None
+    # Repeated ``list=`` params, de-duplicated in first-seen order so a name sent
+    # twice does not ask the exporter for the same list twice. Empty values are
+    # dropped, which keeps a bare ``?list=`` meaning "every list" rather than
+    # "the list called ''".
+    list_names: list[str] = []
+    for raw in request.args.getlist("list"):
+        name = raw.strip()
+        if name and name not in list_names:
+            list_names.append(name)
+    date_from = _validate_iso("date_from", request.args.get("date_from"))
+    date_to = _validate_iso("date_to", request.args.get("date_to"))
 
     # The temp name already carries the compressed suffix the exporter would
     # otherwise append, so it is written in place. The summary reports the path
@@ -1832,16 +1853,24 @@ def export() -> Any:
     fh = None
     try:
         try:
-            if list_name is None:
-                summary = export_lists(store, None, tmp_path, all_lists=True)
-            else:
-                summary = export_lists(store, [list_name], tmp_path)
+            summary = export_lists(
+                store,
+                list_names or None,
+                tmp_path,
+                all_lists=not list_names,
+                date_from=date_from,
+                date_to=date_to,
+            )
         except ValueError as exc:
             # Unknown list name (the only ValueError export_lists raises for input).
             raise ApiError(str(exc), 404) from exc
         written_path = summary.path
 
-        if summary.lists == 0:
+        # No message in scope is nothing to download, whether the database is
+        # empty, no list has mail, or the date range excludes all of it. Named
+        # lists are checked on messages rather than on ``lists`` because a named
+        # list always resolves — it is the range that can empty it.
+        if summary.lists == 0 or summary.messages == 0:
             raise ApiError("nothing to export", 404)
 
         fh = open(written_path, "rb")
@@ -1873,7 +1902,7 @@ def export() -> Any:
             release()
 
     filename = (
-        f"mlac-export-{_export_slug(list_name)}-{datetime.now().strftime('%Y%m%d')}.jsonl.zst"
+        f"mlac-export-{_export_slug(list_names)}-{datetime.now().strftime('%Y%m%d')}.jsonl.zst"
     )
     # The size is final: the export is complete and the file is already unlinked,
     # so nothing can change it and Content-Length cannot go stale.

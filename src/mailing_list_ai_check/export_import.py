@@ -74,7 +74,8 @@ log = logging.getLogger("mailing_list_ai_check.export_import")
 #: Version 2 is extended additively rather than bumped: the extraction generation
 #: (``extraction_version``, in the header and on each embedded extraction) was
 #: added to it in place, and later the per-message ``from_name`` and
-#: ``raw_headers_b64`` (base64, since the header block is bytes) alongside it.
+#: ``raw_headers_b64`` (base64, since the header block is bytes) alongside it,
+#: then the header's optional ``date_from`` / ``date_to`` range.
 #: A bump would have rejected every file already written,
 #: and nothing needs rejecting in either direction. New code reading an old file
 #: finds the key absent and falls back to inference from ``pipeline_version``
@@ -267,13 +268,29 @@ def export_lists(
     *,
     all_lists: bool = False,
     compress: bool = True,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> ExportSummary:
     """Export one or more lists and everything derived from their messages.
 
     Lists are chosen by ``lists.name`` (a name may match several rows — every
     match is exported, keyed by ``folder``) or, with ``all_lists=True``, every
-    list that has at least one message. Passing both ``list_names`` and
+    list that has at least one message in scope. Passing both ``list_names`` and
     ``all_lists`` — or neither — is a :class:`ValueError`, as is an unknown name.
+
+    ``date_from`` / ``date_to`` bound the exported messages by ``messages.date``,
+    inclusively at both ends and independently (either may be given alone). The
+    comparison is the lexical one :func:`~.store._build_message_where` applies to
+    the dashboard's date filter, over the same UTC ISO-8601 column, so a range
+    selects in the export exactly what it selects in the explorer — including its
+    one sharp edge: a bare ``date_to`` day ("2026-03-01") excludes that day's
+    messages, whose stored value carries a time. Named lists are exported whether
+    or not the range leaves them any message; with ``all_lists=True`` a list is
+    selected only if it has one in range.
+
+    A ranged export omits every ``pull_state`` record, because a cursor asserts
+    that a list is present up to ``last_uid`` and a partial file cannot say that;
+    the format is otherwise identical, so it imports like any other export.
 
     Only persons/addresses actually referenced by the exported messages are
     written, each once (deduplicated across the whole file). Records are emitted
@@ -301,14 +318,27 @@ def export_lists(
 
     conn = store.conn
 
+    # The date range as a SQL fragment + bound params, appended to every query
+    # that walks messages so all three select the identical set. ``column`` is
+    # the qualified date column of the query being extended, never user input.
+    # Both are empty when neither bound is given, which leaves those queries
+    # byte-for-byte the ones an unranged export has always run.
+    def range_clause(column: str) -> str:
+        clause = f" AND {column} >= ?" if date_from else ""
+        return clause + (f" AND {column} <= ?" if date_to else "")
+
+    range_params = [bound for bound in (date_from, date_to) if bound]
+
     # Resolve the selected list rows, deduplicated by folder in a stable order.
     selected: list[Any] = []
     seen_folders: set[str] = set()
     if all_lists:
         rows = conn.execute(
             "SELECT * FROM lists l "
-            "WHERE EXISTS (SELECT 1 FROM messages m WHERE m.list_id = l.id) "
-            "ORDER BY l.folder"
+            "WHERE EXISTS (SELECT 1 FROM messages m WHERE m.list_id = l.id"
+            f"{range_clause('m.date')}) "
+            "ORDER BY l.folder",
+            range_params,
         ).fetchall()
         for row in rows:
             selected.append(row)
@@ -338,9 +368,9 @@ def export_lists(
     seen_address_ids: set[int] = set()
     for lst in selected:
         for row in conn.execute(
-            "SELECT address_id FROM messages WHERE list_id = ? AND address_id IS NOT NULL "
-            "ORDER BY id",
-            (lst["id"],),
+            "SELECT address_id FROM messages WHERE list_id = ? AND address_id IS NOT NULL"
+            f"{range_clause('date')} ORDER BY id",
+            [lst["id"], *range_params],
         ):
             address_id = row["address_id"]
             if address_id not in seen_address_ids:
@@ -420,6 +450,13 @@ def export_lists(
                 "exported_at": _utcnow_iso(),
                 "schema_version": schema_version,
                 "folders": folders,
+                # Provenance for a partial export, so a file can say which
+                # messages it was asked for rather than only which it holds.
+                # Absent (not null) when unbounded, keeping the header identical
+                # to one an export without a range would have written; the
+                # importer reads neither key.
+                **({"date_from": date_from} if date_from else {}),
+                **({"date_to": date_to} if date_to else {}),
             }
         )
         for lst in selected:
@@ -433,7 +470,18 @@ def export_lists(
                     "last_message_at": lst["last_message_at"],
                 }
             )
-            ps = conn.execute("SELECT * FROM pull_state WHERE list_id = ?", (lst["id"],)).fetchone()
+            # A cursor asserts that everything up to ``last_uid`` is present,
+            # which a ranged export does not carry. Importing one into a fresh
+            # target would make the next pull start above the mail the range
+            # left out and skip it for good, so a ranged export ships no cursor
+            # and the target keeps pulling the list from where it actually is.
+            ps = (
+                None
+                if range_params
+                else conn.execute(
+                    "SELECT * FROM pull_state WHERE list_id = ?", (lst["id"],)
+                ).fetchone()
+            )
             if ps is not None:
                 emit(
                     {
@@ -455,7 +503,8 @@ def export_lists(
         # SQLite is happy to interleave with the open one.
         for lst in selected:
             for m in conn.execute(
-                "SELECT * FROM messages WHERE list_id = ? ORDER BY id", (lst["id"],)
+                f"SELECT * FROM messages WHERE list_id = ?{range_clause('date')} ORDER BY id",
+                [lst["id"], *range_params],
             ):
                 n_messages += 1
                 email = (

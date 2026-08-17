@@ -17,6 +17,7 @@ import {
 import { useFiltersStore } from '../stores/filters'
 import { useUiStore } from '../stores/ui'
 import { useMessagesStore } from '../stores/messages'
+import ExportModal from './ExportModal.vue'
 import MixBar from './MixBar.vue'
 import WindowScores from './WindowScores.vue'
 
@@ -311,11 +312,14 @@ function clearAll() {
 }
 
 // --- export / import ---
-// Export and import operate on whole lists (the pipeline state), not the
-// filtered message subset: export sends the current list-name filter (or all
-// lists when none is set); import ingests an uploaded JSON Lines dump, zstd-
-// compressed (as exports now are), gzipped (as older ones are) or plain. Both
-// surface their outcome in a transient toolbar status that auto-clears.
+// Export and import carry whole messages and their pipeline state, not the
+// filtered view: the export button opens a dialog for picking one or more lists
+// and an optional range of message dates (pre-ticked with the current list
+// filter, and no other filter is applied); import ingests an uploaded JSON Lines
+// dump, zstd-compressed (as exports now are), gzipped (as older ones are) or
+// plain. Both surface their outcome in a transient toolbar status that
+// auto-clears.
+const exportOpen = ref(false)
 const exporting = ref(false)
 const importing = ref(false)
 const fileInput = ref(null)
@@ -331,9 +335,9 @@ function showStatus(msg, isError) {
   }, 8000)
 }
 
-const exportTitle = computed(() =>
-  filters.list ? `Export list '${filters.list}' (the whole list)…` : 'Export all lists…',
-)
+// The dialog opens with the current list filter ticked, so the common case —
+// export what I am looking at — is one click plus confirm.
+const exportPreset = computed(() => (filters.list ? [filters.list] : []))
 
 // Pull the server-provided filename out of a Content-Disposition header,
 // preferring the RFC 5987 filename*=UTF-8'' form over the plain quoted one.
@@ -351,11 +355,13 @@ function filenameFromDisposition(cd) {
   return plain ? plain[1] : ''
 }
 
-async function doExport() {
+// `lists` empty means every list, which is what the endpoint reads an absent
+// `list` param as; buildQuery repeats the key for each name it is given.
+async function doExport({ lists: names, date_from, date_to }) {
   if (exporting.value) return
   exporting.value = true
   try {
-    const res = await fetch(apiUrl('/export', filters.list ? { list: filters.list } : undefined), {
+    const res = await fetch(apiUrl('/export', { list: names, date_from, date_to }), {
       headers: { Accept: 'application/zstd' },
     })
     if (!res.ok) {
@@ -383,6 +389,9 @@ async function doExport() {
     showStatus(err instanceof Error ? err.message : String(err), true)
   } finally {
     exporting.value = false
+    // Closed either way: the outcome of a failed export is a toolbar status,
+    // which the dialog would otherwise cover.
+    exportOpen.value = false
   }
 }
 
@@ -546,8 +555,8 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
       <button
         class="io-btn"
         :disabled="exporting"
-        :title="exportTitle"
-        @click="doExport"
+        title="Export lists (whole messages, optionally within a date range)…"
+        @click="exportOpen = true"
       >
         {{ exporting ? 'exporting…' : 'export' }}
       </button>
@@ -565,6 +574,14 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
         accept=".jsonl,.zst,.jsonl.zst,.gz,.jsonl.gz,application/zstd,application/gzip"
         style="display: none;"
         @change="onImportFile"
+      />
+      <ExportModal
+        :open="exportOpen"
+        :lists="lists"
+        :preset="exportPreset"
+        :busy="exporting"
+        @close="exportOpen = false"
+        @export="doExport"
       />
     </div>
 

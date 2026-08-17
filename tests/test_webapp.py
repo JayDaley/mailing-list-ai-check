@@ -1147,6 +1147,68 @@ def test_export_single_list(client):
     assert header["folders"] == ["Shared Folders/announce"]
 
 
+def test_export_several_lists(client):
+    """``list`` repeats: each one selects a list, and the file holds them all."""
+    resp = client.get("/api/export?list=announce&list=quic")
+    assert resp.status_code == 200
+    records = _records(resp.data)
+    assert records[0]["folders"] == ["Shared Folders/announce", "Shared Folders/quic"]
+    # 7 announce + 3 quic, and nothing from last-call.
+    assert records[-1]["messages"] == 10
+    assert 'filename="mlac-export-2-lists-' in resp.headers["Content-Disposition"]
+
+
+def test_export_repeated_list_name_is_not_exported_twice(client):
+    resp = client.get("/api/export?list=announce&list=announce")
+    assert resp.status_code == 200
+    records = _records(resp.data)
+    assert records[0]["folders"] == ["Shared Folders/announce"]
+    assert 'filename="mlac-export-announce-' in resp.headers["Content-Disposition"]
+
+
+def test_export_date_range_narrows_the_messages(client):
+    """The seed's January messages, across every list (m1, m8, m2, m3, m13)."""
+    resp = client.get("/api/export?date_from=2026-01-01&date_to=2026-01-31")
+    assert resp.status_code == 200
+    records = _records(resp.data)
+    assert records[-1]["messages"] == 5
+    header = records[0]
+    assert (header["date_from"], header["date_to"]) == ("2026-01-01", "2026-01-31")
+
+
+def test_export_date_range_combines_with_selected_lists(client):
+    """announce in February: m4, m5, m6 — quic contributes nothing in that month."""
+    resp = client.get("/api/export?list=announce&list=quic&date_from=2026-02-01&date_to=2026-02-28")
+    assert resp.status_code == 200
+    records = _records(resp.data)
+    assert records[-1]["messages"] == 3
+    # quic is still named in the file: an explicitly requested list is exported
+    # whether or not the range leaves it any message.
+    assert records[0]["folders"] == ["Shared Folders/announce", "Shared Folders/quic"]
+
+
+def test_export_open_ended_range_needs_only_one_bound(client):
+    resp = client.get("/api/export?date_from=2026-03-01")
+    assert resp.status_code == 200
+    records = _records(resp.data)
+    assert records[-1]["messages"] == 5  # m7, m11, m12, m14, m15
+    assert "date_to" not in records[0]
+
+
+def test_export_empty_date_range_404(client):
+    """A range no message falls in is nothing to download, not an empty file."""
+    resp = client.get("/api/export?date_from=2020-01-01&date_to=2020-12-31")
+    assert resp.status_code == 404
+    assert "error" in resp.get_json()
+
+
+@pytest.mark.parametrize("param", ["date_from", "date_to"], ids=["from", "to"])
+def test_export_rejects_a_malformed_date_400(client, param):
+    resp = client.get(f"/api/export?{param}=last-tuesday")
+    assert resp.status_code == 400
+    assert param in resp.get_json()["error"]
+
+
 def test_export_unknown_list_404(client):
     resp = client.get("/api/export?list=does-not-exist")
     assert resp.status_code == 404
@@ -1442,7 +1504,8 @@ def test_export_peak_memory_does_not_track_the_export_size(client, temp_dir, mon
 
     ``export_lists`` is replaced by one that writes a large file, because the
     property under test is about size and the seeded database is a few kilobytes.
-    The endpoint reads only ``.lists`` and ``.path`` off the summary. Peak Python
+    The endpoint reads only ``.lists``, ``.messages`` and ``.path`` off the
+    summary. Peak Python
     allocation is measured, not sampled RSS, so the result is exact and stable;
     the whole request is inside the traced window because the test client pulls
     the first chunk eagerly, and the stand-in exporter writes in small blocks so
@@ -1451,11 +1514,11 @@ def test_export_peak_memory_does_not_track_the_export_size(client, temp_dir, mon
     size = 32 * 1024 * 1024
     block_size = 64 * 1024
 
-    def _big_export(store, lists, path, all_lists=False):
+    def _big_export(store, lists, path, **kwargs):
         with open(path, "wb") as fh:
             for _ in range(size // block_size):
                 fh.write(b"\0" * block_size)
-        return SimpleNamespace(lists=1, path=path)
+        return SimpleNamespace(lists=1, messages=1, path=path)
 
     monkeypatch.setattr(webapp_api, "export_lists", _big_export)
 

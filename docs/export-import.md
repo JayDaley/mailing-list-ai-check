@@ -186,7 +186,11 @@ Persons have no natural key, so each gets a file-scoped synthetic key
 {"type": "header", "format": "mlac-export", "format_version": 2,
  "app_version": "1.0.0", "extraction_version": 2,   // exporting build's, diagnostics only
  "exported_at": "<UTC ISO-8601>",
- "schema_version": 7, "folders": ["ietf.announce"]}
+ "schema_version": 7, "folders": ["ietf.announce"],
+ "date_from": "2026-01-01", "date_to": "2026-03-31"}
+// date_from/date_to: the requested message-date range, each present only when
+// that bound was given. Provenance for a partial export; the importer reads
+// neither key.
 
 {"type": "list", "name": "announce", "folder": "ietf.announce",
  "last_synced_at": null, "removed_from_server_at": null, "last_message_at": null}
@@ -332,13 +336,39 @@ undone by hand.
 ## Export semantics
 
 - Lists are selected by `lists.name` (`--all-lists` = every list that has at
-  least one message). A name may match several rows (name is not unique);
-  all matches are exported. An unknown name is an error (`ValueError`).
+  least one message in scope). A name may match several rows (name is not
+  unique); all matches are exported. An unknown name is an error (`ValueError`).
 - Only persons/addresses actually referenced by the exported messages are
   included, each once (deduplicated across lists in the same file).
 - The file is zstd-compressed unless `compress=False` (`--no-compress` on the
   CLI); see "Compression" for the suffix and path rules.
 - Purely a local database read: no IMAP, no Pangram, no caps involved.
+
+### Date range
+
+`date_from` / `date_to` bound the exported messages by `messages.date`,
+inclusively at both ends and independently — either may be given alone. The
+comparison is the lexical one `_build_message_where` applies to the dashboard's
+date filter, over the same UTC ISO-8601 column, so a range selects in the export
+exactly what it selects in the explorer. That includes its one sharp edge: a
+bare `date_to` day (`2026-03-01`) sorts before `2026-03-01T10:00:00+00:00` and
+so excludes that day's messages. The dialog says so; the CLI's `--date-to` help
+says so.
+
+The range narrows the messages, not the format. Two consequences follow from
+it:
+
+- The address pre-pass applies the same bounds as the streaming pass, so a
+  sender whose only messages fall outside the range is not written at all.
+- A ranged export writes **no `pull_state` record**, for any list. A cursor
+  asserts that a list is present up to `last_uid`; a partial file cannot say
+  that, and a target importing one would start its next pull above the mail the
+  range left out and skip it permanently. Without a cursor the target keeps
+  pulling the list from wherever it actually is.
+
+Which lists appear does depend on how they were chosen: a named list is
+exported whether or not the range leaves it any message, while `--all-lists`
+selects only lists that have one.
 
 ## Import semantics
 
@@ -422,8 +452,10 @@ class ExportImportError(Exception): ...   # module-specific error, raised for ev
 def export_lists(
     store: Store, list_names: Sequence[str] | None, out_path: str | Path,
     *, all_lists: bool = False, compress: bool = True,
+    date_from: str | None = None, date_to: str | None = None,
 ) -> ExportSummary: ...        # compress ⇒ zstd, '.zst' appended to out_path;
-                               # ExportSummary.path is the path written
+                               # ExportSummary.path is the path written;
+                               # date_from/date_to bound messages.date inclusively
 
 def import_file(
     store: Store, in_path: str | Path, *, dry_run: bool = False,
@@ -438,7 +470,8 @@ patterns (argparse, `Config.load()` for the default `--db`, logging setup,
 summary via the module logger, return `0`/`1`):
 
 ```
-mail-ai-export LIST [LIST…] -o FILE [--all-lists] [--no-compress] [--db PATH]
+mail-ai-export LIST [LIST…] -o FILE [--all-lists] [--no-compress]
+                            [--date-from ISO] [--date-to ISO] [--db PATH]
 mail-ai-import FILE [--db PATH] [--dry-run]
 ```
 
@@ -446,9 +479,29 @@ mail-ai-import FILE [--db PATH] [--dry-run]
   `mail-ai-pull` validation); `-o/--output` required; the file is
   zstd-compressed and `.zst` is appended to the output path unless it is
   already there, and `--no-compress` writes plain JSON Lines to the path as
-  given.
+  given. `--date-from` / `--date-to` bound the exported messages (see "Date
+  range"); each is validated as ISO-8601 at parse time, because the comparison
+  itself is lexical and would accept a typo as a silently wrong range.
 - `mail-ai-import`: positional file; no compression flag, because the
   container is detected from the file's content; `--dry-run` reports without
   writing; import validation errors log the reason and exit `1`.
 
 Message bodies are never logged (matching the existing convention).
+
+## HTTP
+
+`GET /api/export` takes the same selection as the CLI:
+
+| Param | | |
+| --- | --- | --- |
+| `list` | repeatable | one per list; omit entirely for every list |
+| `date_from` | ISO-8601 | inclusive lower bound on the message date |
+| `date_to` | ISO-8601 | inclusive upper bound on the message date |
+
+An unknown list name and a selection holding no message are both `404`; an
+unparseable date is `400`. The attachment is named
+`mlac-export-<slug>-<YYYYMMDD>.jsonl.zst`, where `<slug>` is the single list's
+sanitized name, `<n>-lists` for several, or `all`.
+
+`POST /api/import` takes the file as a multipart `file` field, with `dry_run`
+as a query or form param.
