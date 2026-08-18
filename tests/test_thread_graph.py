@@ -11,11 +11,7 @@ from __future__ import annotations
 import pytest
 
 from mailing_list_ai_check.config import Config
-from mailing_list_ai_check.store import (
-    THREAD_GRAPH_MAX_LIMIT,
-    Store,
-    sha256_text,
-)
+from mailing_list_ai_check.store import Store, sha256_text
 from mailing_list_ai_check.webapp import create_app
 
 # Dates ascend with the message's day number.
@@ -133,8 +129,8 @@ def test_groups_reply_components_into_threads(fixture):
     ]
 
 
-def test_default_window_spans_the_whole_short_list(fixture):
-    """With fewer messages than the default span, the window is the whole list."""
+def test_default_window_spans_the_whole_list(fixture):
+    """With no bounds given, the window is the whole list, rank 0 to the last."""
     graph = fixture["store"].thread_graph(fixture["alpha"])
     assert (graph["list_total"], graph["start"], graph["end"], graph["total"]) == (6, 0, 5, 6)
 
@@ -216,20 +212,38 @@ def test_start_beyond_the_end_collapses_to_one_message(fixture):
     assert (graph["start"], graph["end"], graph["total"]) == (5, 5, 1)
 
 
-def test_span_is_capped_by_raising_the_start(store):
-    """Over-wide ranges keep their end and lose their oldest messages."""
+#: Messages on the long list the span tests build — more than any window the
+#: method used to allow, so a cap on the span would show up as a short result.
+_LONG_LIST_TOTAL = 503
+
+
+def _long_list(store: Store) -> int:
+    """A list of :data:`_LONG_LIST_TOTAL` unthreaded messages, UIDs 1..n."""
     list_id = _list(store, "alpha")
-    for uid in range(1, THREAD_GRAPH_MAX_LIMIT + 4):
+    for uid in range(1, _LONG_LIST_TOTAL + 1):
         _message(store, list_id, f"m{uid:04d}", 1, uid=uid)
-    total = THREAD_GRAPH_MAX_LIMIT + 3
+    return list_id
+
+
+def test_a_wide_span_is_honoured_in_full(store):
+    """An explicit range is served entire, however wide, keeping both bounds."""
+    list_id = _long_list(store)
+    total = _LONG_LIST_TOTAL
     graph = store.thread_graph(list_id, start=0, end=total - 1)
     assert graph["list_total"] == total
-    assert (graph["start"], graph["end"], graph["total"]) == (
-        3,
-        total - 1,
-        THREAD_GRAPH_MAX_LIMIT,
-    )
-    assert _flat(graph)["<m0004@test>"]["seq"] == 0
+    assert (graph["start"], graph["end"], graph["total"]) == (0, total - 1, total)
+    flat = _flat(graph)
+    assert flat["<m0001@test>"]["seq"] == 0
+    assert flat[f"<m{total:04d}@test>"]["seq"] == total - 1
+
+
+def test_the_default_window_covers_a_long_list(store):
+    """With no bounds the whole list comes back, however many messages it holds."""
+    list_id = _long_list(store)
+    total = _LONG_LIST_TOTAL
+    graph = store.thread_graph(list_id)
+    assert (graph["start"], graph["end"], graph["total"]) == (0, total - 1, total)
+    assert _flat(graph)["<m0001@test>"]["seq"] == 0
 
 
 def test_a_reply_received_before_its_parent_joins_the_thread(store):
@@ -399,6 +413,12 @@ def test_endpoint_clamps_end_to_the_last_rank(client):
 def test_endpoint_start_only_runs_to_the_end_of_the_list(client):
     body = client.get("/api/lists/thread-graph?list=alpha&start=4").get_json()
     assert (body["start"], body["end"], body["total"]) == (4, 5, 2)
+
+
+def test_endpoint_end_only_runs_from_the_start_of_the_list(client):
+    """An omitted ``start`` is rank 0, not a fixed-width window before ``end``."""
+    body = client.get("/api/lists/thread-graph?list=alpha&end=2").get_json()
+    assert (body["start"], body["end"], body["total"]) == (0, 2, 3)
 
 
 def test_endpoint_empty_list_reports_a_null_window(store, client):

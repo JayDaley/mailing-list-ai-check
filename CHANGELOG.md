@@ -37,7 +37,7 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
-## [1.14.1] - unreleased
+## [1.14.1] - 2026-08-19
 
 Summary: Add rug plots above the aggregate bars, fix every rug at gapless 2px columns, extend sorting across the tables and Timelines screen, and give the thread graph a month axis, handle-date hover and full-history default.
 

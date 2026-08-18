@@ -198,6 +198,35 @@ def test_sort_orders(client):
     assert frac["messages"][0]["message_id"] == "<m14@test>"
 
 
+def test_sort_by_the_writing_rate_keeps_rateless_rows_last(client, db_path):
+    """``sort=timing_cpm`` orders by the stored rate, rows without one last."""
+    rated = {"<m1@test>": 5.0, "<m3@test>": 50.0, "<m7@test>": 900.0}
+    with Store(db_path) as store:
+        for message_id, cpm in rated.items():
+            store.conn.execute(
+                "UPDATE messages SET timing_cpm = ? WHERE message_id = ?", (cpm, message_id)
+            )
+        store.conn.commit()
+
+    desc = client.get("/api/messages?sort=timing_cpm&order=desc&per_page=200").get_json()
+    assert [m["message_id"] for m in desc["messages"][:3]] == [
+        "<m7@test>",
+        "<m3@test>",
+        "<m1@test>",
+    ]
+    # The rateless rows follow the rated ones in this direction and the other:
+    # the NULL group is pinned to the bottom, not reversed to the top.
+    assert all(m["timing_cpm"] is None for m in desc["messages"][3:])
+
+    asc = client.get("/api/messages?sort=timing_cpm&order=asc&per_page=200").get_json()
+    assert [m["message_id"] for m in asc["messages"][:3]] == [
+        "<m1@test>",
+        "<m3@test>",
+        "<m7@test>",
+    ]
+    assert all(m["timing_cpm"] is None for m in asc["messages"][3:])
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -688,6 +717,36 @@ def test_senders_sort_ai_asc_explicit(client):
         "Carol",
         "Bob Jones",
     ]
+
+
+def test_senders_ai_ties_break_on_count_in_both_directions(client, db_path):
+    """Senders level on AI share order by volume, most messages first, either way."""
+    # Dave and Eve sit at a 0 share on 2 messages each. Frank sits at the same
+    # share on 3, so only the tie-break decides where he lands among them, and
+    # the count key runs the same direction whichever way the share is sorted.
+    with Store(db_path) as store:
+        announce = store.upsert_list("announce", "Shared Folders/announce")
+        frank = store.upsert_address("frank@example.org", display_name="Frank")
+        for n in range(3):
+            store.upsert_message(
+                message_id=f"<frank{n}@test>",
+                list_id=announce.id,
+                address_id=frank.id,
+                subject="Notes",
+                date=f"2026-04-0{n + 1}T10:00:00",
+                in_reply_to=None,
+                raw_body="body",
+                uid=910 + n,
+            )
+
+    for order in ("desc", "asc"):
+        body = client.get(f"/api/senders?sort=ai&order={order}").get_json()
+        by_name = {r["name"]: r for r in body["senders"]}
+        assert by_name["Frank"]["message_count"] == 3
+        zero_share = [r["name"] for r in body["senders"] if r["name"] in ("Frank", "Dave", "Eve")]
+        # Frank leads the tied group on count; Dave and Eve, level on both keys,
+        # keep the name-ascending order behind him.
+        assert zero_share == ["Frank", "Dave", "Eve"]
 
 
 def test_senders_pagination_and_total(client):

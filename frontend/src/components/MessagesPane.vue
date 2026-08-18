@@ -12,6 +12,7 @@ import {
   LABEL_SHORT,
   LABEL_COLORS,
   PRED_ORDER,
+  TIMELINE_BUCKETS,
   foldToPrediction,
 } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
@@ -19,6 +20,7 @@ import { useUiStore } from '../stores/ui'
 import { useMessagesStore } from '../stores/messages'
 import ExportModal from './ExportModal.vue'
 import MixBar from './MixBar.vue'
+import TimelineRug from './TimelineRug.vue'
 import WindowScores from './WindowScores.vue'
 
 const emit = defineEmits(['open'])
@@ -137,6 +139,34 @@ async function loadMix() {
   }
 }
 
+// --- filtered timeline (the toolbar rug beside the mix bar) ---
+// GET /api/messages/timeline returns the filtered set's dated messages as slim
+// [id, t, bucket] points, so the rug always shows exactly the set the table
+// pages through.
+const timelinePoints = ref([])
+let timelineToken = 0
+async function loadTimeline() {
+  const token = ++timelineToken
+  try {
+    const data = await get('/messages/timeline', filters.asParams)
+    if (token === timelineToken) {
+      timelinePoints.value = (data?.points || []).map(([id, t, bucket]) => ({
+        id,
+        t: t * 1000,
+        bucket: TIMELINE_BUCKETS[bucket] || 'unscored',
+      }))
+    }
+  } catch {
+    if (token === timelineToken) timelinePoints.value = []
+  }
+}
+
+// A binned column of the toolbar rug was clicked: narrow the current filters
+// to the bin's date span.
+function applyTimelineRange(range) {
+  filters.patch({ date_from: range.from, date_to: range.to })
+}
+
 // --- watch all non-page filter/sort keys → refresh rows + mix ---
 const filterKey = computed(() =>
   JSON.stringify([
@@ -160,6 +190,7 @@ const filterKey = computed(() =>
 watch(filterKey, () => {
   messages.refresh()
   loadMix()
+  loadTimeline()
 })
 
 watch(
@@ -172,6 +203,7 @@ onMounted(() => {
   loadSenderOptions()
   messages.refresh()
   loadMix()
+  loadTimeline()
 })
 
 // --- active-filter border helper ---
@@ -200,6 +232,9 @@ const dateInd = computed(() =>
 )
 const scoreInd = computed(() =>
   filters.sort === 'fraction_ai' ? (filters.order === 'asc' ? ' ▲' : ' ▼') : '',
+)
+const cpmInd = computed(() =>
+  filters.sort === 'timing_cpm' ? (filters.order === 'asc' ? ' ▲' : ' ▼') : '',
 )
 function sortBy(col) {
   // NB: the real API's sort column for the score is 'fraction_ai' (not
@@ -430,6 +465,7 @@ async function onImportFile(e) {
     loadSenderOptions()
     messages.refresh()
     loadMix()
+    loadTimeline()
   } catch (err) {
     showStatus(err instanceof Error ? err.message : String(err), true)
   } finally {
@@ -528,6 +564,14 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
     <div class="pane-header messages-toolbar">
       <span class="pane-title">Messages</span>
       <span class="messages-count">{{ fmtInt(messages.total) }} shown</span>
+      <TimelineRug
+        v-if="timelinePoints.length"
+        class="toolbar-rug"
+        :points="timelinePoints"
+        :height="14"
+        @open="openRow"
+        @range="applyTimelineRange"
+      />
       <MixBar
         :counts="mixCounts"
         :too-short="mixTooShort"
@@ -610,7 +654,13 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
               AI Score (Confidence){{ scoreInd }}
             </div>
             <div class="col-head" style="text-align: right;">Chars</div>
-            <div class="col-head" style="text-align: right;">Chars/min</div>
+            <div
+              class="col-head sortable"
+              style="text-align: right;"
+              @click="sortBy('timing_cpm')"
+            >
+              Chars/min{{ cpmInd }}
+            </div>
           </div>
           <!-- column filter row -->
           <div
@@ -836,6 +886,11 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
   font-size: 11.5px;
   color: #626a72;
   font-family: var(--mono);
+}
+/* The filtered set's timeline, left of the detection-mix bar and as wide. */
+.toolbar-rug {
+  width: 200px;
+  flex: none;
 }
 .mix-caption {
   font-size: 10px;

@@ -52,6 +52,45 @@ async function loadLists() {
   } catch {
     lists.value = []
   }
+  loadIndexTimelines()
+}
+
+// --- per-list history rugs (index rows) ---------------------------------------
+// GET /api/lists/timelines without a list returns every list's dated messages
+// as slim [id, t, bucket] points plus the corpus-wide dated extent — the shared
+// x-domain, so every rug in the index places a given month at the same
+// position. One fetch decorates all rows; refreshed with loadLists so the rugs
+// track the same runs the counts do.
+const indexRugs = ref({}) // list name -> [{id, t, bucket}]
+const indexRugStart = ref(null) // shared domain, epoch ms (null → per-rug extent)
+const indexRugEnd = ref(null)
+let indexRugToken = 0
+async function loadIndexTimelines() {
+  const token = ++indexRugToken
+  try {
+    const data = await get('/lists/timelines')
+    if (token !== indexRugToken) return
+    indexRugStart.value = data?.start != null ? data.start * 1000 : null
+    indexRugEnd.value = data?.end != null ? data.end * 1000 : null
+    const byName = {}
+    for (const entry of data?.lists || []) {
+      byName[entry.list] = (entry.points || []).map(([id, t, bucket]) => ({
+        id,
+        t: t * 1000,
+        bucket: TIMELINE_BUCKETS[bucket] || 'unscored',
+      }))
+    }
+    indexRugs.value = byName
+  } catch {
+    // The rugs decorate rows the index already shows; a failed fetch just
+    // leaves the bars alone.
+  }
+}
+
+// A binned column of an index row's rug was clicked: filter the messages pane
+// to that list and the bin's date span.
+function applyIndexRugRange(list, range) {
+  filters.patch({ list, date_from: range.from, date_to: range.to })
 }
 
 // The card aggregates over the list alone, regardless of the other filters
@@ -130,11 +169,11 @@ function openTimelines() {
 //
 // GET /api/lists/thread-graph?list=&start=&end= takes 0-based inclusive message
 // ranks in receipt order over the whole list (0 = furthest back) and returns
-// {list, list_total, start, end, total, first_date, last_date, threads}. The
-// echoed start/end are the effective window: the server clamps a span wider
-// than its maximum by moving the left handle, so the slider always syncs to the
-// response rather than to what it asked for. Omitting start/end asks for the
-// server's default (newest) window.
+// {list, list_total, start, end, total, first_date, last_date, threads}.
+// Omitting start/end asks for the whole list, and an explicit span is served at
+// whatever width it asks for — no maximum is imposed. The echoed start/end are
+// still the effective window (the server holds the range inside the list's own
+// bounds), so the slider syncs to the response rather than to what it asked for.
 const threadGraph = ref(null) // GET /api/lists/thread-graph payload
 const graphOpen = ref(false) // the 80%-wide lightbox
 const graphLoading = ref(false)
@@ -154,6 +193,7 @@ async function loadThreadGraph(start = null, end = null) {
     threadGraph.value = data
     winStart.value = data?.start ?? null
     winEnd.value = data?.end ?? null
+    cacheRankDates(data)
   } catch (err) {
     if (token === graphToken) {
       threadGraph.value = null
@@ -164,8 +204,55 @@ async function loadThreadGraph(start = null, end = null) {
   }
 }
 
+// --- rank → date lookup (for the slider handles' hover) ----------------------
+// Each response carries every message in the window with its `seq`, the 0-based
+// rank inside that window, so absolute rank = response start + seq. Those dates
+// are kept in an array indexed by absolute rank and reused to say what date a
+// handle is sitting on while it is dragged.
+//
+// A response covering ranks 0..list_total-1 — which is what the first open now
+// asks for, the default window being the whole list — is the complete lookup, so
+// it is cached and later narrower windows leave it alone. Until such a response
+// lands, a partial window fills only its own ranks. The cache is discarded with
+// the rest of the graph state when the selected list changes.
+const rankDates = ref([]) // absolute receipt rank -> ISO date string (holes allowed)
+const rankDatesFull = ref(false) // the cache spans the whole list
+
+function cacheRankDates(data) {
+  if (!data) return
+  const start = data.start ?? 0
+  const isFull = start === 0 && data.end === (data.list_total || 0) - 1
+  if (rankDatesFull.value && !isFull) return
+  const dates = []
+  for (const t of data.threads || []) {
+    for (const m of t.messages || []) {
+      if (m.date) dates[start + m.seq] = m.date
+    }
+  }
+  rankDates.value = dates
+  rankDatesFull.value = isFull
+}
+
+// The date a rank sits on, formatted, or '' when nothing is known. An undated
+// message (and any rank outside the cached window) has no date of its own, so
+// the nearest known rank on either side stands in rather than a wrong or blank
+// stamp; the scan stops at the ends of the cache.
+function dateForRank(rank) {
+  const dates = rankDates.value
+  if (!dates.length || rank == null) return ''
+  if (dates[rank]) return fmtDate(dates[rank])
+  for (let d = 1; d <= dates.length; d++) {
+    const lo = rank - d
+    const hi = rank + d
+    if (lo < 0 && hi >= dates.length) break
+    if (lo >= 0 && dates[lo]) return fmtDate(dates[lo])
+    if (hi < dates.length && dates[hi]) return fmtDate(dates[hi])
+  }
+  return ''
+}
+
 // Reopening keeps the window the slider was left on; the first open (or one
-// after the list changed) takes the server's default.
+// after the list changed) takes the server's default, which is the whole list.
 function openGraph() {
   graphOpen.value = true
   loadThreadGraph(winStart.value, winEnd.value)
@@ -207,6 +294,47 @@ function commitWindow() {
   loadThreadGraph(winStart.value, winEnd.value)
 }
 
+// While a handle is held or dragged, a small bubble over the rail names the date
+// that handle's rank sits on (the ranks themselves are in the caption below).
+// It follows the handle by the same percentage the fill uses, and is suppressed
+// entirely when no date is known for the rank.
+const heldHandle = ref(null) // 'start' | 'end' while held, else null
+function holdHandle(which) {
+  heldHandle.value = which
+}
+function releaseHandle() {
+  heldHandle.value = null
+}
+// A handle moved: keep showing the bubble for it. Arrow keys move a handle with
+// no pointer down at all, so the move itself — not only the grab — raises it.
+function onHandleInput(which, event) {
+  heldHandle.value = which
+  setHandle(which, event)
+}
+// A drag that ends off the input still has to lower the bubble, so the release
+// is watched on the document (capture phase) for as long as a handle is held.
+watch(heldHandle, (which) => {
+  if (which) {
+    document.addEventListener('pointerup', releaseHandle, true)
+    document.addEventListener('pointercancel', releaseHandle, true)
+  } else {
+    document.removeEventListener('pointerup', releaseHandle, true)
+    document.removeEventListener('pointercancel', releaseHandle, true)
+  }
+})
+const handleTipRank = computed(() =>
+  heldHandle.value === 'start' ? winStart.value : heldHandle.value === 'end' ? winEnd.value : null,
+)
+const handleTipDate = computed(() => (heldHandle.value ? dateForRank(handleTipRank.value) : ''))
+const handleTipStyle = computed(() => {
+  const span = winMax.value || 1
+  const pct = Math.min(Math.max((handleTipRank.value / span) * 100, 0), 100)
+  // Centred over the handle in the middle of the rail, and progressively
+  // shifted to its own left/right edge towards the ends, so the bubble stays
+  // inside the rail instead of hanging off it.
+  return { left: `${pct}%`, transform: `translateX(-${pct}%)` }
+})
+
 // Opening a message from the lightbox: close it so the detail drawer is not
 // buried under the overlay.
 function openGraphMessage(id) {
@@ -232,6 +360,9 @@ watch(
     graphError.value = ''
     winStart.value = null
     winEnd.value = null
+    rankDates.value = []
+    rankDatesFull.value = false
+    heldHandle.value = null
     loadSummary()
     loadRug()
   },
@@ -440,43 +571,55 @@ const showSearchEmpty = computed(
     filteredLists.value.length === 0,
 )
 
-// Index ordering. The default is message count desc; clicking the "Aggregate
-// analysis" caption sorts by each list's AI share instead — highest share first,
-// then lowest, then a third click returns to the default order.
-const indexSort = ref(null) // null (message count desc) | 'ai'
+// Index ordering. Three sortable captions — List (name), Msgs (message count,
+// the default, descending) and Aggregate analysis (AI share). Clicking a new
+// caption applies its natural first order (names ascending, counts and shares
+// descending); clicking the active one flips the order.
+const indexSort = ref('count') // 'count' | 'name' | 'ai'
 const indexOrder = ref('desc')
-function sortIndexAi() {
-  if (indexSort.value !== 'ai') {
-    indexSort.value = 'ai'
-    indexOrder.value = 'desc'
-  } else if (indexOrder.value === 'desc') {
-    indexOrder.value = 'asc'
+function sortIndex(col, firstOrder) {
+  if (indexSort.value === col) {
+    indexOrder.value = indexOrder.value === 'asc' ? 'desc' : 'asc'
   } else {
-    indexSort.value = null
-    indexOrder.value = 'desc'
+    indexSort.value = col
+    indexOrder.value = firstOrder
   }
 }
-const aiInd = computed(() =>
-  indexSort.value === 'ai' ? (indexOrder.value === 'asc' ? ' ▲' : ' ▼') : '',
-)
+const indexInd = (col) =>
+  indexSort.value === col ? (indexOrder.value === 'asc' ? ' ▲' : ' ▼') : ''
+const nameInd = computed(() => indexInd('name'))
+const countInd = computed(() => indexInd('count'))
+const aiInd = computed(() => indexInd('ai'))
 
 const listRows = computed(() => {
+  // Stable base: message count descending (the default order), so ties under
+  // any other sort keep it.
   const sorted = [...filteredLists.value].sort(
     (a, b) => (b.message_count || 0) - (a.message_count || 0),
   )
-  if (indexSort.value === 'ai') {
-    const dir = indexOrder.value === 'asc' ? 1 : -1
-    // Stable, so lists sharing an AI share keep the message-count order above.
-    sorted.sort(
-      (a, b) =>
-        dir *
-        (aiShare(a.label_counts, a.too_short_count) - aiShare(b.label_counts, b.too_short_count)),
-    )
+  const dir = indexOrder.value === 'asc' ? 1 : -1
+  if (indexSort.value === 'name') {
+    sorted.sort((a, b) => dir * String(a.name || '').localeCompare(String(b.name || '')))
+  } else if (indexSort.value === 'ai') {
+    // Equal shares — including the many lists sharing a 0% share — fall back to
+    // message count descending. The tie-break is part of the comparator rather
+    // than left to the base order, so it points the same way whichever
+    // direction the share itself is sorted in.
+    sorted.sort((a, b) => {
+      const shareDiff =
+        aiShare(a.label_counts, a.too_short_count) - aiShare(b.label_counts, b.too_short_count)
+      if (shareDiff !== 0) return dir * shareDiff
+      return (b.message_count || 0) - (a.message_count || 0)
+    })
+  } else if (indexOrder.value === 'asc') {
+    sorted.reverse()
   }
   return sorted.map((l) => ({
     name: l.name,
     count: fmtInt(l.message_count || 0),
     counts: l.label_counts || {},
+    // The history rug's points, once the shared timelines fetch has landed.
+    history: indexRugs.value[l.name] || null,
     // Gated under the reliability floor: the mix bar's trailing grey segment.
     tooShort: l.too_short_count || 0,
     // Oldest stored message date for the list (the message's own date), or an
@@ -736,6 +879,8 @@ onUnmounted(() => {
   document.removeEventListener('click', onPopoverDocClick, true)
   document.removeEventListener('scroll', onPopoverScroll, true)
   document.removeEventListener('keydown', onGraphKeydown)
+  document.removeEventListener('pointerup', releaseHandle, true)
+  document.removeEventListener('pointercancel', releaseHandle, true)
 })
 
 // --- list-stats mode --------------------------------------------------------
@@ -888,9 +1033,17 @@ function closeList() {
       <!-- lists index -->
       <template v-else>
         <div class="index-caption">
-          <span>List</span>
-          <span style="text-align: right;">Msgs</span>
-          <span class="sortable" title="Sort by AI share" @click="sortIndexAi"
+          <span class="sortable" title="Sort by list name" @click="sortIndex('name', 'asc')"
+            >List{{ nameInd }}</span
+          >
+          <span
+            class="sortable"
+            style="text-align: right;"
+            title="Sort by message count"
+            @click="sortIndex('count', 'desc')"
+            >Msgs{{ countInd }}</span
+          >
+          <span class="sortable" title="Sort by AI share" @click="sortIndex('ai', 'desc')"
             >Aggregate analysis{{ aiInd }}</span
           >
           <span style="text-align: right;">Earliest</span>
@@ -911,7 +1064,18 @@ function closeList() {
         >
           <span class="index-name mono" :title="l.name">{{ l.name }}</span>
           <span class="index-count mono">{{ l.count }}</span>
-          <MixBar :counts="l.counts" :too-short="l.tooShort" :height="9" />
+          <span class="agg-cell">
+            <TimelineRug
+              v-if="l.history && l.history.length"
+              :points="l.history"
+              :start="indexRugStart"
+              :end="indexRugEnd"
+              :height="12"
+              @open="openRugMessage"
+              @range="(rg) => applyIndexRugRange(l.name, rg)"
+            />
+            <MixBar :counts="l.counts" :too-short="l.tooShort" :height="9" />
+          </span>
           <span class="index-earliest mono">{{ l.earliest }}</span>
           <span class="index-synced mono">{{ l.synced }}</span>
           <button
@@ -1061,7 +1225,7 @@ function closeList() {
           <div class="tg-lb-head">
             <span class="tg-lb-title mono">{{ filters.list }} — threads</span>
             <span class="tg-lb-note">
-              receipt order → · one circle per email · one row per thread
+              receipt order → · months along the top · one circle per email · one row per thread
             </span>
             <span v-if="graphLoading && threadGraph" class="status-mono tg-lb-busy">loading…</span>
             <button type="button" class="pop-close" title="Close" @click="graphOpen = false">
@@ -1081,7 +1245,8 @@ function closeList() {
           </div>
           <!-- window slider: two overlaid range inputs (transparent tracks, only
                the thumbs take pointer events) selecting the shown messages by
-               receipt rank, not by date -->
+               receipt rank, not by date; a held handle names the date its rank
+               falls on above the rail -->
           <div v-if="hasWindow" class="tg-win">
             <div class="tg-win-track">
               <div class="tg-win-rail"></div>
@@ -1094,7 +1259,9 @@ function closeList() {
                 :max="winMax"
                 :value="winStart"
                 aria-label="Furthest-back message shown"
-                @input="setHandle('start', $event)"
+                @pointerdown="holdHandle('start')"
+                @blur="releaseHandle"
+                @input="onHandleInput('start', $event)"
                 @change="commitWindow"
               />
               <input
@@ -1104,9 +1271,15 @@ function closeList() {
                 :max="winMax"
                 :value="winEnd"
                 aria-label="Most recent message shown"
-                @input="setHandle('end', $event)"
+                @pointerdown="holdHandle('end')"
+                @blur="releaseHandle"
+                @input="onHandleInput('end', $event)"
                 @change="commitWindow"
               />
+              <!-- the held handle's date, above the rail at the handle -->
+              <div v-if="handleTipDate" class="tg-win-tip mono" :style="handleTipStyle">
+                {{ handleTipDate }}
+              </div>
             </div>
             <div class="tg-win-legend">
               <span class="tg-win-date mono">{{ fmtDate(threadGraph.first_date) }}</span>
@@ -1362,6 +1535,24 @@ function closeList() {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* The held handle's date, sitting on the rail above the handle. Inert to the
+   pointer so it can never interrupt the drag underneath it, and placed by the
+   same percentage geometry as the fill (see handleTipStyle). */
+.tg-win-tip {
+  position: absolute;
+  bottom: 100%;
+  margin-bottom: 1px;
+  z-index: 3;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  pointer-events: none;
+}
 .tg-win-legend {
   display: flex;
   align-items: baseline;
@@ -1488,6 +1679,15 @@ function closeList() {
   padding: 10px 2px;
   font-size: 11.5px;
   color: var(--text-muted);
+}
+
+/* The list's history rug above its mix bar (the Aggregate analysis cell). The
+   rug appears once the shared timelines fetch has landed. */
+.agg-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
 /* Index search box, matching the Senders pane's. */

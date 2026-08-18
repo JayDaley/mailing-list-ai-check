@@ -70,7 +70,17 @@ FLAGGED_LABELS = ("AI",)
 _FLAGGED_IN = "(" + ", ".join(f"'{label}'" for label in FLAGGED_LABELS) + ")"
 
 #: Columns a message list may be sorted by, mapped to their SQL expression.
-SORT_COLUMNS = {"date": "m.date", "fraction_ai": "s.fraction_ai"}
+#: The request's direction is appended to the expression, so an entry may hold
+#: several comma-separated terms and pin the direction of every term but the
+#: last. ``timing_cpm`` uses that to lead with ``IS NULL ASC``: most rows have
+#: no stored rate (only replies whose parent is on the list are classified),
+#: and the leading term keeps them together at the bottom in both directions
+#: instead of filling the first page under ``asc``.
+SORT_COLUMNS = {
+    "date": "m.date",
+    "fraction_ai": "s.fraction_ai",
+    "timing_cpm": "m.timing_cpm IS NULL ASC, m.timing_cpm",
+}
 #: Default and maximum page sizes for :meth:`Store.query_messages`.
 DEFAULT_PER_PAGE = 50
 MAX_PER_PAGE = 200
@@ -84,12 +94,6 @@ REPLY_RUG_MAX_LISTS = 20
 #: and ``unscored`` everything else without a label.
 TIMELINE_BUCKETS = ("Human", "Mixed", "AI", "too_short", "unscored")
 _TIMELINE_LABEL_BUCKETS = {"Human": 0, "Mixed": 1, "AI": 2}
-#: Default and maximum window spans for :meth:`Store.thread_graph` (the list
-#: panel's thread graph). The default span, used when no explicit start is
-#: given, covers the newest 100 messages; the maximum caps how wide a
-#: start/end range may be.
-THREAD_GRAPH_LIMIT = 100
-THREAD_GRAPH_MAX_LIMIT = 500
 #: Batch size for ``IN (...)`` lookups over an unbounded id/Message-ID set.
 #: SQLite's bound-parameter limit is 999 on older builds; stay well under it.
 _IN_CHUNK = 400
@@ -2334,8 +2338,9 @@ class Store:
 
         - ``q`` — case-insensitive substring over the name or ANY email;
         - ``sort`` — ``"count"`` (by ``message_count``), ``"ai"`` (by the mix's
-          ``AI`` share, see :func:`ai_share`), both with a secondary name asc for
-          a stable order, or ``"name"`` (case-insensitive);
+          ``AI`` share, see :func:`ai_share`, ties broken by ``message_count``
+          descending whichever direction is asked for), both with a final name
+          asc for a stable order, or ``"name"`` (case-insensitive);
         - ``order`` — ``"asc"``/``"desc"``;
         - ``page``/``per_page`` — 1-based, ``per_page`` clamped to
           ``[1, MAX_PER_PAGE]``.
@@ -2502,6 +2507,14 @@ class Store:
             if order == "desc":
                 entries.reverse()
         elif sort == "ai":
+            # Ties on the share are broken by volume, most messages first, in
+            # both directions: many senders share a value (0.0 above all, and
+            # every exact fraction a handful of messages can produce), and the
+            # busier of two such senders is the more informative row either way
+            # round. The pass runs before the share pass because Python's sort
+            # is stable, so its order survives wherever the share compares
+            # equal; the name pass above stays the last resort.
+            entries.sort(key=lambda e: e["message_count"], reverse=True)
             entries.sort(
                 key=lambda e: ai_share(e["label_counts"], e["too_short_count"]),
                 reverse=(order != "asc"),
@@ -2538,13 +2551,16 @@ class Store:
         ``rows`` is the requested page (each a dict joining messages + addresses +
         persons + extractions + scores); ``total`` is the full match count before
         pagination. ``per_page`` is clamped to ``[1, MAX_PER_PAGE]`` and ``page``
-        to ``>= 1``. Unknown ``sort`` falls back to ``date``; ``order`` is ``asc``
-        only when explicitly ``"asc"``, else ``desc``. A stable secondary sort on
-        ``m.id`` makes pagination deterministic.
+        to ``>= 1``. ``sort`` names a key of :data:`SORT_COLUMNS` (``date``,
+        ``fraction_ai`` or ``timing_cpm``) and an unknown one falls back to
+        ``date``; ``order`` is ``asc`` only when explicitly ``"asc"``, else
+        ``desc``. A stable secondary sort on ``m.id`` makes pagination
+        deterministic.
 
         Each row also carries ``timing_cpm``: the stored chars/minute rate the
         ``timing`` band was derived from, and ``None`` wherever ``timing`` is
-        NULL (see :meth:`recompute_timing`).
+        NULL (see :meth:`recompute_timing`). Sorting on ``timing_cpm`` puts the
+        rows without a rate last whichever direction is asked for.
         """
         where, params = _build_message_where(filters)
         total = self.conn.execute(
@@ -2671,6 +2687,51 @@ class Store:
             "by_month": by_month,
             "db_size_bytes": self.db_size_bytes(),
         }
+
+    def message_timeline(self, filters: MessageFilters) -> dict[str, Any]:
+        """The filtered message set as one slim timeline (for the messages pane's rug).
+
+        Honours the same ``filters`` as :meth:`query_messages` and
+        :meth:`summary` (pagination/sort are ignored), so the rug always shows
+        exactly the set the table pages through. No row cap applies: the plot
+        adapts to any volume client-side.
+
+        Returns ``{"start": s, "end": e, "total": n, "undated": u,
+        "points": [...]}`` — ``start``/``end`` the epoch seconds of the
+        earliest and latest dated match (``None`` when there is none), and each
+        point ``[id, t, bucket]`` as :meth:`list_timelines` serves them,
+        ordered by ``(date, id)`` ascending. Messages whose ``date`` is missing
+        or unparseable cannot be placed on a time axis; they are counted in
+        ``undated`` and carried by no point.
+        """
+        where, params = _build_message_where(filters)
+        cursor = self.conn.execute(
+            "SELECT m.id AS id, m.date AS date, e.status AS status, s.label AS label"
+            + _MESSAGE_FROM
+            + where
+            + " ORDER BY m.date, m.id",
+            params,
+        )
+
+        points: list[list[Any]] = []
+        total = 0
+        undated = 0
+        start: int | None = None
+        end: int | None = None
+        for row in cursor:
+            total += 1
+            t = _epoch_seconds(row["date"])
+            if t is None:
+                undated += 1
+                continue
+            start = t if start is None or t < start else start
+            end = t if end is None or t > end else end
+            bucket = (
+                3 if row["status"] == "too_short" else _TIMELINE_LABEL_BUCKETS.get(row["label"], 4)
+            )
+            points.append([row["id"], t, bucket])
+
+        return {"start": start, "end": end, "total": total, "undated": undated, "points": points}
 
     # -- dashboard: sender reply rugs ------------------------------------------
 
@@ -3010,12 +3071,12 @@ class Store:
         the furthest back, rank ``list_total - 1`` the most recent.
 
         ``start`` and ``end`` are 0-based inclusive ranks into that order.
-        ``end`` defaults to the most recent rank and ``start`` to
-        ``end - THREAD_GRAPH_LIMIT + 1`` (never below 0). Both are clamped to
-        the data: ``end`` down to ``list_total - 1``, ``start`` down to ``end``,
-        and up so the span is at most :data:`THREAD_GRAPH_MAX_LIMIT` (the more
-        recent end of the range wins). Callers are expected to have rejected
-        negative ranks and ``start > end`` already.
+        ``end`` defaults to the most recent rank and ``start`` to 0, so calling
+        with neither returns the whole list, oldest rank to newest. The span is
+        never capped: an explicit range is honoured however wide it is. Both
+        bounds are still clamped to the data — ``end`` down to
+        ``list_total - 1``, ``start`` down to ``end`` and up to 0. Callers are
+        expected to have rejected negative ranks and ``start > end`` already.
 
         Returns ``{"list_total": <messages on the list>, "start": <effective
         start rank>, "end": <effective end rank>, "total": <window size>,
@@ -3057,11 +3118,8 @@ class Store:
             }
 
         end = list_total - 1 if end is None else min(end, list_total - 1)
-        if start is None:
-            start = max(0, end - THREAD_GRAPH_LIMIT + 1)
-        start = min(start, end)
-        # Cap the span by raising the start: the newer end of the range wins.
-        start = max(start, end - THREAD_GRAPH_MAX_LIMIT + 1)
+        # No start means the whole list: rank 0 through the clamped end.
+        start = 0 if start is None else max(0, min(start, end))
 
         rows = self.conn.execute(
             "SELECT m.id AS id, m.message_id AS message_id, m.uid AS uid, "

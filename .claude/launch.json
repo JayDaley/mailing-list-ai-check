@@ -4,20 +4,54 @@
     {
       "name": "dashboard",
       "runtimeExecutable": ".venv/bin/mail-ai-web",
-      "runtimeArgs": ["--host", "127.0.0.1", "--port", "8050", "--db", "data/mail.db"],
+      "runtimeArgs": [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8050",
+        "--db",
+        "data/mail.db"
+      ],
       "port": 8050
     },
     {
       "name": "dashboard-alt",
       "runtimeExecutable": ".venv/bin/mail-ai-web",
-      "runtimeArgs": ["--host", "127.0.0.1", "--port", "8051", "--db", "data/mail.db"],
+      "runtimeArgs": [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8051",
+        "--db",
+        "data/mail.db"
+      ],
       "port": 8051
     },
     {
       "name": "dashboard-alt2",
       "runtimeExecutable": ".venv/bin/mail-ai-web",
-      "runtimeArgs": ["--host", "127.0.0.1", "--port", "8052", "--db", "data/mail.db"],
+      "runtimeArgs": [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8052",
+        "--db",
+        "data/mail.db"
+      ],
       "port": 8052
+    },
+    {
+      "name": "dashboard-alt3",
+      "runtimeExecutable": ".venv/bin/mail-ai-web",
+      "runtimeArgs": [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8053",
+        "--db",
+        "data/mail.db"
+      ],
+      "port": 8053
     }
   ]
 }

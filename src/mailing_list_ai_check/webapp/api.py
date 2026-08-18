@@ -594,6 +594,24 @@ def summary() -> Any:
     return jsonify(get_store().summary(filters))
 
 
+@api_bp.get("/messages/timeline")
+def messages_timeline() -> Any:
+    """The filtered message set as one slim timeline (the messages pane's rug).
+
+    Takes the same query params as ``GET /messages`` (pagination and sort are
+    ignored) and returns ``{"start": s, "end": e, "total": n, "undated": u,
+    "buckets": [...], "points": [...]}`` — ``start``/``end`` in epoch seconds
+    over the dated matches (``null`` when there is none), ``buckets`` naming
+    the point buckets by index, and each point ``[id, t, bucket]`` ordered by
+    ``(date, id)`` ascending with ``t`` in epoch seconds. Undated messages
+    carry no point (see :meth:`Store.message_timeline`).
+    """
+    filters = parse_filters(request.args)
+    result = get_store().message_timeline(filters)
+    result["buckets"] = list(TIMELINE_BUCKETS)
+    return jsonify(result)
+
+
 # --- pull (fetch + extract + score) ------------------------------------------
 
 
@@ -1529,12 +1547,10 @@ def list_thread_graph() -> Any:
     Query params: ``list`` (required; an unknown list is a 404) and the optional
     window bounds ``start`` and ``end`` — 0-based inclusive ranks into the
     list's IMAP receipt order, rank 0 being the furthest back. ``end`` defaults
-    to the list's most recent rank and ``start`` to a
-    :data:`THREAD_GRAPH_LIMIT`-wide window ending there. A non-integer bound, a
-    negative one, or ``start`` greater than ``end`` is a 400. ``end`` beyond the
-    list's last rank is clamped to it, and a span wider than
-    :data:`THREAD_GRAPH_MAX_LIMIT` is narrowed by raising ``start``, so the more
-    recent end of the range is kept.
+    to the list's most recent rank and ``start`` to 0, so omitting both returns
+    the whole list. A non-integer bound, a negative one, or ``start`` greater
+    than ``end`` is a 400. ``end`` beyond the list's last rank is clamped to it;
+    the span itself is never capped, so an explicit range is served in full.
 
     Returns ``{"list": …, "list_total": …, "start": …, "end": …, "total": …,
     "first_date": …, "last_date": …, "threads": [...]}``, where ``start`` and

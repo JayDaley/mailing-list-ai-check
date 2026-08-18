@@ -5,17 +5,18 @@
 // corpus-wide time domain from GET /api/lists/timelines, so columns align
 // vertically; the sticky month axis at the top names the positions.
 //
-// Rows keep the server's order (message count descending then name). Clicking
-// a list name returns to the dashboard filtered to it; a single-message rug
-// bar opens that message; a binned column returns to the dashboard filtered to
-// the list and the bin's date span.
+// Rows start in the server's order (message count descending then name) and
+// the axis row's captions re-order them by list name or AI share. Clicking a
+// list name returns to the dashboard filtered to it; a single-message rug bar
+// opens that message; a binned column returns to the dashboard filtered to the
+// list and the bin's date span.
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { get } from '../api'
 import TimelineRug from '../components/TimelineRug.vue'
 import { fmtInt } from '../lib/format'
-import { BUCKET_PHRASES, TIMELINE_BUCKETS, bucketColor } from '../lib/labels'
+import { BUCKET_PHRASES, TIMELINE_BUCKETS, aiShare, bucketColor } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 
 const filters = useFiltersStore()
@@ -44,17 +45,69 @@ onMounted(load)
 const startMs = computed(() => (payload.value?.start != null ? payload.value.start * 1000 : null))
 const endMs = computed(() => (payload.value?.end != null ? payload.value.end * 1000 : null))
 
-const rows = computed(() =>
-  (payload.value?.lists || []).map((entry) => ({
-    list: entry.list,
-    count: fmtInt(entry.total),
-    points: (entry.points || []).map(([id, t, bucket]) => ({
+// The bucket tallies of one row's points, in the shape aiShare() reads: the
+// three prediction buckets plus the two unscored kinds. These are the same
+// tallies the lists index gets from `label_counts` / `too_short_count`, save
+// that an undated message carries no point and so appears in neither.
+function bucketCounts(points) {
+  const counts = { Human: 0, Mixed: 0, AI: 0, too_short: 0, unscored: 0 }
+  for (const p of points) counts[p.bucket] += 1
+  return counts
+}
+
+// One row per list, in the order the server sent. Kept apart from the sorted
+// `rows` below so re-ordering the stack reuses these point arrays rather than
+// rebuilding them, leaving each rug's props untouched.
+const baseRows = computed(() =>
+  (payload.value?.lists || []).map((entry) => {
+    const points = (entry.points || []).map(([id, t, bucket]) => ({
       id,
       t: t * 1000,
       bucket: TIMELINE_BUCKETS[bucket] || 'unscored',
-    })),
-  })),
+    }))
+    const counts = bucketCounts(points)
+    return {
+      list: entry.list,
+      total: entry.total || 0,
+      count: fmtInt(entry.total),
+      // The list's AI share, by the same measure that orders the lists index
+      // and the senders table (see `aiShare` in lib/labels.js).
+      ai: aiShare(counts, counts.too_short),
+      points,
+    }
+  }),
 )
+
+// Stack ordering. Two sortable captions — List name and AI share. Clicking a
+// new caption applies its natural first order (names ascending, shares
+// descending); clicking the active one flips the order. The initial 'count' is
+// the server's own order and has no caption.
+const rowSort = ref('count') // 'count' | 'name' | 'ai'
+const rowOrder = ref('desc')
+function sortRows(col, firstOrder) {
+  if (rowSort.value === col) {
+    rowOrder.value = rowOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    rowSort.value = col
+    rowOrder.value = firstOrder
+  }
+}
+const sortInd = (col) => (rowSort.value === col ? (rowOrder.value === 'asc' ? ' ▲' : ' ▼') : '')
+const nameInd = computed(() => sortInd('name'))
+const aiInd = computed(() => sortInd('ai'))
+
+const rows = computed(() => {
+  // Stable base: message count descending (the server's order, name ascending
+  // within a tie), so equal AI shares keep it under either sort.
+  const sorted = [...baseRows.value].sort((a, b) => b.total - a.total)
+  const dir = rowOrder.value === 'asc' ? 1 : -1
+  if (rowSort.value === 'name') {
+    sorted.sort((a, b) => dir * String(a.list).localeCompare(String(b.list)))
+  } else if (rowSort.value === 'ai') {
+    sorted.sort((a, b) => dir * (a.ai - b.ai))
+  }
+  return sorted
+})
 
 const totalMessages = computed(() =>
   fmtInt((payload.value?.lists || []).reduce((sum, entry) => sum + (entry.total || 0), 0)),
@@ -138,7 +191,14 @@ function openRange(list, range) {
       <div v-else-if="!rows.length" class="tl-status">no messages stored yet</div>
       <template v-else>
         <div class="tl-row tl-axis-row">
-          <span class="tl-name"></span>
+          <span class="tl-sorts">
+            <span class="sortable" title="Sort by list name" @click="sortRows('name', 'asc')"
+              >List name{{ nameInd }}</span
+            >
+            <span class="sortable" title="Sort by AI share" @click="sortRows('ai', 'desc')"
+              >AI share{{ aiInd }}</span
+            >
+          </span>
           <div class="tl-axis">
             <span v-for="t in ticks" :key="t.left" class="tl-tick" :style="{ left: t.left }">
               <span class="tl-tick-mark"></span>
@@ -165,7 +225,6 @@ function openRange(list, range) {
               :start="startMs"
               :end="endMs"
               :height="16"
-              :col-width="2"
               @open="openMessage"
               @range="(rg) => openRange(r.list, rg)"
             />
@@ -297,6 +356,25 @@ function openRange(list, range) {
 }
 .tl-count {
   color: var(--text-faint);
+}
+/* The stack's sort captions, in the axis row above the name column. */
+.tl-sorts {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start; /* level with the tick labels at the axis's top */
+  line-height: 12px;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tl-sorts .sortable {
+  cursor: pointer;
+}
+.tl-sorts .sortable:hover {
+  color: var(--accent);
 }
 .tl-rug {
   align-self: end;

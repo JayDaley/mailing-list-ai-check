@@ -611,12 +611,6 @@ async function assignToExisting(row) {
             <div class="tile-cap">Posts</div>
           </div>
           <div class="detail-mix">
-            <MixSummary
-              :counts="detailCard.mix"
-              :too-short="detailCard.tooShort"
-              :clickable="true"
-              @select="(l) => filters.setFilter('label', l)"
-            />
             <TimelineRug
               v-if="detailHistory && detailHistory.points.length"
               :points="detailHistory.points"
@@ -625,6 +619,12 @@ async function assignToExisting(row) {
               :height="26"
               @open="openRugMessage"
               @range="applyHistoryRange"
+            />
+            <MixSummary
+              :counts="detailCard.mix"
+              :too-short="detailCard.tooShort"
+              :clickable="true"
+              @select="(l) => filters.setFilter('label', l)"
             />
           </div>
         </div>
@@ -699,7 +699,6 @@ async function assignToExisting(row) {
           >
           <span class="sender-count mono">{{ row.count }}</span>
           <span class="agg-cell">
-            <MixBar :counts="row.counts" :too-short="row.tooShort" :height="9" />
             <TimelineRug
               v-if="row.history && row.history.length"
               :points="row.history"
@@ -708,6 +707,7 @@ async function assignToExisting(row) {
               :height="12"
               @open="openRugMessage"
             />
+            <MixBar :counts="row.counts" :too-short="row.tooShort" :height="9" />
           </span>
           <span style="text-align: right;">
             <button
@@ -833,7 +833,7 @@ async function assignToExisting(row) {
   align-items: flex-start;
   margin-top: 8px;
 }
-/* The aggregate MixSummary with the sender's history rug under it. */
+/* The sender's history rug above the aggregate MixSummary. */
 .detail-mix {
   flex: 1;
   min-width: 0;
@@ -1065,8 +1065,8 @@ async function assignToExisting(row) {
   text-align: right;
   color: var(--text-secondary);
 }
-/* The mix bar with the sender's history rug under it (the Aggregate analysis
-   cell). The rug appears once its lazy fetch covers the row. */
+/* The sender's history rug above the mix bar (the Aggregate analysis cell).
+   The rug appears once its lazy fetch covers the row. */
 .agg-cell {
   display: flex;
   flex-direction: column;
