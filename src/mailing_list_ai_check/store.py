@@ -409,6 +409,24 @@ CREATE INDEX IF NOT EXISTS idx_scores_extraction_label
 ANALYZE;
 """
 
+# Covering index for the lists index's base aggregate (see Store.list_rows),
+# which counts every list's messages and takes MIN(date) over them on each
+# request. idx_messages_list_id finds the rows, but reading m.date then fetches
+# each wide messages row (the raw body drags its overflow pages through the
+# page cache); with (list_id, date) the aggregate is a covering index walk.
+# Measured over a 110,725-message store, the query took ~4.3 s before and
+# ~0.03 s after. The same request's mix and too_short aggregates are fixed by
+# join order in list_rows itself, not by an index.
+#
+# ANALYZE for the same reason as migration 17: without statistics the planner
+# passes over a new covering index.
+_MIGRATION_018 = """
+CREATE INDEX IF NOT EXISTS idx_messages_list_date
+    ON messages(list_id, date);
+
+ANALYZE;
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
@@ -427,6 +445,7 @@ MIGRATIONS: list[tuple[int, str]] = [
     (15, _MIGRATION_015),
     (16, _MIGRATION_016),
     (17, _MIGRATION_017),
+    (18, _MIGRATION_018),
 ]
 
 #: The migrations whose backfill runs in Python (see :meth:`Store.__init__`).
@@ -2180,9 +2199,9 @@ class Store:
         messages per label, null labels omitted, empty when nothing on the list is
         scored) and ``too_short_count`` (messages whose extraction was gated under
         the reliability floor, so never scored — the mix bar's trailing grey
-        segment). Both come from extra aggregate queries merged in Python —
-        mirroring the ``scores → extractions → messages`` join chain of
-        ``_MESSAGE_FROM``.
+        segment). Both come from extra aggregate queries merged in Python,
+        joining ``messages → extractions → scores`` (the chain of
+        ``_MESSAGE_FROM``, driven from ``messages``).
 
         ``earliest_message_at`` is the oldest ``messages.date`` stored for the list
         — the message's own ``Date`` header normalised to a UTC ISO-8601 string on
@@ -2201,11 +2220,16 @@ class Store:
         ).fetchall()
         result = [dict(row) for row in rows]
 
+        # CROSS JOIN pins the join order: driven from messages, every hop is a
+        # covering index (idx_messages_list_id, the extractions message_id
+        # autoindex, idx_scores_extraction_label). Left to itself the planner
+        # drives from scores and fetches each wide extractions/messages row
+        # just to read message_id/list_id — ~3.3 s instead of ~0.1 s here.
         mix = self.conn.execute(
             "SELECT m.list_id AS list_id, s.label AS label, COUNT(*) AS count "
             "FROM messages m "
-            "JOIN extractions e ON e.message_id = m.id "
-            "JOIN scores s ON s.extraction_id = e.id "
+            "CROSS JOIN extractions e ON e.message_id = m.id "
+            "CROSS JOIN scores s ON s.extraction_id = e.id "
             "GROUP BY m.list_id, s.label"
         ).fetchall()
         scored_by_list: dict[int, int] = {}
@@ -2215,10 +2239,12 @@ class Store:
             if row["label"] is not None:
                 labels_by_list.setdefault(row["list_id"], {})[row["label"]] = row["count"]
 
+        # Same join-order pin as the mix query: from messages through
+        # idx_extractions_message_status, never touching a table row.
         gated = self.conn.execute(
             "SELECT m.list_id AS list_id, COUNT(*) AS count "
             "FROM messages m "
-            "JOIN extractions e ON e.message_id = m.id "
+            "CROSS JOIN extractions e ON e.message_id = m.id "
             "WHERE e.status = 'too_short' "
             "GROUP BY m.list_id"
         ).fetchall()

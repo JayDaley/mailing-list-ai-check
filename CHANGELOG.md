@@ -37,6 +37,13 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.14.0] - 2026-08-18
+
+Summary: Make the lists index load in milliseconds instead of seconds.
+
+- Add migration 018: a covering index on messages(list_id, date) so the lists index's per-list count and earliest-date aggregate reads index pages alone (measured 4.3 s to 0.03 s over a 110,725-message store).
+- Pin the join order of the lists index's label-mix and too_short aggregates to drive from messages, keeping every join step inside a covering index (measured 3.3 s and 2.8 s to about 0.1 s and 0.3 s).
+
 ## [1.13.3] - 2026-08-18
 
 Summary: Replace the senders' cumulative-AI sparklines with per-sender history rugs.
