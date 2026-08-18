@@ -37,6 +37,27 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.14.1] - unreleased
+
+Summary: Add rug plots above the aggregate bars, fix every rug at gapless 2px columns, extend sorting across the tables and Timelines screen, and give the thread graph a month axis, handle-date hover and full-history default.
+
+- Add GET /api/messages/timeline: the filtered message set as one slim [id, epoch, bucket] timeline, honouring the same filters as GET /api/messages.
+- Add a timeline rug of the filtered message set to the messages toolbar, left of the detection-mix bar and matching its 200px width.
+- Add a per-list history rug above each lists-index row's aggregate analysis bar, on the corpus-wide time domain.
+- Make the lists-index List and Msgs captions sortable; a new caption applies its natural first order and clicking the active one flips it.
+- Move the senders table's per-sender history rugs above the aggregate analysis bars.
+- Move the sender detail card's history rug above the aggregate detection-mix summary.
+- Fix every rug plot at 2px-wide columns, removing the adaptive 2-6px column width and the per-plot fixed-width override.
+- Remove the 1px gap between rug columns; adjacent occupied bins now touch.
+- Replace the rug columns' native title tooltips with a fixed-position tooltip that appears after 120 ms.
+- Add timing_cpm to GET /api/messages' sort columns; rows without a stored rate sort last under either order.
+- Make the messages table's Chars/min header sortable.
+- Add List name and AI share sort captions to the Timelines screen, using the same AI-share ordering as the lists index.
+- Break equal AI-share values by message count descending in the lists-index, Timelines and GET /api/senders AI sorts.
+- Make GET /api/lists/thread-graph default to the whole list and honour explicit spans in full, removing the 100-message default window and the 500-message span clamp.
+- Add a month axis with vertical dividers along the top of the thread graph.
+- Show the date a thread-graph slider handle sits on while the handle is held or dragged.
+
 ## [1.14.0] - 2026-08-18
 
 Summary: Make the lists index load in milliseconds instead of seconds.
