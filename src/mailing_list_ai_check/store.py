@@ -2889,13 +2889,13 @@ class Store:
     ) -> dict[str, Any]:
         """Slim per-sender message timelines (for ``GET /api/senders/timelines``).
 
-        Feeds the Senders pane's cumulative-AI sparklines: for each requested
-        sender, every dated message as a ``[t, ai]`` point — ``t`` in epoch
-        seconds, ``ai`` 1 when the stored label is ``AI`` and 0 otherwise
-        (unscored and gated messages included, both being posts) — ordered by
-        ``(date, id)`` ascending. Messages whose ``date`` is missing or
-        unparseable cannot be placed on a time axis; they are counted in the
-        entry's ``undated`` and carried by no point.
+        Feeds the Senders pane's per-sender rug plots: for each requested
+        sender, every dated message as an ``[id, t, bucket]`` point — the shape
+        :meth:`list_timelines` serves, ``t`` in epoch seconds and ``bucket`` an
+        index into :data:`TIMELINE_BUCKETS` — ordered by ``(date, id)``
+        ascending. Messages whose ``date`` is missing or unparseable cannot be
+        placed on a time axis; they are counted in the entry's ``undated`` and
+        carried by no point.
 
         ``person_ids`` selects persons (each covering every address linked to
         it); ``addresses`` selects addresses by email (each covering itself
@@ -2906,12 +2906,12 @@ class Store:
         Returns ``{"start": s, "end": e, "persons": {...}, "addresses": {...}}``.
         ``start``/``end`` are the epoch seconds of the scope's earliest and
         latest dated message — the *whole* list or corpus, not just the
-        requested senders — so every sparkline in a table shares one x-domain;
+        requested senders — so every rug in a table shares one x-domain;
         either is ``None`` when the boundary date is absent or unparseable (the
         client then falls back to the points' own extent). ``persons`` is keyed
         by person id as a string, ``addresses`` by lower-cased email; each value
-        is ``{"points": [[t, ai], ...], "undated": u}``. Requested senders with
-        no matching messages still appear, with empty points.
+        is ``{"points": [[id, t, bucket], ...], "undated": u}``. Requested
+        senders with no matching messages still appear, with empty points.
         """
         list_filter = ""
         list_params: list[Any] = []
@@ -2943,7 +2943,8 @@ class Store:
                 return entries
             marks = ",".join("?" for _ in keys)
             cursor = self.conn.execute(
-                f"SELECT a.{column} AS key, m.date AS date, s.label AS label "
+                f"SELECT a.{column} AS key, m.id AS id, m.date AS date, "
+                "e.status AS status, s.label AS label "
                 "FROM messages m "
                 "JOIN addresses a ON a.id = m.address_id "
                 "LEFT JOIN extractions e ON e.message_id = m.id "
@@ -2957,7 +2958,12 @@ class Store:
                 if t is None:
                     entry["undated"] += 1
                     continue
-                entry["points"].append([t, 1 if row["label"] == "AI" else 0])
+                bucket = (
+                    3
+                    if row["status"] == "too_short"
+                    else _TIMELINE_LABEL_BUCKETS.get(row["label"], 4)
+                )
+                entry["points"].append([row["id"], t, bucket])
             return entries
 
         persons = _collect("person_id", list(person_ids))

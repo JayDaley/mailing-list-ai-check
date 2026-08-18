@@ -16,17 +16,16 @@
 //         GET /api/persons/suggestions        (same-name unlinked-address groups)
 //         GET /api/summary?person|address     (the sender detail card)
 //         GET /api/senders/reply-rugs?person|address  (the two reply rugs)
-//         GET /api/senders/timelines?persons|addresses&list  (cumulative sparks)
+//         GET /api/senders/timelines?persons|addresses&list  (per-sender rugs)
 // Mutations: POST/PUT/DELETE /api/persons     (link / rename / detach / unlink)
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { get, postJson, putJson, del } from '../api'
 import { fmtInt } from '../lib/format'
-import { rugBucket } from '../lib/labels'
+import { TIMELINE_BUCKETS, rugBucket } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import { useUiStore } from '../stores/ui'
-import CumulativeAiSpark from './CumulativeAiSpark.vue'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
 import TimelineRug from './TimelineRug.vue'
@@ -69,7 +68,7 @@ async function fetchPage(pageNo, append) {
     senders.value = append ? senders.value.concat(data.senders || []) : data.senders || []
     total.value = data.total || 0
     page.value = pageNo
-    loadSparks(data.senders || [], !append)
+    loadHistories(data.senders || [], !append)
   } catch {
     if (token === fetchToken && !append) {
       senders.value = []
@@ -88,41 +87,45 @@ function loadMore() {
   fetchPage(page.value + 1, true)
 }
 
-// --- cumulative sparklines ----------------------------------------------------
-// GET /api/senders/timelines returns each sender's dated messages as [t, ai]
-// points plus the scope's full dated extent — the shared x-domain, so every
-// spark in the table places a given month at the same position. Fetched per
-// loaded page (only for rows not yet covered), and scoped to the list filter
-// exactly as the rows' counts are.
-const sparkPersons = ref({}) // person id (string) -> [{t, ai}]
-const sparkAddresses = ref({}) // lower-cased email -> [{t, ai}]
-const sparkStart = ref(null) // shared domain, epoch ms (null → per-spark extent)
-const sparkEnd = ref(null)
+// --- per-sender history rugs ---------------------------------------------------
+// GET /api/senders/timelines returns each sender's dated messages as slim
+// [id, t, bucket] points plus the scope's full dated extent — the shared
+// x-domain, so every rug in the table places a given month at the same
+// position. Fetched per loaded page (only for rows not yet covered), and
+// scoped to the list filter exactly as the rows' counts are.
+const historyPersons = ref({}) // person id (string) -> [{id, t, bucket}]
+const historyAddresses = ref({}) // lower-cased email -> [{id, t, bucket}]
+const historyStart = ref(null) // shared domain, epoch ms (null → per-rug extent)
+const historyEnd = ref(null)
 
-function sparkPoints(entry) {
-  return (entry?.points || []).map(([t, ai]) => ({ t: t * 1000, ai: !!ai }))
+function historyPoints(entry) {
+  return (entry?.points || []).map(([id, t, bucket]) => ({
+    id,
+    t: t * 1000,
+    bucket: TIMELINE_BUCKETS[bucket] || 'unscored',
+  }))
 }
 
-let sparkToken = 0
-async function loadSparks(entries, reset) {
+let historyToken = 0
+async function loadHistories(entries, reset) {
   if (reset) {
     // The table was rebuilt (new search/sort/list scope): drop stale points —
-    // a list change alters what each spark should show.
-    sparkToken += 1
-    sparkPersons.value = {}
-    sparkAddresses.value = {}
-    sparkStart.value = null
-    sparkEnd.value = null
+    // a list change alters what each rug should show.
+    historyToken += 1
+    historyPersons.value = {}
+    historyAddresses.value = {}
+    historyStart.value = null
+    historyEnd.value = null
   }
-  const token = sparkToken
+  const token = historyToken
   const personIds = entries
     .filter((e) => e.type === 'person')
     .map((e) => String(e.person_id))
-    .filter((id) => !(id in sparkPersons.value))
+    .filter((id) => !(id in historyPersons.value))
   const emails = entries
     .filter((e) => e.type === 'address')
     .map((e) => (e.emails[0] || '').toLowerCase())
-    .filter((em) => em && !(em in sparkAddresses.value))
+    .filter((em) => em && !(em in historyAddresses.value))
   if (!personIds.length && !emails.length) return
   try {
     const data = await get('/senders/timelines', {
@@ -130,22 +133,22 @@ async function loadSparks(entries, reset) {
       addresses: emails.join(',') || undefined,
       list: filters.list || undefined,
     })
-    if (token !== sparkToken) return
-    sparkStart.value = data?.start != null ? data.start * 1000 : null
-    sparkEnd.value = data?.end != null ? data.end * 1000 : null
-    const persons = { ...sparkPersons.value }
+    if (token !== historyToken) return
+    historyStart.value = data?.start != null ? data.start * 1000 : null
+    historyEnd.value = data?.end != null ? data.end * 1000 : null
+    const persons = { ...historyPersons.value }
     for (const [id, entry] of Object.entries(data?.persons || {})) {
-      persons[id] = sparkPoints(entry)
+      persons[id] = historyPoints(entry)
     }
-    sparkPersons.value = persons
-    const addrs = { ...sparkAddresses.value }
+    historyPersons.value = persons
+    const addrs = { ...historyAddresses.value }
     for (const [email, entry] of Object.entries(data?.addresses || {})) {
-      addrs[email] = sparkPoints(entry)
+      addrs[email] = historyPoints(entry)
     }
-    sparkAddresses.value = addrs
+    historyAddresses.value = addrs
   } catch {
-    // Sparks decorate rows the table already shows; a failed fetch just leaves
-    // the bars alone.
+    // The rugs decorate rows the table already shows; a failed fetch just
+    // leaves the bars alone.
   }
 }
 
@@ -182,7 +185,7 @@ onMounted(() => {
   loadSuggestions()
   loadDetail()
   loadReplyRugs()
-  loadDetailSpark()
+  loadDetailHistory()
 })
 
 // --- sender detail mode -------------------------------------------------------
@@ -264,32 +267,38 @@ async function loadReplyRugs() {
   }
 }
 
-// The detail card's spark: the sender's messages across all lists, on the
-// corpus-wide domain, so the flat lead-in before their first post stays
+// The detail card's history rug: the sender's messages across all lists, on
+// the corpus-wide domain, so the quiet lead-in before their first post stays
 // visible.
-const detailSpark = ref(null) // {points: [{t, ai}], start, end} or null
-let detailSparkToken = 0
-async function loadDetailSpark() {
+const detailHistory = ref(null) // {points: [{id, t, bucket}], start, end} or null
+let detailHistoryToken = 0
+async function loadDetailHistory() {
   const params = detailParams.value
   if (!params) return
-  const token = ++detailSparkToken
+  const token = ++detailHistoryToken
   try {
     const data = await get(
       '/senders/timelines',
       params.person ? { persons: params.person } : { addresses: params.address },
     )
-    if (token !== detailSparkToken) return
+    if (token !== detailHistoryToken) return
     const entry = params.person
       ? data?.persons?.[String(params.person)]
       : data?.addresses?.[(params.address || '').trim().toLowerCase()]
-    detailSpark.value = {
-      points: sparkPoints(entry),
+    detailHistory.value = {
+      points: historyPoints(entry),
       start: data?.start != null ? data.start * 1000 : null,
       end: data?.end != null ? data.end * 1000 : null,
     }
   } catch {
-    if (token === detailSparkToken) detailSpark.value = null
+    if (token === detailHistoryToken) detailHistory.value = null
   }
+}
+
+// A binned column of the detail card's history rug was clicked: filter the
+// messages pane (already scoped to this sender) to the bin's date span.
+function applyHistoryRange(range) {
+  filters.patch({ date_from: range.from, date_to: range.to })
 }
 
 function openRugMessage(id) {
@@ -308,7 +317,7 @@ const detailKey = computed(() => JSON.stringify(detailParams.value))
 watch(detailKey, () => {
   loadDetail()
   loadReplyRugs()
-  loadDetailSpark()
+  loadDetailHistory()
 })
 
 const detailCard = computed(() => {
@@ -462,10 +471,10 @@ const rows = computed(() => {
       count: fmtInt(e.message_count),
       counts: e.label_counts || {},
       tooShort: e.too_short_count || 0,
-      // The cumulative spark's points, once its lazy fetch has covered the row.
-      spark: isPerson
-        ? sparkPersons.value[String(e.person_id)] || null
-        : sparkAddresses.value[(e.emails[0] || '').toLowerCase()] || null,
+      // The history rug's points, once its lazy fetch has covered the row.
+      history: isPerson
+        ? historyPersons.value[String(e.person_id)] || null
+        : historyAddresses.value[(e.emails[0] || '').toLowerCase()] || null,
       // Only ever true while "Show all" is on; the server omits these otherwise.
       excluded: !!e.excluded_from_scoring,
       // The server decides when an address is named after itself rather than
@@ -608,12 +617,14 @@ async function assignToExisting(row) {
               :clickable="true"
               @select="(l) => filters.setFilter('label', l)"
             />
-            <CumulativeAiSpark
-              v-if="detailSpark && detailSpark.points.length"
-              :points="detailSpark.points"
-              :start="detailSpark.start"
-              :end="detailSpark.end"
+            <TimelineRug
+              v-if="detailHistory && detailHistory.points.length"
+              :points="detailHistory.points"
+              :start="detailHistory.start"
+              :end="detailHistory.end"
               :height="26"
+              @open="openRugMessage"
+              @range="applyHistoryRange"
             />
           </div>
         </div>
@@ -689,12 +700,13 @@ async function assignToExisting(row) {
           <span class="sender-count mono">{{ row.count }}</span>
           <span class="agg-cell">
             <MixBar :counts="row.counts" :too-short="row.tooShort" :height="9" />
-            <CumulativeAiSpark
-              v-if="row.spark && row.spark.length"
-              :points="row.spark"
-              :start="sparkStart"
-              :end="sparkEnd"
-              :height="10"
+            <TimelineRug
+              v-if="row.history && row.history.length"
+              :points="row.history"
+              :start="historyStart"
+              :end="historyEnd"
+              :height="12"
+              @open="openRugMessage"
             />
           </span>
           <span style="text-align: right;">
@@ -821,7 +833,7 @@ async function assignToExisting(row) {
   align-items: flex-start;
   margin-top: 8px;
 }
-/* The aggregate MixSummary with the cumulative-AI spark under it. */
+/* The aggregate MixSummary with the sender's history rug under it. */
 .detail-mix {
   flex: 1;
   min-width: 0;
@@ -1053,8 +1065,8 @@ async function assignToExisting(row) {
   text-align: right;
   color: var(--text-secondary);
 }
-/* The mix bar with the cumulative-AI spark under it (the Aggregate analysis
-   cell). The spark appears once its lazy fetch covers the row. */
+/* The mix bar with the sender's history rug under it (the Aggregate analysis
+   cell). The rug appears once its lazy fetch covers the row. */
 .agg-cell {
   display: flex;
   flex-direction: column;

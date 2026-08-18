@@ -37,6 +37,15 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.13.3] - 2026-08-18
+
+Summary: Replace the senders' cumulative-AI sparklines with per-sender history rugs.
+
+- Change GET /api/senders/timelines points from [epoch, ai] to the [id, epoch, bucket] shape GET /api/lists/timelines serves, and echo the bucket names.
+- Draw an adaptive TimelineRug under each sender row's aggregate analysis bar and under the sender detail card's detection-mix summary, on the shared scope-wide domain.
+- Open a message from a single-message rug column; a binned column on the detail card filters the messages pane to its date span.
+- Remove the CumulativeAiSpark component.
+
 ## [1.13.2] - 2026-08-18
 
 Summary: Add cumulative-AI sparklines under the senders' aggregate analysis bars.

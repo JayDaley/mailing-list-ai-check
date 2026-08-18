@@ -1,7 +1,7 @@
-"""Tests for the per-sender cumulative timelines.
+"""Tests for the per-sender message timelines.
 
-Covers :meth:`Store.sender_timelines` — the slim ``[t, ai]`` point sets the
-Senders pane's cumulative-AI sparklines draw — and the
+Covers :meth:`Store.sender_timelines` — the slim ``[id, t, bucket]`` point sets
+the Senders pane's per-sender history rugs draw — and the
 ``GET /api/senders/timelines`` endpoint that serves them.
 """
 
@@ -10,8 +10,11 @@ from __future__ import annotations
 import pytest
 
 from mailing_list_ai_check.config import Config
-from mailing_list_ai_check.store import Store, sha256_text
+from mailing_list_ai_check.store import TIMELINE_BUCKETS, Store, sha256_text
 from mailing_list_ai_check.webapp import create_app
+
+#: Bucket indexes, by name (the store serves indexes into TIMELINE_BUCKETS).
+_B = {name: i for i, name in enumerate(TIMELINE_BUCKETS)}
 
 # Dates ascend with the message's day number, so point order is predictable.
 _DAY = "2026-04-{:02d}T10:00:00+00:00"
@@ -87,24 +90,29 @@ def fixture(store):
     store.assign_address_to_person(a1, person)
     store.assign_address_to_person(a2, person)
 
-    _message(store, alpha, "h1", _DAY.format(1), address_id=a1, label="Human")
-    _message(store, alpha, "ai1", _DAY.format(2), address_id=a1, label="AI")
-    _message(store, alpha, "ai2", _DAY.format(3), address_id=a2, label="AI")
-    _message(store, alpha, "m1", _DAY.format(4), address_id=bob, label="Mixed")
-    _message(store, alpha, "ts1", _DAY.format(5), address_id=bob, status="too_short")
-    _message(store, alpha, "anon", _DAY.format(6), address_id=None)
-    _message(store, alpha, "und", None, address_id=a1, label="AI")
-    _message(store, beta, "b1", _DAY.format(7), address_id=a1, label="AI")
+    ids: dict[str, int] = {}
+    ids["h1"] = _message(store, alpha, "h1", _DAY.format(1), address_id=a1, label="Human")
+    ids["ai1"] = _message(store, alpha, "ai1", _DAY.format(2), address_id=a1, label="AI")
+    ids["ai2"] = _message(store, alpha, "ai2", _DAY.format(3), address_id=a2, label="AI")
+    ids["m1"] = _message(store, alpha, "m1", _DAY.format(4), address_id=bob, label="Mixed")
+    ids["ts1"] = _message(store, alpha, "ts1", _DAY.format(5), address_id=bob, status="too_short")
+    ids["anon"] = _message(store, alpha, "anon", _DAY.format(6), address_id=None)
+    ids["und"] = _message(store, alpha, "und", None, address_id=a1, label="AI")
+    ids["b1"] = _message(store, beta, "b1", _DAY.format(7), address_id=a1, label="AI")
 
-    return {"store": store, "person": person}
+    return {"store": store, "person": person, "ids": ids}
 
 
-def _epochs(entry):
+def _ids(entry):
     return [p[0] for p in entry["points"]]
 
 
-def _ai_flags(entry):
+def _epochs(entry):
     return [p[1] for p in entry["points"]]
+
+
+def _buckets(entry):
+    return [p[2] for p in entry["points"]]
 
 
 # --- Store.sender_timelines -------------------------------------------------------
@@ -113,8 +121,10 @@ def _ai_flags(entry):
 def test_person_scope_rolls_up_every_linked_address(fixture):
     result = fixture["store"].sender_timelines(person_ids=[fixture["person"]])
     entry = result["persons"][str(fixture["person"])]
+    ids = fixture["ids"]
     # h1, ai1 (a1), ai2 (a2) and the beta message, dates ascending; und dropped.
-    assert _ai_flags(entry) == [0, 1, 1, 1]
+    assert _ids(entry) == [ids["h1"], ids["ai1"], ids["ai2"], ids["b1"]]
+    assert _buckets(entry) == [_B["Human"], _B["AI"], _B["AI"], _B["AI"]]
     assert _epochs(entry) == sorted(_epochs(entry))
     assert entry["undated"] == 1
 
@@ -122,8 +132,8 @@ def test_person_scope_rolls_up_every_linked_address(fixture):
 def test_address_scope_covers_that_email_alone(fixture):
     result = fixture["store"].sender_timelines(addresses=["bob@example.org"])
     entry = result["addresses"]["bob@example.org"]
-    # Mixed and too_short both count as posts; neither is AI.
-    assert _ai_flags(entry) == [0, 0]
+    # Mixed and too_short both count as posts, each with its own bucket.
+    assert _buckets(entry) == [_B["Mixed"], _B["too_short"]]
 
 
 def test_address_lookup_is_case_insensitive_and_keyed_lowercase(fixture):
@@ -143,7 +153,7 @@ def test_domain_spans_the_whole_corpus_not_the_requested_senders(fixture):
 def test_list_scope_narrows_points_and_domain(fixture):
     result = fixture["store"].sender_timelines(person_ids=[fixture["person"]], list_name="alpha")
     entry = result["persons"][str(fixture["person"])]
-    assert _ai_flags(entry) == [0, 1, 1]  # beta's b1 dropped
+    assert _buckets(entry) == [_B["Human"], _B["AI"], _B["AI"]]  # beta's b1 dropped
     unscoped = fixture["store"].sender_timelines(person_ids=[fixture["person"]])
     assert result["end"] < unscoped["end"]
 
@@ -187,7 +197,9 @@ def test_endpoint_serves_persons_and_addresses(client, fixture):
     )
     assert resp.status_code == 200
     body = resp.get_json()
-    assert [p[1] for p in body["persons"][str(fixture["person"])]["points"]] == [0, 1, 1, 1]
+    assert body["buckets"] == list(TIMELINE_BUCKETS)
+    person_buckets = [p[2] for p in body["persons"][str(fixture["person"])]["points"]]
+    assert person_buckets == [_B["Human"], _B["AI"], _B["AI"], _B["AI"]]
     assert len(body["addresses"]["bob@example.org"]["points"]) == 2
     assert body["start"] is not None and body["end"] is not None
     assert body["list"] is None
@@ -195,7 +207,11 @@ def test_endpoint_serves_persons_and_addresses(client, fixture):
 
 def test_endpoint_scopes_to_a_list(client, fixture):
     body = client.get(f"/api/senders/timelines?persons={fixture['person']}&list=alpha").get_json()
-    assert [p[1] for p in body["persons"][str(fixture["person"])]["points"]] == [0, 1, 1]
+    assert [p[2] for p in body["persons"][str(fixture["person"])]["points"]] == [
+        _B["Human"],
+        _B["AI"],
+        _B["AI"],
+    ]
     assert body["list"] == "alpha"
 
 

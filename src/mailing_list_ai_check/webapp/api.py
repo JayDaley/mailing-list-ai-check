@@ -1700,7 +1700,7 @@ def sender_reply_rugs() -> Any:
 
 @api_bp.get("/senders/timelines")
 def sender_timelines() -> Any:
-    """Slim per-sender message timelines for the cumulative-AI sparklines.
+    """Slim per-sender message timelines for the Senders pane's rug plots.
 
     Query params: ``persons`` (comma-separated person ids) and/or ``addresses``
     (comma-separated emails) — at least one sender in total, at most
@@ -1709,13 +1709,15 @@ def sender_timelines() -> Any:
     are restricted. A non-integer person id, no senders at all, or too many is
     a 400.
 
-    Returns ``{"start": s, "end": e, "persons": {...}, "addresses": {...},
-    "list": …}``. ``start``/``end`` are epoch seconds spanning the whole
-    scope's dated messages (shared x-domain; ``null`` when absent), ``persons``
-    is keyed by person id as a string and ``addresses`` by lower-cased email,
-    each entry ``{"points": [[t, ai], ...], "undated": u}`` with ``t`` in epoch
-    seconds and ``ai`` 0/1 (see :meth:`Store.sender_timelines`). Unknown
-    senders yield empty entries and an unknown ``list`` empty maps, not a 404.
+    Returns ``{"start": s, "end": e, "buckets": [...], "persons": {...},
+    "addresses": {...}, "list": …}``. ``start``/``end`` are epoch seconds
+    spanning the whole scope's dated messages (shared x-domain; ``null`` when
+    absent) and ``buckets`` names the point buckets by index. ``persons`` is
+    keyed by person id as a string and ``addresses`` by lower-cased email,
+    each entry ``{"points": [[id, t, bucket], ...], "undated": u}`` with ``t``
+    in epoch seconds — the point shape ``GET /lists/timelines`` serves (see
+    :meth:`Store.sender_timelines`). Unknown senders yield empty entries and
+    an unknown ``list`` empty maps, not a 404.
     """
     args = request.args
     persons_raw = [p for p in (args.get("persons") or "").split(",") if p.strip()]
@@ -1730,7 +1732,7 @@ def sender_timelines() -> Any:
     result = get_store().sender_timelines(
         person_ids=person_ids, addresses=addresses, list_name=list_name
     )
-    return jsonify({**result, "list": list_name})
+    return jsonify({**result, "buckets": list(TIMELINE_BUCKETS), "list": list_name})
 
 
 @api_bp.get("/persons/suggestions")
