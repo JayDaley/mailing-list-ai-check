@@ -21,12 +21,13 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { get, postJson, putJson, del } from '../api'
-import { fmtDate, fmtInt } from '../lib/format'
-import { rugBarColor } from '../lib/labels'
+import { fmtInt } from '../lib/format'
+import { rugBucket } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import { useUiStore } from '../stores/ui'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
+import TimelineRug from './TimelineRug.vue'
 
 const filters = useFiltersStore()
 const ui = useUiStore()
@@ -157,27 +158,24 @@ async function loadDetail() {
   }
 }
 
-// --- reply rugs (per list, last 50 messages each way) ------------------------
+// --- reply rugs (per list, every message each way) ----------------------------
 // GET /api/senders/reply-rugs returns one entry per list the sender posted to:
 // `replied_to` (the messages this sender's replies on that list point at) and
-// `reply_from` (other senders' replies to this sender's messages there). Both
-// arrive newest-first, like GET /messages; the rugs read oldest → newest, so
-// each is reversed here — the same handling as the per-list rug in ListsPane.
-const replyRugs = ref({}) // list name -> {repliedTo: [bar], replyFrom: [bar]}
+// `reply_from` (other senders' replies to this sender's messages there). The
+// endpoint is uncapped; TimelineRug adapts each rug to its cell, so any volume
+// is accepted.
+const replyRugs = ref({}) // list name -> {repliedTo: [point], replyFrom: [point]}
 let rugToken = 0
 
-// One bar per message, coloured by its prediction bucket — or grey when the
-// extraction was gated under the reliability floor (extraction_status
-// `too_short`), which the tooltip names where the bucket would otherwise sit.
-function rugBar(m) {
-  const pred = m.prediction_short || m.label || null
-  const tooShort = m.extraction_status === 'too_short'
+// One timeline point per message: its prediction bucket — or the too-short
+// gate, which the tooltip names where the bucket would otherwise sit — at the
+// message's place on the time axis.
+function rugPoint(m) {
   return {
     id: m.id,
-    color: rugBarColor(pred, tooShort),
-    title:
-      `${fmtDate(m.date)} · ${tooShort ? 'Too short' : pred || 'unscored'} — ` +
-      `${m.subject || '(no subject)'}`,
+    t: Date.parse(m.date),
+    bucket: rugBucket(m.prediction_short || m.label || null, m.extraction_status === 'too_short'),
+    subject: m.subject || '(no subject)',
   }
 }
 
@@ -191,8 +189,8 @@ async function loadReplyRugs() {
     const byList = {}
     for (const entry of data?.by_list || []) {
       byList[entry.list] = {
-        repliedTo: (entry.replied_to || []).slice().reverse().map(rugBar),
-        replyFrom: (entry.reply_from || []).slice().reverse().map(rugBar),
+        repliedTo: (entry.replied_to || []).map(rugPoint),
+        replyFrom: (entry.reply_from || []).map(rugPoint),
       }
     }
     replyRugs.value = byList
@@ -203,6 +201,12 @@ async function loadReplyRugs() {
 
 function openRugMessage(id) {
   router.push({ path: `/messages/${id}`, query: route.query })
+}
+
+// A binned rug column was clicked: filter the messages pane to that list and
+// the bin's date span (the sender filter stays active).
+function applyRugRange(list, range) {
+  filters.patch({ list, date_from: range.from, date_to: range.to })
 }
 
 // Refetch whenever the driving filter (or the address→person resolution, once
@@ -526,27 +530,23 @@ async function assignToExisting(row) {
           <span class="minirow-count mono">{{ r.count }}</span>
           <MixBar :counts="r.counts" :too-short="r.tooShort" :height="9" />
           <span v-if="!r.repliedTo.length" class="minirow-none">—</span>
-          <span v-else class="mini-rug" :title="`last ${r.repliedTo.length} · oldest → newest`">
-            <span
-              v-for="b in r.repliedTo"
-              :key="b.id"
-              class="mini-rug-bar"
-              :style="{ background: b.color }"
-              :title="b.title"
-              @click.stop="openRugMessage(b.id)"
-            ></span>
-          </span>
+          <TimelineRug
+            v-else
+            class="mini-rug"
+            :points="r.repliedTo"
+            :height="14"
+            @open="openRugMessage"
+            @range="(rg) => applyRugRange(r.list, rg)"
+          />
           <span v-if="!r.replyFrom.length" class="minirow-none">—</span>
-          <span v-else class="mini-rug" :title="`last ${r.replyFrom.length} · oldest → newest`">
-            <span
-              v-for="b in r.replyFrom"
-              :key="b.id"
-              class="mini-rug-bar"
-              :style="{ background: b.color }"
-              :title="b.title"
-              @click.stop="openRugMessage(b.id)"
-            ></span>
-          </span>
+          <TimelineRug
+            v-else
+            class="mini-rug"
+            :points="r.replyFrom"
+            :height="14"
+            @open="openRugMessage"
+            @range="(rg) => applyRugRange(r.list, rg)"
+          />
         </div>
       </template>
     </div>
@@ -738,7 +738,7 @@ async function assignToExisting(row) {
   margin: 12px 0 3px;
 }
 /* Activity-by-list table. Five columns: list, message count, the detection mix
-   bar, and the two reply rugs (each capped at 50 bars — see .mini-rug). */
+   bar, and the two reply rugs (adaptive TimelineRug strips). */
 .minirow-head,
 .minirow {
   display: grid;
@@ -785,21 +785,7 @@ async function assignToExisting(row) {
 
 /* --- reply rugs (table-cell scale of the per-list rug in ListsPane) --- */
 .mini-rug {
-  display: flex;
-  gap: 1px;
-  height: 14px;
-  align-items: stretch;
-  overflow: hidden;
-}
-.mini-rug-bar {
-  flex: 1;
-  min-width: 1px;
-  max-width: 6px;
-  border-radius: 1px;
-  cursor: pointer;
-}
-.mini-rug-bar:hover {
-  opacity: 0.75;
+  align-self: center;
 }
 /* --- "Show All" toggle switch: identical to the Lists pane's control --- */
 .show-all {

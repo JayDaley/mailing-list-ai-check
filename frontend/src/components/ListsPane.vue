@@ -6,7 +6,7 @@
 //      "+ Add list" and "Regenerate index" live in the pane header, in every
 //      mode (POST /api/lists/regenerate).
 //   2. List stats (a `list` filter) — per-list aggregates from GET /api/summary
-//      (stat tiles, detection-mix summary, last-100-messages rug, Add footer).
+//      (stat tiles, detection-mix summary, full-history rug, Add footer).
 //
 // "Run process ($)" buttons (the Add-list form and the Add popover) do not
 // pull-and-score in one call. They close their own UI and open the
@@ -23,12 +23,13 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { get, postJson } from '../api'
 import { fmtDate, fmtInt } from '../lib/format'
-import { aiShare, rugBarColor } from '../lib/labels'
+import { TIMELINE_BUCKETS, aiShare } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
 import RunProcessModal from './RunProcessModal.vue'
 import ThreadGraph from './ThreadGraph.vue'
+import TimelineRug from './TimelineRug.vue'
 
 const filters = useFiltersStore()
 const route = useRoute()
@@ -77,45 +78,48 @@ async function loadSummary() {
   }
 }
 
-// --- rug plot (last 100 messages of the selected list) ----------------------
-const rugMsgs = ref([]) // oldest → newest
+// --- rug plot (the selected list's full history) -----------------------------
+// GET /api/lists/timelines?list= returns every message as a slim point
+// [id, epoch-seconds, bucket, subject]; TimelineRug adapts to the volume, so
+// no cap applies. Undated messages carry no point and are reported separately.
+const rugPoints = ref([])
+const rugUndated = ref(0)
 let rugToken = 0
 async function loadRug() {
   if (!filters.list) return
   const token = ++rugToken
   try {
-    const data = await get('/messages', {
-      list: filters.list,
-      per_page: 100,
-      sort: 'date',
-      order: 'desc',
-    })
-    // The API returns newest-first; the rug reads oldest → newest.
-    if (token === rugToken) rugMsgs.value = (data?.messages || []).slice().reverse()
+    const data = await get('/lists/timelines', { list: filters.list })
+    if (token !== rugToken) return
+    const entry = data?.lists?.[0]
+    rugUndated.value = entry?.undated || 0
+    rugPoints.value = (entry?.points || []).map(([id, t, bucket, subject]) => ({
+      id,
+      t: t * 1000,
+      bucket: TIMELINE_BUCKETS[bucket] || 'unscored',
+      subject: subject || '(no subject)',
+    }))
   } catch {
-    if (token === rugToken) rugMsgs.value = []
+    if (token === rugToken) {
+      rugPoints.value = []
+      rugUndated.value = 0
+    }
   }
 }
 
-// A bar per message, coloured by its label — or grey when the extraction was
-// gated under the reliability floor, which the tooltip names where a label would
-// otherwise sit.
-const rugBars = computed(() =>
-  rugMsgs.value.map((m) => {
-    const label = m.score?.label || null
-    const tooShort = m.extraction?.status === 'too_short'
-    return {
-      id: m.id,
-      color: rugBarColor(label, tooShort),
-      title:
-        `${fmtDate(m.date)} · ${tooShort ? 'Too short' : label || 'unscored'} — ` +
-        `${m.subject || '(no subject)'}`,
-    }
-  }),
-)
-
 function openRugMessage(id) {
   router.push({ path: `/messages/${id}`, query: route.query })
+}
+
+// A binned rug column was clicked: filter the messages pane (already scoped to
+// this list) to the bin's date span.
+function applyRugRange(range) {
+  filters.patch({ date_from: range.from, date_to: range.to })
+}
+
+// The Timelines screen: one adaptive rug per list with messages, stacked.
+function openTimelines() {
+  router.push({ path: '/timelines', query: route.query })
 }
 
 // --- thread graph (the list's messages grouped into reply threads) -----------
@@ -783,6 +787,9 @@ function closeList() {
         class="lists-search"
       />
       <span class="header-actions">
+        <button class="io-btn" title="One timeline per list, stacked" @click="openTimelines">
+          Timelines
+        </button>
         <button v-if="!pullFormOpen" class="io-btn" @click="openPullForm">
           Add list
         </button>
@@ -848,19 +855,20 @@ function closeList() {
             />
           </div>
           <div class="section-head">
-            Last {{ rugBars.length }} messages
-            <span class="rug-note">oldest → newest · one bar per email</span>
+            All {{ fmtInt(rugPoints.length) }} messages
+            <span class="rug-note"
+              >oldest → newest · binned by time where emails outnumber pixels{{
+                rugUndated ? ` · ${fmtInt(rugUndated)} undated not shown` : ''
+              }}</span
+            >
           </div>
-          <div class="rug">
-            <span
-              v-for="b in rugBars"
-              :key="b.id"
-              class="rug-bar"
-              :style="{ background: b.color }"
-              :title="b.title"
-              @click="openRugMessage(b.id)"
-            ></span>
-          </div>
+          <TimelineRug
+            class="rug"
+            :points="rugPoints"
+            :height="30"
+            @open="openRugMessage"
+            @range="applyRugRange"
+          />
           <div class="threads-row">
             <button type="button" class="io-btn" @click="openGraph">Show thread chart</button>
           </div>
@@ -1216,22 +1224,9 @@ function closeList() {
   margin-left: 6px;
 }
 
-/* --- rug plot --- */
+/* --- rug plot (an adaptive TimelineRug strip) --- */
 .rug {
-  display: flex;
-  gap: 2px;
-  height: 30px;
-  align-items: stretch;
-}
-.rug-bar {
-  flex: 1;
-  min-width: 2px;
-  max-width: 12px;
-  border-radius: 1px;
-  cursor: pointer;
-}
-.rug-bar:hover {
-  opacity: 0.75;
+  margin-top: 2px;
 }
 .hover-row:hover {
   background: var(--hover-row);

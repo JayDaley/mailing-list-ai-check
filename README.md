@@ -225,7 +225,8 @@ shareable link.
 - **Lists** (lower left) — with no list in the filter, every list with its message
   count and aggregate detection mix. "Add list" and each row's "Add" button run
   the three pipeline stages from the dashboard ("Run process ($)"), so a list can
-  be pulled, extracted and scored without the CLI.
+  be pulled, extracted and scored without the CLI. "Timelines" opens a screen
+  stacking one activity timeline per list with messages on a shared time axis.
 - **Senders** (lower right) — one row per sender: a person (a group of linked
   addresses) or a single unlinked address, searchable and sortable by volume or
   AI share. The ⇄ control links addresses into one person, with groupings
@@ -233,9 +234,13 @@ shareable link.
   together.
 
 With a list in the filter, the lists pane becomes that list's statistics —
-message and scored counts, the detection mix, a bar per message over the last
-100, and a thread chart — and the senders pane narrows to the senders who posted
-to it.
+message and scored counts, the detection mix, a timeline of the list's whole
+history, and a thread chart — and the senders pane narrows to the senders who
+posted to it. Timelines adapt to volume: each message is an individual bar
+while every time bin holds one, and where messages outnumber the pixels the
+bins become columns, height scaling with the bin's count and color stacking
+its detection mix; clicking a column filters the messages table to its date
+span.
 
 ![The dashboard filtered to one list](docs/images/dashboard-list.png)
 

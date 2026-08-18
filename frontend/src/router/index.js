@@ -11,10 +11,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import Dashboard from '../views/Dashboard.vue'
+import TimelinesView from '../views/TimelinesView.vue'
 
 const routes = [
   { path: '/', name: 'dashboard', component: Dashboard },
   { path: '/messages/:id', name: 'message', component: Dashboard },
+  { path: '/timelines', name: 'timelines', component: TimelinesView },
   // Legacy routes collapse into the single screen.
   { path: '/messages', redirect: '/' },
   { path: '/persons', redirect: '/' },

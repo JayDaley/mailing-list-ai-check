@@ -58,10 +58,10 @@ from ..stats_export import export_stats
 from ..store import (
     DEFAULT_PER_PAGE,
     MAX_PER_PAGE,
-    REPLY_RUG_LIMIT,
     SETTING_PANGRAM_MODEL,
     SETTING_PANGRAM_NOTICE,
     SORT_COLUMNS,
+    TIMELINE_BUCKETS,
     MessageFilters,
     Store,
 )
@@ -1497,6 +1497,31 @@ def regenerate_lists() -> Any:
     return jsonify(counts)
 
 
+@api_bp.get("/lists/timelines")
+def list_timelines() -> Any:
+    """Slim per-list message timelines for the dashboard's adaptive rug plots.
+
+    Query params: an optional ``list`` (a list name). With it the response
+    covers that list alone and each point carries the message's subject;
+    without it, every list that has at least one message is covered (ordered by
+    message count descending then name) and subjects are omitted. No row cap
+    applies in either form: the plots adapt to any volume client-side.
+
+    Returns ``{"start": s, "end": e, "buckets": [...], "lists": [...]}``.
+    ``start``/``end`` are epoch seconds spanning every dated message returned
+    (``null`` when there is none) and ``buckets`` names the point buckets by
+    index. Each list entry is ``{"list": <name>, "total": n, "undated": u,
+    "points": [[id, t, bucket(, subject)], ...]}`` with points ordered by
+    ``(date, id)`` ascending and ``t`` in epoch seconds; undated messages carry
+    no point (see :meth:`Store.list_timelines`). An unknown ``list`` yields an
+    empty ``lists`` rather than a 404.
+    """
+    list_name = request.args.get("list") or None
+    result = get_store().list_timelines(list_name)
+    result["buckets"] = list(TIMELINE_BUCKETS)
+    return jsonify(result)
+
+
 @api_bp.get("/lists/thread-graph")
 def list_thread_graph() -> Any:
     """Reply-thread graph data for one list (the list panel's thread graph).
@@ -1641,11 +1666,13 @@ def sender_reply_rugs() -> Any:
 
     Query params: exactly one of ``person`` (a person id) or ``address`` (an
     email) — the two sender scopes the message filters define — plus an optional
-    ``limit`` (default :data:`REPLY_RUG_LIMIT`, clamped to ``MAX_PER_PAGE``).
-    Passing both, neither, or bad input yields a 400.
+    ``limit`` (>= 1). ``limit`` omitted means unlimited: the rugs adapt to any
+    volume client-side, so every matching message is returned. Passing both
+    scopes, neither, or bad input yields a 400.
 
-    Returns ``{"person": …, "address": …, "limit": …, "by_list": [...]}``. Each
-    ``by_list`` entry is ``{"list": <name>, "replied_to": [...], "reply_from":
+    Returns ``{"person": …, "address": …, "limit": …, "by_list": [...]}``
+    (``limit`` echoes the request, ``null`` when unlimited). Each ``by_list``
+    entry is ``{"list": <name>, "replied_to": [...], "reply_from":
     [...]}`` — the messages the sender replied to on that list, and other
     senders' replies to the sender's messages there. Both arrays hold at most
     ``limit`` slim message rows (``id``, ``message_id``, ``list``, ``date``,
@@ -1664,12 +1691,8 @@ def sender_reply_rugs() -> Any:
     person_id = _parse_int("person", person_raw)
 
     limit = _parse_int("limit", args.get("limit"))
-    if limit is None:
-        limit = REPLY_RUG_LIMIT
-    elif limit < 1:
+    if limit is not None and limit < 1:
         raise ApiError("limit must be >= 1")
-    else:
-        limit = min(limit, MAX_PER_PAGE)
 
     by_list = get_store().sender_reply_rugs(person_id=person_id, address=address, limit=limit)
     return jsonify({"person": person_id, "address": address, "limit": limit, "by_list": by_list})

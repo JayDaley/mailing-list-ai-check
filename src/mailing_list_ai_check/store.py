@@ -75,15 +75,18 @@ SORT_COLUMNS = {"date": "m.date", "fraction_ai": "s.fraction_ai"}
 DEFAULT_PER_PAGE = 50
 MAX_PER_PAGE = 200
 
-#: How many messages each reply rug carries, per direction and per list (see
-#: :meth:`Store.sender_reply_rugs`).
-REPLY_RUG_LIMIT = 50
 #: How many of a sender's lists reply rugs are computed for, most-posted first.
 #: Matches the ``by_list`` cap in :meth:`Store.summary`, whose rows they decorate.
 REPLY_RUG_MAX_LISTS = 20
+#: The prediction buckets a timeline point may carry, by index (see
+#: :meth:`Store.list_timelines`). The first three are the ``prediction_short``
+#: vocabulary; ``too_short`` marks a message gated under the reliability floor
+#: and ``unscored`` everything else without a label.
+TIMELINE_BUCKETS = ("Human", "Mixed", "AI", "too_short", "unscored")
+_TIMELINE_LABEL_BUCKETS = {"Human": 0, "Mixed": 1, "AI": 2}
 #: Default and maximum window spans for :meth:`Store.thread_graph` (the list
 #: panel's thread graph). The default span, used when no explicit start is
-#: given, matches the list rug's last-100 window; the maximum caps how wide a
+#: given, covers the newest 100 messages; the maximum caps how wide a
 #: start/end range may be.
 THREAD_GRAPH_LIMIT = 100
 THREAD_GRAPH_MAX_LIMIT = 500
@@ -839,6 +842,12 @@ def _parse_message_date(value: str | None) -> datetime | None:
     except ValueError:
         return None
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
+def _epoch_seconds(value: str | None) -> int | None:
+    """A stored ``messages.date`` as integer epoch seconds, or ``None``."""
+    parsed = _parse_message_date(value)
+    return int(parsed.timestamp()) if parsed is not None else None
 
 
 def chars_per_minute(char_count: int, gap_seconds: float) -> float:
@@ -2639,12 +2648,13 @@ class Store:
 
     # -- dashboard: sender reply rugs ------------------------------------------
 
-    def _rug_rows(self, message_pks: Sequence[int], limit: int) -> list[dict[str, Any]]:
+    def _rug_rows(self, message_pks: Sequence[int], limit: int | None) -> list[dict[str, Any]]:
         """The newest ``limit`` of ``message_pks`` as rug rows, newest first.
 
-        Ordered by ``(date, id)`` descending, blank/NULL dates sorting oldest.
-        The ordering is applied in Python because ``message_pks`` can exceed one
-        ``IN (...)`` batch (see :func:`_in_chunks`).
+        ``limit`` ``None`` keeps every row. Ordered by ``(date, id)``
+        descending, blank/NULL dates sorting oldest. The ordering is applied in
+        Python because ``message_pks`` can exceed one ``IN (...)`` batch (see
+        :func:`_in_chunks`).
         """
         rows: list[dict[str, Any]] = []
         for chunk in _in_chunks(message_pks):
@@ -2709,11 +2719,12 @@ class Store:
         is_sender: str,
         is_not_sender: str,
         params: Sequence[Any],
-        limit: int,
+        limit: int | None,
     ) -> list[int]:
         """Other people's replies on ``list_id`` to the sender's messages there.
 
-        Newest first, stopping at ``limit``. The sender's own Message-IDs on the
+        Newest first, stopping at ``limit`` (``None`` collects them all). The
+        sender's own Message-IDs on the
         list are gathered first (an indexed lookup), then the list's replies are
         streamed newest-first and matched on the normalised ``In-Reply-To``. That
         candidate scan is the one unindexed step here: ``in_reply_to`` carries no
@@ -2743,7 +2754,7 @@ class Store:
         for row in cursor:
             if _parent_message_id(row["in_reply_to"]) in own_mids:
                 pks.append(row["id"])
-                if len(pks) >= limit:
+                if limit is not None and len(pks) >= limit:
                     break
         return pks
 
@@ -2752,7 +2763,7 @@ class Store:
         *,
         person_id: int | None = None,
         address: str | None = None,
-        limit: int = REPLY_RUG_LIMIT,
+        limit: int | None = None,
         max_lists: int = REPLY_RUG_MAX_LISTS,
     ) -> list[dict[str, Any]]:
         """Reply rug data for one sender, per list (for /api/senders/reply-rugs).
@@ -2773,8 +2784,9 @@ class Store:
         - ``reply_from`` — replies **by other senders** on that list whose parent
           is one of the sender's own messages there.
 
-        Both lists hold at most ``limit`` rug rows (see :data:`_RUG_COLUMNS`),
-        newest first by ``(date, id)``, and are empty when nothing matches.
+        Both lists hold every matching rug row (see :data:`_RUG_COLUMNS`) when
+        ``limit`` is ``None``, or at most ``limit`` rows otherwise, newest first
+        by ``(date, id)``, and are empty when nothing matches.
         """
         is_sender, is_not_sender, params = _sender_scope(person_id, address)
         list_rows = self.conn.execute(
@@ -2802,6 +2814,69 @@ class Store:
                 }
             )
         return result
+
+    # -- dashboard: list timelines ----------------------------------------------
+
+    def list_timelines(self, list_name: str | None = None) -> dict[str, Any]:
+        """Slim per-list message timelines (for ``GET /api/lists/timelines``).
+
+        Feeds the dashboard's adaptive rug plots, which accept any message
+        volume, so no row cap applies. With ``list_name`` the result covers that
+        list alone and each point carries the message's subject (for per-bar
+        tooltips); without it, every list that has at least one message is
+        covered, ordered by message count descending then name, and subjects
+        are omitted to keep the payload small.
+
+        Returns ``{"start": s, "end": e, "lists": [...]}`` where ``start`` /
+        ``end`` are the epoch seconds of the earliest and latest dated message
+        across the result (``None`` when there is none), and each list entry is
+        ``{"list": <name>, "total": n, "undated": u, "points": [...]}``. A point
+        is ``[id, t, bucket]`` — or ``[id, t, bucket, subject]`` with
+        ``list_name`` — ordered by ``(date, id)`` ascending, with ``t`` in epoch
+        seconds and ``bucket`` one of :data:`TIMELINE_BUCKETS` by index:
+        0 Human, 1 Mixed, 2 AI, 3 too_short (gated under the reliability
+        floor), 4 unscored. Messages whose ``date`` is missing or unparseable
+        cannot be placed on a time axis; they are counted in ``undated`` and
+        carried by no point. An unknown ``list_name`` yields an empty ``lists``.
+        """
+        with_subject = list_name is not None
+        columns = "l.name AS list, m.id AS id, m.date AS date, e.status AS status, s.label AS label"
+        if with_subject:
+            columns += ", m.subject AS subject"
+        where = " WHERE l.name = ?" if list_name is not None else ""
+        params = [list_name] if list_name is not None else []
+        cursor = self.conn.execute(
+            "SELECT " + columns + " FROM messages m "
+            "JOIN lists l ON l.id = m.list_id "
+            "LEFT JOIN extractions e ON e.message_id = m.id "
+            "LEFT JOIN scores s ON s.extraction_id = e.id" + where + " ORDER BY m.date, m.id",
+            params,
+        )
+
+        by_list: dict[str, dict[str, Any]] = {}
+        start: int | None = None
+        end: int | None = None
+        for row in cursor:
+            entry = by_list.setdefault(
+                row["list"], {"list": row["list"], "total": 0, "undated": 0, "points": []}
+            )
+            entry["total"] += 1
+            t = _epoch_seconds(row["date"])
+            if t is None:
+                entry["undated"] += 1
+                continue
+            start = t if start is None or t < start else start
+            end = t if end is None or t > end else end
+            bucket = (
+                3 if row["status"] == "too_short" else _TIMELINE_LABEL_BUCKETS.get(row["label"], 4)
+            )
+            point: list[Any] = [row["id"], t, bucket]
+            if with_subject:
+                point.append(row["subject"])
+            entry["points"].append(point)
+
+        lists = sorted(by_list.values(), key=lambda e: (-e["total"], e["list"]))
+        return {"start": start, "end": end, "lists": lists}
 
     # -- dashboard: list thread graph ------------------------------------------
 

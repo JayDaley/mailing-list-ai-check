@@ -37,6 +37,19 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.13.1] - 2026-08-18
+
+Summary: Adaptive rug plots at any message volume, and a stacked all-lists Timelines screen.
+
+- Add TimelineRug, a shared adaptive rug plot: individual bars while every time bin holds one message, count-scaled columns stacked by prediction bucket where messages outnumber the pixels.
+- Replace the fixed-cap rug plots (the list-stats rug's last 100 messages, the reply rugs' 50 per direction) with TimelineRug over each source's full history.
+- Add GET /api/lists/timelines serving slim uncapped per-list message points (id, epoch seconds, prediction bucket, subject when a single list is requested).
+- Remove the 50-row default from GET /api/senders/reply-rugs; limit is now optional and omitting it returns every matching message.
+- Clicking a multi-message rug column filters the dashboard to the column's list and date span; single-message columns keep opening the message.
+- Add a Timelines screen (route /timelines, opened by a Lists-pane header button) stacking one timeline per list with messages, gapless, on a shared month axis.
+- Bin every Timelines row with one fixed column width, so marks and bin boundaries are identical whatever a list's message count.
+- Draw a vertical gridline down the whole Timelines stack at every calendar month boundary.
+
 ## [1.13.0] - 2026-08-18
 
 Summary: Restrict cursor writes to runs whose completeness claim is true, so a date-, count- or sender-filtered pull can no longer advance a cursor past messages it never stored.

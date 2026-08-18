@@ -188,18 +188,31 @@ export const useFiltersStore = defineStore('filters', {
       // the callback would run *after* `_syncing` was reset — the guard would
       // never fire, and every URL->store hydration would echo back a redundant
       // store->URL push. Sync flush brackets the guard around the mutation.
+      //
+      // The push itself is deferred one microtask and coalesced. Sync flush
+      // fires this callback once per key write, so a multi-key `patch` would
+      // otherwise push each half-updated intermediate query; two of those
+      // in-flight navigations then hydrate the store in alternation and the
+      // sync never settles. Deferring pushes exactly one navigation per sync
+      // block, carrying the final state.
+      //
       // The `queryEquals` check is a second, independent backstop: even if a
       // push slips through, it is skipped once the URL already matches state.
+      let pushQueued = false
       this.$subscribe(
         () => {
-          if (this._syncing) return
-          const params = this.asParams
-          const current = router.currentRoute.value
-          // Only push if the query actually differs, to avoid redundant history
-          // and to guarantee the sync settles after one round trip.
-          if (!queryEquals(current.query, params)) {
-            router.push({ path: current.path, query: params })
-          }
+          if (this._syncing || pushQueued) return
+          pushQueued = true
+          queueMicrotask(() => {
+            pushQueued = false
+            const params = this.asParams
+            const current = router.currentRoute.value
+            // Only push if the query actually differs, to avoid redundant
+            // history and to guarantee the sync settles after one round trip.
+            if (!queryEquals(current.query, params)) {
+              router.push({ path: current.path, query: params })
+            }
+          })
         },
         { flush: 'sync' },
       )

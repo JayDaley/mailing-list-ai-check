@@ -86,6 +86,34 @@ export function rugBarColor(label, tooShort = false) {
   return LABEL_COLORS[label] || UNSCORED_RUG_COLOR
 }
 
+// The five buckets a timeline point may carry, in stacking order (the mix-bar
+// order plus the two unscored kinds) — and, by index, the encoding
+// GET /api/lists/timelines uses for its points.
+export const TIMELINE_BUCKETS = ['Human', 'Mixed', 'AI', 'too_short', 'unscored']
+
+// Display word per timeline bucket (rug tooltips).
+export const BUCKET_PHRASES = {
+  Human: 'Human',
+  Mixed: 'Mixed',
+  AI: 'AI',
+  too_short: 'Too short',
+  unscored: 'unscored',
+}
+
+// The bucket for one message — the decision rugBarColor makes, as a name.
+export function rugBucket(label, tooShort = false) {
+  if (tooShort) return 'too_short'
+  return PRED_ORDER.includes(label) ? label : 'unscored'
+}
+
+// The fill for one timeline bucket. `unscored` must not fall through to
+// LABEL_COLORS, whose `unscored` entry is the darker aggregate-bar grey.
+export function bucketColor(bucket) {
+  if (bucket === 'too_short') return TOO_SHORT_COLOR
+  if (bucket === 'unscored') return UNSCORED_RUG_COLOR
+  return LABEL_COLORS[bucket] || UNSCORED_RUG_COLOR
+}
+
 // The prediction bucket for a per-window label. Pangram's window vocabulary is
 // its own ("Human Written", "AI-Generated", "Lightly/Moderately AI-Assisted"):
 // the assisted bands belong to Mixed, matching how the document-level

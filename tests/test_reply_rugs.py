@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from mailing_list_ai_check.config import Config
-from mailing_list_ai_check.store import REPLY_RUG_LIMIT, Store, sha256_text
+from mailing_list_ai_check.store import Store, sha256_text
 from mailing_list_ai_check.webapp import create_app
 
 # Dates ascend with the message's day number, so "newest first" is predictable.
@@ -242,6 +242,37 @@ def test_limit_keeps_the_newest(store):
     assert _mids(rugs["alpha"]["reply_from"]) == ["<bob5@test>", "<bob4@test>"]
 
 
+def test_no_limit_returns_every_row(store):
+    """The default (limit None) carries any volume — here past the old 50 cap."""
+    list_id = _list(store, "alpha")
+    addr = store.upsert_address("alice@example.org", "Alice").id
+    other = store.upsert_address("bob@example.org", "Bob").id
+    for n in range(60):
+        store.upsert_message(
+            message_id=f"<root{n}@test>",
+            list_id=list_id,
+            address_id=other,
+            subject=f"Subject root{n}",
+            date=f"2026-04-{n // 50 + 1:02d}T10:{n % 50:02d}:00+00:00",
+            in_reply_to=None,
+            raw_body="body",
+            uid=None,
+        )
+        store.upsert_message(
+            message_id=f"<reply{n}@test>",
+            list_id=list_id,
+            address_id=addr,
+            subject=f"Subject reply{n}",
+            date=f"2026-05-{n // 50 + 1:02d}T10:{n % 50:02d}:00+00:00",
+            in_reply_to=f"<root{n}@test>",
+            raw_body="body",
+            uid=None,
+        )
+    rugs = _by_list(store.sender_reply_rugs(address="alice@example.org"))
+    assert len(rugs["alpha"]["replied_to"]) == 60
+    assert len(rugs["alpha"]["reply_from"]) == 0
+
+
 def test_max_lists_caps_the_entries(store):
     addr = store.upsert_address("alice@example.org", "Alice").id
     for n in range(1, 4):
@@ -306,7 +337,7 @@ def test_endpoint_returns_the_rugs_for_a_person(client, fixture):
     body = resp.get_json()
     assert body["person"] == fixture["person"]
     assert body["address"] is None
-    assert body["limit"] == REPLY_RUG_LIMIT
+    assert body["limit"] is None
     alpha = _by_list(body["by_list"])["alpha"]
     assert _mids(alpha["replied_to"]) == ["<a-root@test>", "<y-root@test>", "<x-root@test>"]
     assert _mids(alpha["reply_from"]) == ["<c-reply@test>", "<b-reply@test>"]
