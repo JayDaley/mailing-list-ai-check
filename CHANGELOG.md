@@ -37,6 +37,16 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.12.0] - 2026-08-18
+
+Summary: Stop `--all-lists --incremental` backfilling the full history of lists it has never pulled, and register empty folders so a later incremental run tracks them.
+
+- Skip a folder with no stored cursor under `--all-lists --incremental` instead of pulling it from UID 0, counted as `untracked_skipped`; the skip precedes the `EXAMINE`, so such a folder costs no round trip.
+- Keep the full first pull for a named list, so `mail-ai-pull last-call --incremental` still bootstraps one.
+- Seed a cursor at `UIDNEXT - 1` for a folder the server reports empty during a date- or count-based pull, counted as `cursors_seeded`, so an incremental run picks up that list's first message.
+- Add `require_cursor` to `DepthMode`, set from `--all-lists`, and return the folder's `FolderStatus` from `compute_uids` rather than its UIDVALIDITY alone.
+- Report `untracked_skipped` and `cursors_seeded` in the pull summary line.
+
 ## [1.11.0] - 2026-08-18
 
 Summary: Recognize Outlook quote-header blocks that the extraction previously missed, so top-posted replies no longer keep the quoted thread as new text (extraction generation 3).

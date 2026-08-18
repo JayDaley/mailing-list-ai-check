@@ -34,7 +34,13 @@ from email.message import EmailMessage
 from email.utils import parseaddr, parsedate_to_datetime
 
 from .autogen import classify_message, is_excluded_list
-from .imap_client import DEFAULT_BATCH_SIZE, FOLDER_PREFIX, ImapClient, build_search_criteria
+from .imap_client import (
+    DEFAULT_BATCH_SIZE,
+    FOLDER_PREFIX,
+    FolderStatus,
+    ImapClient,
+    build_search_criteria,
+)
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -52,11 +58,18 @@ class DepthMode:
     - ``count``: the most recent N messages (UID slice from the top).
     - ``since``: server-side ``SINCE`` from an ISO ``YYYY-MM-DD`` date.
     - ``incremental``: resume from the stored ``pull_state`` cursor.
+
+    ``require_cursor`` refines ``incremental``: a folder with no cursor is
+    skipped rather than pulled from UID 0. It is set when the folder set came
+    from the server (``--all-lists``) rather than from named lists, because
+    "no cursor" then means "a list never asked for", not "a list to bootstrap".
+    See :func:`run_fetch`.
     """
 
     count: int | None = None
     since: str | None = None
     incremental: bool = False
+    require_cursor: bool = False
 
 
 @dataclass(frozen=True)
@@ -77,7 +90,8 @@ class FetchSummary:
 
     ``discarded_early`` counts messages fetched by a date-based pull whose own
     ``Date`` header predates the pull period, discarded instead of stored (see
-    :func:`run_fetch`).
+    :func:`run_fetch`). ``untracked_skipped`` and ``cursors_seeded`` count the
+    two cursor-driven behaviours also described there.
     """
 
     fetched: int = 0
@@ -87,6 +101,12 @@ class FetchSummary:
     matched: int = 0
     auto_generated: int = 0
     discarded_early: int = 0
+    #: Folders an ``--all-lists --incremental`` run skipped for want of a
+    #: cursor (see :func:`run_fetch`). Nothing was fetched or examined for them.
+    untracked_skipped: int = 0
+    #: Empty folders given a bootstrap cursor at ``UIDNEXT - 1`` by a
+    #: discovery pull, so a later ``--incremental`` run tracks them.
+    cursors_seeded: int = 0
     per_list: dict[str, int] = field(default_factory=dict)
 
     def as_line(self) -> str:
@@ -94,7 +114,9 @@ class FetchSummary:
             f"fetched={self.fetched} duplicates={self.duplicates} "
             f"parse_errors={self.parse_errors} html_only={self.html_only} "
             f"matched={self.matched} auto_generated={self.auto_generated} "
-            f"discarded_early={self.discarded_early}"
+            f"discarded_early={self.discarded_early} "
+            f"untracked_skipped={self.untracked_skipped} "
+            f"cursors_seeded={self.cursors_seeded}"
         )
 
 
@@ -417,11 +439,18 @@ def compute_uids(
     list_id: int,
     depth: DepthMode,
     from_filters: Sequence[str],
-) -> tuple[list[int], int]:
-    """Compute the UID set to fetch for ``folder`` and the folder's UIDVALIDITY.
+) -> tuple[list[int], FolderStatus]:
+    """Compute the UID set to fetch for ``folder``, and the folder's status.
 
     Handles the three depth modes, including the documented UIDVALIDITY-change
-    resync for ``--incremental``.
+    resync for ``--incremental``. The returned :class:`FolderStatus` carries the
+    UIDVALIDITY the caller records with the cursor, plus the ``exists`` and
+    ``uidnext`` values :func:`run_fetch` needs to seed one for an empty folder.
+
+    ``depth.require_cursor`` is not consulted here: this function answers what a
+    depth mode selects within a folder, and from UID 0 stays right for the first
+    pull of a *named* list. Whether an untracked folder should be visited at all
+    depends on how the folder set was chosen, which is :func:`run_fetch`'s call.
     """
     status = client.examine(folder)
     uidvalidity = status.uidvalidity
@@ -448,7 +477,7 @@ def compute_uids(
             uids = _union_search(client, since=None, uid_range=uid_range, from_filters=from_filters)
             # `n:*` can echo the highest UID when n exceeds it; drop stale ones.
             uids = [u for u in uids if u > last_uid]
-        return uids, uidvalidity
+        return uids, status
 
     if depth.since is not None:
         since = iso_to_imap_date(depth.since)
@@ -462,13 +491,13 @@ def compute_uids(
         uids = _union_search(
             client, since=since, uid_range=None, from_filters=from_filters, sent_since=sent_since
         )
-        return uids, uidvalidity
+        return uids, status
 
     # --count N: most recent N via a UID slice from the top.
     uids = _union_search(client, since=None, uid_range=None, from_filters=from_filters)
     if depth.count is not None:
         uids = uids[-depth.count :] if depth.count > 0 else []
-    return uids, uidvalidity
+    return uids, status
 
 
 # --- run ----------------------------------------------------------------------
@@ -489,6 +518,22 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
     accretes messages from far outside it. Messages with no parsable ``Date``
     are kept. Count-based, incremental and explicit-UID pulls have no period
     and never discard.
+
+    Two cursor rules apply, both resting on what a ``pull_state`` row asserts:
+    that the list is stored complete through ``last_uid``.
+
+    - With ``depth.require_cursor`` (an ``--all-lists --incremental`` run), a
+      folder with no cursor is skipped and counted in ``untracked_skipped``,
+      not pulled from UID 0. The server supplies the folder set there, so a
+      missing cursor means a list never asked for, and pulling from 0 would
+      backfill its whole history. Named lists do not set the flag, so the first
+      pull of one still takes everything. The skip happens before the
+      ``EXAMINE``, so such a folder costs no round trip.
+    - A discovery pull (``--count``/``--since``/``--days``, which visit every
+      folder) seeds a cursor at ``UIDNEXT - 1`` for a folder the server reports
+      empty, counting it in ``cursors_seeded``. The completeness claim holds
+      trivially for an empty folder, and it lets a later ``--incremental`` run
+      catch that list's first ever message rather than skip it.
     """
     summary = FetchSummary()
     remaining = request.limit
@@ -500,13 +545,24 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
             break
 
         mlist = store.upsert_list(name, folder)
+        cursor = store.get_pull_state(mlist.id)
+
+        # An --all-lists --incremental run pulls only lists it already tracks.
+        # Skipping before the EXAMINE keeps the round trip off the wire too, so
+        # the run costs one search per tracked list rather than per folder.
+        if request.depth.incremental and request.depth.require_cursor and cursor is None:
+            summary.untracked_skipped += 1
+            log.debug("%s: no cursor; not tracked, skipped", name)
+            continue
+
         try:
-            uids, uidvalidity = compute_uids(
+            uids, status = compute_uids(
                 client, store, folder, mlist.id, request.depth, request.from_filters
             )
         except Exception:
             log.exception("failed to compute UID set for %s", name)
             continue
+        uidvalidity = status.uidvalidity
 
         summary.matched += len(uids)
         if request.dry_run:
@@ -521,7 +577,6 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
         # bodies had been fetched and the upsert had deduped them.
         matched_uids = uids
         stored_matched: set[int] = set()
-        cursor = store.get_pull_state(mlist.id)
         if cursor is not None and cursor.uidvalidity == uidvalidity:
             stored_uids = store.uids_for_list(mlist.id)
             stored_matched = {u for u in matched_uids if u in stored_uids}
@@ -557,6 +612,16 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
             last_processed = uid
         if last_processed is not None:
             store.set_pull_state(mlist.id, uidvalidity, last_processed)
+        elif cursor is None and status.exists == 0 and status.uidnext:
+            # A folder the server reports empty. "Complete through UIDNEXT - 1"
+            # is then true whatever --from filters were in play, since there is
+            # no message to have missed, so the cursor may be seeded from the
+            # EXAMINE alone. That makes the list tracked, and a later
+            # --incremental run picks up its first ever message instead of
+            # skipping it for want of a cursor. Only a discovery pull reaches
+            # here: --incremental never examines an untracked folder.
+            store.set_pull_state(mlist.id, uidvalidity, status.uidnext - 1)
+            summary.cursors_seeded += 1
         store.set_list_synced(mlist.id)
 
         # Record when the server last saw traffic on this list. A failure here

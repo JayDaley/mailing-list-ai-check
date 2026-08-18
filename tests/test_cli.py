@@ -48,6 +48,19 @@ def test_days_resolves_to_since_iso():
     datetime.strptime(depth.since, "%Y-%m-%d")
 
 
+def test_all_lists_incremental_requires_a_cursor():
+    # --all-lists takes the folder set from the server, so an untracked list is
+    # one never asked for rather than one to bootstrap.
+    ns = cli.build_parser().parse_args(["--all-lists", "--incremental"])
+    assert cli._resolve_depth(ns).require_cursor is True
+
+
+def test_named_list_incremental_does_not_require_a_cursor():
+    # `mail-ai-pull announce --incremental` still takes a full first pull.
+    ns = cli.build_parser().parse_args(["announce", "--incremental"])
+    assert cli._resolve_depth(ns).require_cursor is False
+
+
 # --- end-to-end main() with a fake client -------------------------------------
 
 

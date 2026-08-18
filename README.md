@@ -112,6 +112,9 @@ mail-ai-pull --all-lists --days 30
 # Resume from where the last pull left off (per-list cursor, UIDVALIDITY-aware)
 mail-ai-pull last-call --incremental
 
+# Catch up every list already being tracked (the routine incremental update)
+mail-ai-pull --all-lists --incremental
+
 # Only mail from particular senders (server-side FROM filter, repeatable/OR-ed)
 mail-ai-pull tls --from alice@example.com --from bob@example.com
 
@@ -122,6 +125,26 @@ mail-ai-pull tls --since 2026-06-01 --dry-run
 Depth is one of `--count N`, `--since YYYY-MM-DD`, `--days N`, or
 `--incremental`. `--limit N` is a hard cap on messages fetched this run — use
 `--limit 10` when testing (see Costs and usage limits).
+
+`--incremental` resumes each list from its stored cursor, which records the
+UIDVALIDITY and the highest UID stored for that list. It is the cheaper and more
+exact way to catch up: the search is a bounded `UID last+1:*`, no already-stored
+message is re-examined, and a message that reaches the archive long after it was
+sent is still picked up, because UID order follows arrival rather than the `Date`
+header. A date-based pull filters on arrival and then discards anything whose own
+`Date` predates the period, so such a message is lost to it.
+
+The two combine as follows:
+
+- `--all-lists --incremental` pulls only lists that already have a cursor, and
+  skips the rest rather than fetching their whole history. Use it for routine
+  catch-up. Skipped lists are counted as `untracked_skipped`.
+- A named list with no cursor takes a full first pull, so
+  `mail-ai-pull last-call --incremental` bootstraps that list.
+- A date-based pull over `--all-lists` is the discovery sweep: it takes on lists
+  that are new on the server, and registers a list whose folder is empty by
+  seeding its cursor (counted as `cursors_seeded`), so a later `--incremental`
+  run catches that list's first message.
 
 Every fetched message is classified against the auto-generated-mail rules
 (`docs/findings/auto-generated.md`); flagged messages are stored with their

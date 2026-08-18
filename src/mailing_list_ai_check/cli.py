@@ -108,7 +108,11 @@ def build_parser() -> argparse.ArgumentParser:
     depth.add_argument(
         "--incremental",
         action="store_true",
-        help="resume from the stored per-list cursor (UIDVALIDITY-aware)",
+        help=(
+            "resume from the stored per-list cursor (UIDVALIDITY-aware); with "
+            "--all-lists, a list that has no cursor yet is skipped rather than "
+            "pulled in full, so use a date-based pull to take one on"
+        ),
     )
 
     parser.add_argument(
@@ -155,7 +159,10 @@ def build_parser() -> argparse.ArgumentParser:
 def _resolve_depth(args: argparse.Namespace) -> DepthMode:
     """Turn parsed depth args into a :class:`DepthMode` (validated by caller)."""
     if args.incremental:
-        return DepthMode(incremental=True)
+        # With --all-lists the folder set comes from the server, so a list with
+        # no cursor is one never asked for rather than one to bootstrap: require
+        # a cursor there, and leave named lists free to take a full first pull.
+        return DepthMode(incremental=True, require_cursor=args.all_lists)
     if args.since is not None:
         return DepthMode(since=args.since)
     if args.days is not None:

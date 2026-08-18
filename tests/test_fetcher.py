@@ -280,11 +280,9 @@ def _client_store(fd, folder="Shared Folders/t"):
 def test_compute_uids_count_slices_from_top():
     fd = _folder({u: (datetime(2025, 1, u), "a@x") for u in range(1, 6)})
     client, store, mlist = _client_store(fd)
-    uids, uidvalidity = compute_uids(
-        client, store, "Shared Folders/t", mlist.id, DepthMode(count=2), ()
-    )
+    uids, status = compute_uids(client, store, "Shared Folders/t", mlist.id, DepthMode(count=2), ())
     assert uids == [4, 5]
-    assert uidvalidity == 1000
+    assert status.uidvalidity == 1000
     store.close()
 
 
@@ -305,6 +303,8 @@ def test_compute_uids_since_filters_server_side():
 
 
 def test_compute_uids_incremental_fresh_takes_all():
+    # A cursorless folder still selects every UID here; whether such a folder
+    # should be visited at all is run_fetch's call (see require_cursor tests).
     fd = _folder({u: (datetime(2025, 1, u), "a@x") for u in range(1, 4)})
     client, store, mlist = _client_store(fd)
     uids, _ = compute_uids(
@@ -337,12 +337,12 @@ def test_compute_uids_incremental_uidvalidity_change_resyncs_by_date():
     # Stored cursor has a DIFFERENT uidvalidity → forces resync.
     store.set_pull_state(mlist.id, 1111, 99)
     store.set_list_synced(mlist.id, "2025-01-01T00:00:00+00:00")
-    uids, uidvalidity = compute_uids(
+    uids, status = compute_uids(
         client, store, "Shared Folders/t", mlist.id, DepthMode(incremental=True), ()
     )
     # Resync re-searches SINCE 2025-01-01, so only uid 2 (Mar) matches.
     assert uids == [2]
-    assert uidvalidity == 2000
+    assert status.uidvalidity == 2000
     store.close()
 
 
@@ -422,6 +422,106 @@ def test_parse_message_keeps_headers_verbatim_and_reparseable():
     assert b"plain body" not in parsed.raw_headers
     # Re-parsing the stored bytes reproduces what the fetch derived.
     assert parse_header(parsed.raw_headers).from_name == parsed.from_name == "André"
+
+
+# --- cursor rules: require_cursor and empty-folder seeding ---------------------
+
+
+def test_run_fetch_incremental_requires_cursor_skips_untracked_folder():
+    # The --all-lists --incremental case: no cursor means a list never asked
+    # for, so its history must NOT be backfilled.
+    fd = _folder({u: (datetime(2025, 1, u), f"user{u}@example.org") for u in range(1, 4)})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    summary = run_fetch(
+        client, store, _request(depth=DepthMode(incremental=True, require_cursor=True))
+    )
+    assert summary.fetched == 0
+    assert summary.matched == 0
+    assert summary.untracked_skipped == 1
+    assert store.conn.execute("SELECT COUNT(*) c FROM messages").fetchone()["c"] == 0
+    # skipped without examining the folder, so no cursor was invented for it
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    assert store.get_pull_state(mlist.id) is None
+    store.close()
+
+
+def test_run_fetch_incremental_requires_cursor_still_pulls_a_tracked_folder():
+    fd = _folder({u: (datetime(2025, 1, u), f"user{u}@example.org") for u in range(1, 4)})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    store.set_pull_state(mlist.id, 1000, 1)  # tracked through uid 1
+    summary = run_fetch(
+        client, store, _request(depth=DepthMode(incremental=True, require_cursor=True))
+    )
+    assert summary.untracked_skipped == 0
+    assert summary.fetched == 2  # uids 2 and 3 only
+    assert store.get_pull_state(mlist.id).last_uid == 3
+    store.close()
+
+
+def test_run_fetch_incremental_without_require_cursor_takes_a_full_first_pull():
+    # A named list keeps the bootstrap behaviour: `mail-ai-pull t --incremental`.
+    fd = _folder({u: (datetime(2025, 1, u), f"user{u}@example.org") for u in range(1, 4)})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    summary = run_fetch(client, store, _request(depth=DepthMode(incremental=True)))
+    assert summary.fetched == 3
+    assert summary.untracked_skipped == 0
+    store.close()
+
+
+def test_run_fetch_seeds_a_cursor_for_an_empty_folder():
+    # A discovery pull registers an empty list at UIDNEXT - 1, so a later
+    # --incremental run tracks it and catches its first ever message.
+    fd = FakeFolder(uidvalidity=1000, uidnext=42, exists=0)
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    summary = run_fetch(client, store, _request(depth=DepthMode(since="2025-01-01")))
+    assert summary.fetched == 0
+    assert summary.cursors_seeded == 1
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    cursor = store.get_pull_state(mlist.id)
+    assert cursor is not None and cursor.last_uid == 41 and cursor.uidvalidity == 1000
+    store.close()
+
+
+def test_run_fetch_does_not_seed_a_cursor_for_a_non_empty_folder():
+    # Only `exists == 0` justifies the completeness claim. A folder that matched
+    # nothing this run may still hold messages, so it must stay untracked.
+    fd = _folder({1: (datetime(2024, 1, 1), "a@example.org")}, uidnext=99)
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    summary = run_fetch(client, store, _request(depth=DepthMode(since="2025-06-01")))
+    assert summary.fetched == 0  # the 2024 message is out of the period
+    assert summary.cursors_seeded == 0
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    assert store.get_pull_state(mlist.id) is None
+    store.close()
+
+
+def test_run_fetch_seeding_leaves_an_existing_cursor_alone():
+    fd = FakeFolder(uidvalidity=1000, uidnext=42, exists=0)
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    store.set_pull_state(mlist.id, 1000, 7)
+    summary = run_fetch(client, store, _request(depth=DepthMode(since="2025-01-01")))
+    assert summary.cursors_seeded == 0
+    assert store.get_pull_state(mlist.id).last_uid == 7
+    store.close()
+
+
+def test_run_fetch_dry_run_seeds_no_cursor():
+    fd = FakeFolder(uidvalidity=1000, uidnext=42, exists=0)
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    summary = run_fetch(client, store, _request(depth=DepthMode(since="2025-01-01"), dry_run=True))
+    assert summary.cursors_seeded == 0
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    assert store.get_pull_state(mlist.id) is None
+    store.close()
 
 
 def test_run_fetch_stores_raw_headers():
