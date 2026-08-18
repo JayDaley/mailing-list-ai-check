@@ -1698,6 +1698,41 @@ def sender_reply_rugs() -> Any:
     return jsonify({"person": person_id, "address": address, "limit": limit, "by_list": by_list})
 
 
+@api_bp.get("/senders/timelines")
+def sender_timelines() -> Any:
+    """Slim per-sender message timelines for the cumulative-AI sparklines.
+
+    Query params: ``persons`` (comma-separated person ids) and/or ``addresses``
+    (comma-separated emails) — at least one sender in total, at most
+    ``MAX_PER_PAGE`` across both — plus an optional ``list`` (a list name)
+    restricting points and domain to that list, as the senders table's counts
+    are restricted. A non-integer person id, no senders at all, or too many is
+    a 400.
+
+    Returns ``{"start": s, "end": e, "persons": {...}, "addresses": {...},
+    "list": …}``. ``start``/``end`` are epoch seconds spanning the whole
+    scope's dated messages (shared x-domain; ``null`` when absent), ``persons``
+    is keyed by person id as a string and ``addresses`` by lower-cased email,
+    each entry ``{"points": [[t, ai], ...], "undated": u}`` with ``t`` in epoch
+    seconds and ``ai`` 0/1 (see :meth:`Store.sender_timelines`). Unknown
+    senders yield empty entries and an unknown ``list`` empty maps, not a 404.
+    """
+    args = request.args
+    persons_raw = [p for p in (args.get("persons") or "").split(",") if p.strip()]
+    person_ids = [_parse_int("persons", p) for p in persons_raw]
+    addresses = [a for a in (args.get("addresses") or "").split(",") if a.strip()]
+    if not person_ids and not addresses:
+        raise ApiError("pass 'persons' and/or 'addresses'")
+    if len(person_ids) + len(addresses) > MAX_PER_PAGE:
+        raise ApiError(f"at most {MAX_PER_PAGE} senders per request")
+    list_name = args.get("list") or None
+
+    result = get_store().sender_timelines(
+        person_ids=person_ids, addresses=addresses, list_name=list_name
+    )
+    return jsonify({**result, "list": list_name})
+
+
 @api_bp.get("/persons/suggestions")
 def person_suggestions() -> Any:
     suggestions = get_store().suggest_person_merges()

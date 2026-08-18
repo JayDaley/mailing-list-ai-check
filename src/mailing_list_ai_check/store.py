@@ -2878,6 +2878,93 @@ class Store:
         lists = sorted(by_list.values(), key=lambda e: (-e["total"], e["list"]))
         return {"start": start, "end": end, "lists": lists}
 
+    # -- dashboard: sender cumulative timelines ----------------------------------
+
+    def sender_timelines(
+        self,
+        *,
+        person_ids: Sequence[int] = (),
+        addresses: Sequence[str] = (),
+        list_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Slim per-sender message timelines (for ``GET /api/senders/timelines``).
+
+        Feeds the Senders pane's cumulative-AI sparklines: for each requested
+        sender, every dated message as a ``[t, ai]`` point — ``t`` in epoch
+        seconds, ``ai`` 1 when the stored label is ``AI`` and 0 otherwise
+        (unscored and gated messages included, both being posts) — ordered by
+        ``(date, id)`` ascending. Messages whose ``date`` is missing or
+        unparseable cannot be placed on a time axis; they are counted in the
+        entry's ``undated`` and carried by no point.
+
+        ``person_ids`` selects persons (each covering every address linked to
+        it); ``addresses`` selects addresses by email (each covering itself
+        alone, lower-cased as the ``address`` message filter is). With
+        ``list_name`` both the points and the domain are restricted to that
+        list; an unknown ``list_name`` yields empty maps and a null domain.
+
+        Returns ``{"start": s, "end": e, "persons": {...}, "addresses": {...}}``.
+        ``start``/``end`` are the epoch seconds of the scope's earliest and
+        latest dated message — the *whole* list or corpus, not just the
+        requested senders — so every sparkline in a table shares one x-domain;
+        either is ``None`` when the boundary date is absent or unparseable (the
+        client then falls back to the points' own extent). ``persons`` is keyed
+        by person id as a string, ``addresses`` by lower-cased email; each value
+        is ``{"points": [[t, ai], ...], "undated": u}``. Requested senders with
+        no matching messages still appear, with empty points.
+        """
+        list_filter = ""
+        list_params: list[Any] = []
+        if list_name is not None:
+            list_row = self.conn.execute(
+                "SELECT id FROM lists WHERE name = ?", (list_name,)
+            ).fetchone()
+            if list_row is None:
+                return {"start": None, "end": None, "persons": {}, "addresses": {}}
+            list_filter = " AND m.list_id = ?"
+            list_params = [list_row["id"]]
+
+        # The shared x-domain: the scope's full dated extent. Stored dates are
+        # ISO-8601 UTC, so lexical MIN/MAX match chronological order; a stray
+        # unparseable extreme yields a null bound rather than a wrong one.
+        domain = self.conn.execute(
+            "SELECT MIN(m.date) AS lo, MAX(m.date) AS hi FROM messages m "
+            "WHERE m.date IS NOT NULL" + list_filter,
+            list_params,
+        ).fetchone()
+        start = _epoch_seconds(domain["lo"])
+        end = _epoch_seconds(domain["hi"])
+
+        def _collect(column: str, keys: Sequence[Any]) -> dict[str, Any]:
+            entries: dict[str, dict[str, Any]] = {
+                str(k): {"points": [], "undated": 0} for k in keys
+            }
+            if not keys:
+                return entries
+            marks = ",".join("?" for _ in keys)
+            cursor = self.conn.execute(
+                f"SELECT a.{column} AS key, m.date AS date, s.label AS label "
+                "FROM messages m "
+                "JOIN addresses a ON a.id = m.address_id "
+                "LEFT JOIN extractions e ON e.message_id = m.id "
+                "LEFT JOIN scores s ON s.extraction_id = e.id "
+                f"WHERE a.{column} IN ({marks}){list_filter} ORDER BY m.date, m.id",
+                [*keys, *list_params],
+            )
+            for row in cursor:
+                entry = entries[str(row["key"])]
+                t = _epoch_seconds(row["date"])
+                if t is None:
+                    entry["undated"] += 1
+                    continue
+                entry["points"].append([t, 1 if row["label"] == "AI" else 0])
+            return entries
+
+        persons = _collect("person_id", list(person_ids))
+        address_entries = _collect("email", [a.strip().lower() for a in addresses])
+
+        return {"start": start, "end": end, "persons": persons, "addresses": address_entries}
+
     # -- dashboard: list thread graph ------------------------------------------
 
     def thread_graph(

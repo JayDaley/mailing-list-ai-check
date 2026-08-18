@@ -37,6 +37,16 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.13.2] - 2026-08-18
+
+Summary: Add cumulative-AI sparklines under the senders' aggregate analysis bars.
+
+- Add GET /api/senders/timelines serving each requested sender's dated messages as slim [epoch, ai] points plus the scope-wide date domain.
+- Add Store.sender_timelines backing the endpoint, scoped by person ids, address emails and an optional list.
+- Add the CumulativeAiSpark component: a normalized cumulative-posts area in grey with a cumulative-AI step line over it, on a shared time axis.
+- Draw the sparkline under each sender row's aggregate analysis bar in the senders table, scoped to the active list filter as the bar is.
+- Draw the sparkline under the sender detail card's detection-mix summary, across all lists on the corpus-wide domain.
+
 ## [1.13.1] - 2026-08-18
 
 Summary: Adaptive rug plots at any message volume, and a stacked all-lists Timelines screen.

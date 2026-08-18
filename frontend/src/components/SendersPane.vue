@@ -16,6 +16,7 @@
 //         GET /api/persons/suggestions        (same-name unlinked-address groups)
 //         GET /api/summary?person|address     (the sender detail card)
 //         GET /api/senders/reply-rugs?person|address  (the two reply rugs)
+//         GET /api/senders/timelines?persons|addresses&list  (cumulative sparks)
 // Mutations: POST/PUT/DELETE /api/persons     (link / rename / detach / unlink)
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -25,6 +26,7 @@ import { fmtInt } from '../lib/format'
 import { rugBucket } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import { useUiStore } from '../stores/ui'
+import CumulativeAiSpark from './CumulativeAiSpark.vue'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
 import TimelineRug from './TimelineRug.vue'
@@ -67,6 +69,7 @@ async function fetchPage(pageNo, append) {
     senders.value = append ? senders.value.concat(data.senders || []) : data.senders || []
     total.value = data.total || 0
     page.value = pageNo
+    loadSparks(data.senders || [], !append)
   } catch {
     if (token === fetchToken && !append) {
       senders.value = []
@@ -83,6 +86,67 @@ function refresh() {
 function loadMore() {
   if (loading.value || senders.value.length >= total.value) return
   fetchPage(page.value + 1, true)
+}
+
+// --- cumulative sparklines ----------------------------------------------------
+// GET /api/senders/timelines returns each sender's dated messages as [t, ai]
+// points plus the scope's full dated extent — the shared x-domain, so every
+// spark in the table places a given month at the same position. Fetched per
+// loaded page (only for rows not yet covered), and scoped to the list filter
+// exactly as the rows' counts are.
+const sparkPersons = ref({}) // person id (string) -> [{t, ai}]
+const sparkAddresses = ref({}) // lower-cased email -> [{t, ai}]
+const sparkStart = ref(null) // shared domain, epoch ms (null → per-spark extent)
+const sparkEnd = ref(null)
+
+function sparkPoints(entry) {
+  return (entry?.points || []).map(([t, ai]) => ({ t: t * 1000, ai: !!ai }))
+}
+
+let sparkToken = 0
+async function loadSparks(entries, reset) {
+  if (reset) {
+    // The table was rebuilt (new search/sort/list scope): drop stale points —
+    // a list change alters what each spark should show.
+    sparkToken += 1
+    sparkPersons.value = {}
+    sparkAddresses.value = {}
+    sparkStart.value = null
+    sparkEnd.value = null
+  }
+  const token = sparkToken
+  const personIds = entries
+    .filter((e) => e.type === 'person')
+    .map((e) => String(e.person_id))
+    .filter((id) => !(id in sparkPersons.value))
+  const emails = entries
+    .filter((e) => e.type === 'address')
+    .map((e) => (e.emails[0] || '').toLowerCase())
+    .filter((em) => em && !(em in sparkAddresses.value))
+  if (!personIds.length && !emails.length) return
+  try {
+    const data = await get('/senders/timelines', {
+      persons: personIds.join(',') || undefined,
+      addresses: emails.join(',') || undefined,
+      list: filters.list || undefined,
+    })
+    if (token !== sparkToken) return
+    sparkStart.value = data?.start != null ? data.start * 1000 : null
+    sparkEnd.value = data?.end != null ? data.end * 1000 : null
+    const persons = { ...sparkPersons.value }
+    for (const [id, entry] of Object.entries(data?.persons || {})) {
+      persons[id] = sparkPoints(entry)
+    }
+    sparkPersons.value = persons
+    const addrs = { ...sparkAddresses.value }
+    for (const [email, entry] of Object.entries(data?.addresses || {})) {
+      addrs[email] = sparkPoints(entry)
+    }
+    sparkAddresses.value = addrs
+  } catch {
+    // Sparks decorate rows the table already shows; a failed fetch just leaves
+    // the bars alone.
+  }
 }
 
 async function loadPersons() {
@@ -118,6 +182,7 @@ onMounted(() => {
   loadSuggestions()
   loadDetail()
   loadReplyRugs()
+  loadDetailSpark()
 })
 
 // --- sender detail mode -------------------------------------------------------
@@ -199,6 +264,34 @@ async function loadReplyRugs() {
   }
 }
 
+// The detail card's spark: the sender's messages across all lists, on the
+// corpus-wide domain, so the flat lead-in before their first post stays
+// visible.
+const detailSpark = ref(null) // {points: [{t, ai}], start, end} or null
+let detailSparkToken = 0
+async function loadDetailSpark() {
+  const params = detailParams.value
+  if (!params) return
+  const token = ++detailSparkToken
+  try {
+    const data = await get(
+      '/senders/timelines',
+      params.person ? { persons: params.person } : { addresses: params.address },
+    )
+    if (token !== detailSparkToken) return
+    const entry = params.person
+      ? data?.persons?.[String(params.person)]
+      : data?.addresses?.[(params.address || '').trim().toLowerCase()]
+    detailSpark.value = {
+      points: sparkPoints(entry),
+      start: data?.start != null ? data.start * 1000 : null,
+      end: data?.end != null ? data.end * 1000 : null,
+    }
+  } catch {
+    if (token === detailSparkToken) detailSpark.value = null
+  }
+}
+
 function openRugMessage(id) {
   router.push({ path: `/messages/${id}`, query: route.query })
 }
@@ -215,6 +308,7 @@ const detailKey = computed(() => JSON.stringify(detailParams.value))
 watch(detailKey, () => {
   loadDetail()
   loadReplyRugs()
+  loadDetailSpark()
 })
 
 const detailCard = computed(() => {
@@ -368,6 +462,10 @@ const rows = computed(() => {
       count: fmtInt(e.message_count),
       counts: e.label_counts || {},
       tooShort: e.too_short_count || 0,
+      // The cumulative spark's points, once its lazy fetch has covered the row.
+      spark: isPerson
+        ? sparkPersons.value[String(e.person_id)] || null
+        : sparkAddresses.value[(e.emails[0] || '').toLowerCase()] || null,
       // Only ever true while "Show all" is on; the server omits these otherwise.
       excluded: !!e.excluded_from_scoring,
       // The server decides when an address is named after itself rather than
@@ -503,13 +601,21 @@ async function assignToExisting(row) {
             <div class="tile-val">{{ detailCard.total }}</div>
             <div class="tile-cap">Posts</div>
           </div>
-          <MixSummary
-            :counts="detailCard.mix"
-            :too-short="detailCard.tooShort"
-            :clickable="true"
-            class="detail-mix"
-            @select="(l) => filters.setFilter('label', l)"
-          />
+          <div class="detail-mix">
+            <MixSummary
+              :counts="detailCard.mix"
+              :too-short="detailCard.tooShort"
+              :clickable="true"
+              @select="(l) => filters.setFilter('label', l)"
+            />
+            <CumulativeAiSpark
+              v-if="detailSpark && detailSpark.points.length"
+              :points="detailSpark.points"
+              :start="detailSpark.start"
+              :end="detailSpark.end"
+              :height="26"
+            />
+          </div>
         </div>
         <div class="section-head">Activity by list</div>
         <div class="minirow-head">
@@ -581,7 +687,16 @@ async function assignToExisting(row) {
             ></span
           >
           <span class="sender-count mono">{{ row.count }}</span>
-          <MixBar :counts="row.counts" :too-short="row.tooShort" :height="9" />
+          <span class="agg-cell">
+            <MixBar :counts="row.counts" :too-short="row.tooShort" :height="9" />
+            <CumulativeAiSpark
+              v-if="row.spark && row.spark.length"
+              :points="row.spark"
+              :start="sparkStart"
+              :end="sparkEnd"
+              :height="10"
+            />
+          </span>
           <span style="text-align: right;">
             <button
               class="link-btn"
@@ -706,9 +821,14 @@ async function assignToExisting(row) {
   align-items: flex-start;
   margin-top: 8px;
 }
+/* The aggregate MixSummary with the cumulative-AI spark under it. */
 .detail-mix {
   flex: 1;
+  min-width: 0;
   padding-top: 1px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .tile {
   background: var(--tile);
@@ -932,6 +1052,14 @@ async function assignToExisting(row) {
 .sender-count {
   text-align: right;
   color: var(--text-secondary);
+}
+/* The mix bar with the cumulative-AI spark under it (the Aggregate analysis
+   cell). The spark appears once its lazy fetch covers the row. */
+.agg-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 .link-btn {
   border: 1px solid var(--border);
