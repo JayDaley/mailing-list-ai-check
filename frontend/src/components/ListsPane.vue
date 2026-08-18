@@ -23,7 +23,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { get, postJson } from '../api'
 import { fmtDate, fmtInt } from '../lib/format'
-import { TIMELINE_BUCKETS, aiShare } from '../lib/labels'
+import { TIMELINE_BUCKETS, aiCount } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 import MixBar from './MixBar.vue'
 import MixSummary from './MixSummary.vue'
@@ -601,14 +601,13 @@ const listRows = computed(() => {
   if (indexSort.value === 'name') {
     sorted.sort((a, b) => dir * String(a.name || '').localeCompare(String(b.name || '')))
   } else if (indexSort.value === 'ai') {
-    // Equal shares — including the many lists sharing a 0% share — fall back to
-    // message count descending. The tie-break is part of the comparator rather
-    // than left to the base order, so it points the same way whichever
-    // direction the share itself is sorted in.
+    // Equal AI + Mixed counts — including the many lists sharing a 0 — fall
+    // back to message count descending. The tie-break is part of the comparator
+    // rather than left to the base order, so it points the same way whichever
+    // direction the count itself is sorted in.
     sorted.sort((a, b) => {
-      const shareDiff =
-        aiShare(a.label_counts, a.too_short_count) - aiShare(b.label_counts, b.too_short_count)
-      if (shareDiff !== 0) return dir * shareDiff
+      const countDiff = aiCount(a.label_counts) - aiCount(b.label_counts)
+      if (countDiff !== 0) return dir * countDiff
       return (b.message_count || 0) - (a.message_count || 0)
     })
   } else if (indexOrder.value === 'asc') {
@@ -1043,7 +1042,7 @@ function closeList() {
             @click="sortIndex('count', 'desc')"
             >Msgs{{ countInd }}</span
           >
-          <span class="sortable" title="Sort by AI share" @click="sortIndex('ai', 'desc')"
+          <span class="sortable" title="Sort by AI + Mixed count" @click="sortIndex('ai', 'desc')"
             >Aggregate analysis{{ aiInd }}</span
           >
           <span style="text-align: right;">Earliest</span>

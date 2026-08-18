@@ -20,16 +20,12 @@ export function foldToPrediction(counts) {
   }
 }
 
-// The AI fraction of one aggregate mix, in [0, 1]. The denominator is every
-// message a MixBar draws — the scored ones plus those gated under the
-// reliability floor — so the value equals the AI percentage the bar reports. An
-// empty mix is 0. Mirrors `ai_share()` in store.py, which orders the senders
-// table server-side.
-export function aiShare(counts, tooShort = 0) {
+// The number of AI and Mixed messages in one aggregate mix — the count every
+// aggregate-analysis sort orders by. An empty mix is 0. Mirrors `ai_count()`
+// in store.py, which orders the senders table server-side.
+export function aiCount(counts) {
   const c = foldToPrediction(counts)
-  const scored = PRED_ORDER.reduce((sum, l) => sum + c[l], 0)
-  const denom = scored + (Number(tooShort) || 0)
-  return denom ? c.AI / denom : 0
+  return c.AI + c.Mixed
 }
 
 // The Observable 10 categorical palette (the dashboard's whole color vocabulary).

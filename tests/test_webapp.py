@@ -698,11 +698,12 @@ def test_senders_sort_count_asc_explicit(client):
 def test_senders_sort_ai_default_order(client):
     body = client.get("/api/senders?sort=ai").get_json()
     assert body["order"] == "desc"  # natural default for ai
-    # AI shares: Bob 1/2, Carol 1/3, Alice 1/4, Dave 0, Eve 0 (ties on name asc).
+    # AI + Mixed counts: Alice 3, Bob 2, Carol 1, Dave 0, Eve 0 (level on
+    # message count too, so name asc decides).
     assert [r["name"] for r in body["senders"]] == [
+        "Alice Smith",
         "Bob Jones",
         "Carol",
-        "Alice Smith",
         "Dave",
         "Eve",
     ]
@@ -713,17 +714,18 @@ def test_senders_sort_ai_asc_explicit(client):
     assert [r["name"] for r in body["senders"]] == [
         "Dave",
         "Eve",
-        "Alice Smith",
         "Carol",
         "Bob Jones",
+        "Alice Smith",
     ]
 
 
 def test_senders_ai_ties_break_on_count_in_both_directions(client, db_path):
-    """Senders level on AI share order by volume, most messages first, either way."""
-    # Dave and Eve sit at a 0 share on 2 messages each. Frank sits at the same
-    # share on 3, so only the tie-break decides where he lands among them, and
-    # the count key runs the same direction whichever way the share is sorted.
+    """Senders level on AI + Mixed count order by volume, most messages first, either way."""
+    # Dave and Eve sit at an AI + Mixed count of 0 on 2 messages each. Frank
+    # sits at the same count on 3, so only the tie-break decides where he lands
+    # among them, and the volume key runs the same direction whichever way the
+    # AI count is sorted.
     with Store(db_path) as store:
         announce = store.upsert_list("announce", "Shared Folders/announce")
         frank = store.upsert_address("frank@example.org", display_name="Frank")
@@ -743,10 +745,10 @@ def test_senders_ai_ties_break_on_count_in_both_directions(client, db_path):
         body = client.get(f"/api/senders?sort=ai&order={order}").get_json()
         by_name = {r["name"]: r for r in body["senders"]}
         assert by_name["Frank"]["message_count"] == 3
-        zero_share = [r["name"] for r in body["senders"] if r["name"] in ("Frank", "Dave", "Eve")]
-        # Frank leads the tied group on count; Dave and Eve, level on both keys,
-        # keep the name-ascending order behind him.
-        assert zero_share == ["Frank", "Dave", "Eve"]
+        zero_count = [r["name"] for r in body["senders"] if r["name"] in ("Frank", "Dave", "Eve")]
+        # Frank leads the tied group on volume; Dave and Eve, level on both
+        # keys, keep the name-ascending order behind him.
+        assert zero_count == ["Frank", "Dave", "Eve"]
 
 
 def test_senders_pagination_and_total(client):

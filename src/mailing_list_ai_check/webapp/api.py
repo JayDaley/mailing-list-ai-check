@@ -1603,8 +1603,8 @@ def list_senders() -> Any:
     Query params (all optional): ``q`` (case-insensitive substring over name or
     any email), ``list`` (restrict to senders who posted to that list, with
     counts/labels scoped to it; an unknown list yields no senders), ``sort``
-    (``count`` default, ``name``, or ``ai`` — the ``AI`` share of the sender's
-    mix), ``order`` (``asc``/``desc`` — defaults to the natural direction for the
+    (``count`` default, ``name``, or ``ai`` — the sender's count of ``AI`` +
+    ``Mixed`` messages), ``order`` (``asc``/``desc`` — defaults to the natural direction for the
     chosen sort: ``desc`` for count and ai, ``asc`` for
     name), ``page`` (default 1), ``per_page`` (default 60, clamped to
     ``MAX_PER_PAGE``), ``include_excluded`` (boolean, default false — when

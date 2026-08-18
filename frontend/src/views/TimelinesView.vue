@@ -16,7 +16,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { get } from '../api'
 import TimelineRug from '../components/TimelineRug.vue'
 import { fmtInt } from '../lib/format'
-import { BUCKET_PHRASES, TIMELINE_BUCKETS, aiShare, bucketColor } from '../lib/labels'
+import { BUCKET_PHRASES, TIMELINE_BUCKETS, aiCount, bucketColor } from '../lib/labels'
 import { useFiltersStore } from '../stores/filters'
 
 const filters = useFiltersStore()
@@ -45,7 +45,7 @@ onMounted(load)
 const startMs = computed(() => (payload.value?.start != null ? payload.value.start * 1000 : null))
 const endMs = computed(() => (payload.value?.end != null ? payload.value.end * 1000 : null))
 
-// The bucket tallies of one row's points, in the shape aiShare() reads: the
+// The bucket tallies of one row's points, in the shape aiCount() reads: the
 // three prediction buckets plus the two unscored kinds. These are the same
 // tallies the lists index gets from `label_counts` / `too_short_count`, save
 // that an undated message carries no point and so appears in neither.
@@ -70,18 +70,18 @@ const baseRows = computed(() =>
       list: entry.list,
       total: entry.total || 0,
       count: fmtInt(entry.total),
-      // The list's AI share, by the same measure that orders the lists index
-      // and the senders table (see `aiShare` in lib/labels.js).
-      ai: aiShare(counts, counts.too_short),
+      // The list's AI + Mixed message count, by the same measure that orders
+      // the lists index and the senders table (see `aiCount` in lib/labels.js).
+      ai: aiCount(counts),
       points,
     }
   }),
 )
 
-// Stack ordering. Two sortable captions — List name and AI share. Clicking a
-// new caption applies its natural first order (names ascending, shares
-// descending); clicking the active one flips the order. The initial 'count' is
-// the server's own order and has no caption.
+// Stack ordering. Three sortable captions — AI Count (AI + Mixed messages),
+// List name and Msgs. Clicking a new caption applies its natural first order
+// (counts descending, names ascending); clicking the active one flips the
+// order. The initial order is message count descending, the server's own.
 const rowSort = ref('count') // 'count' | 'name' | 'ai'
 const rowOrder = ref('desc')
 function sortRows(col, firstOrder) {
@@ -95,16 +95,21 @@ function sortRows(col, firstOrder) {
 const sortInd = (col) => (rowSort.value === col ? (rowOrder.value === 'asc' ? ' ▲' : ' ▼') : '')
 const nameInd = computed(() => sortInd('name'))
 const aiInd = computed(() => sortInd('ai'))
+const countInd = computed(() => sortInd('count'))
 
 const rows = computed(() => {
   // Stable base: message count descending (the server's order, name ascending
-  // within a tie), so equal AI shares keep it under either sort.
+  // within a tie), so equal AI counts keep it under either sort.
   const sorted = [...baseRows.value].sort((a, b) => b.total - a.total)
   const dir = rowOrder.value === 'asc' ? 1 : -1
   if (rowSort.value === 'name') {
     sorted.sort((a, b) => dir * String(a.list).localeCompare(String(b.list)))
   } else if (rowSort.value === 'ai') {
     sorted.sort((a, b) => dir * (a.ai - b.ai))
+  } else if (rowOrder.value === 'asc') {
+    // 'count' descending is the base itself; ascending re-sorts it, keeping
+    // the name-ascending tie order via sort stability.
+    sorted.sort((a, b) => a.total - b.total)
   }
   return sorted
 })
@@ -192,11 +197,17 @@ function openRange(list, range) {
       <template v-else>
         <div class="tl-row tl-axis-row">
           <span class="tl-sorts">
+            <span
+              class="sortable tl-sort-ai"
+              title="Sort by AI + Mixed count"
+              @click="sortRows('ai', 'desc')"
+              >AI Count{{ aiInd }}</span
+            >
             <span class="sortable" title="Sort by list name" @click="sortRows('name', 'asc')"
               >List name{{ nameInd }}</span
             >
-            <span class="sortable" title="Sort by AI share" @click="sortRows('ai', 'desc')"
-              >AI share{{ aiInd }}</span
+            <span class="sortable" title="Sort by message count" @click="sortRows('count', 'desc')"
+              >Msgs{{ countInd }}</span
             >
           </span>
           <div class="tl-axis">
@@ -372,6 +383,11 @@ function openRange(list, range) {
 }
 .tl-sorts .sortable {
   cursor: pointer;
+}
+/* AI Count sits at the far left of the header; the other captions keep to the
+   right edge, level with the list names below them. */
+.tl-sorts .tl-sort-ai {
+  margin-right: auto;
 }
 .tl-sorts .sortable:hover {
   color: var(--accent);

@@ -1048,6 +1048,18 @@ def ai_share(label_counts: Mapping[str, Any] | None, too_short_count: int = 0) -
     return int(counts.get("AI") or 0) / denom
 
 
+def ai_count(label_counts: Mapping[str, Any] | None) -> int:
+    """The number of ``AI`` and ``Mixed`` messages in one aggregate mix.
+
+    The count every aggregate-analysis sort orders by — the dashboard's lists
+    index and Timelines screen mirror it client-side (``aiCount`` in
+    ``lib/labels.js``). An empty mix is 0. Distinct from :func:`ai_share`,
+    which the stats export still reports.
+    """
+    counts = label_counts or {}
+    return int(counts.get("AI") or 0) + int(counts.get("Mixed") or 0)
+
+
 def _sender_scope(person_id: int | None, address: str | None) -> tuple[str, str, list[Any]]:
     """SQL predicates selecting (and excluding) one sender's messages.
 
@@ -2338,9 +2350,10 @@ class Store:
 
         - ``q`` — case-insensitive substring over the name or ANY email;
         - ``sort`` — ``"count"`` (by ``message_count``), ``"ai"`` (by the mix's
-          ``AI`` share, see :func:`ai_share`, ties broken by ``message_count``
-          descending whichever direction is asked for), both with a final name
-          asc for a stable order, or ``"name"`` (case-insensitive);
+          count of ``AI`` + ``Mixed`` messages, see :func:`ai_count`, ties
+          broken by ``message_count`` descending whichever direction is asked
+          for), both with a final name asc for a stable order, or ``"name"``
+          (case-insensitive);
         - ``order`` — ``"asc"``/``"desc"``;
         - ``page``/``per_page`` — 1-based, ``per_page`` clamped to
           ``[1, MAX_PER_PAGE]``.
@@ -2507,16 +2520,15 @@ class Store:
             if order == "desc":
                 entries.reverse()
         elif sort == "ai":
-            # Ties on the share are broken by volume, most messages first, in
-            # both directions: many senders share a value (0.0 above all, and
-            # every exact fraction a handful of messages can produce), and the
-            # busier of two such senders is the more informative row either way
-            # round. The pass runs before the share pass because Python's sort
-            # is stable, so its order survives wherever the share compares
+            # Ties on the count are broken by volume, most messages first, in
+            # both directions: many senders share a value (0 above all), and
+            # the busier of two such senders is the more informative row either
+            # way round. The pass runs before the count pass because Python's
+            # sort is stable, so its order survives wherever the count compares
             # equal; the name pass above stays the last resort.
             entries.sort(key=lambda e: e["message_count"], reverse=True)
             entries.sort(
-                key=lambda e: ai_share(e["label_counts"], e["too_short_count"]),
+                key=lambda e: ai_count(e["label_counts"]),
                 reverse=(order != "asc"),
             )
         else:  # count

@@ -15,6 +15,7 @@ from mailing_list_ai_check.store import (
     MULTI_NAME_ADDRESS_THRESHOLD,
     MessageFilters,
     Store,
+    ai_count,
     ai_share,
 )
 
@@ -550,12 +551,13 @@ def test_sender_rows_sort_count_asc(store):
 
 def test_sender_rows_sort_ai_desc_default(store):
     rows, _ = store.sender_rows(sort="ai", per_page=200)
-    # AI shares: Bob 1/2, Carol 1/3, Alice 1/4, Dave 0 (only a gated message),
-    # Eve 0 (nothing in the mix). Ties break on name asc.
+    # AI + Mixed counts: Alice 3, Bob 2, Carol 1, Dave 0 (only a gated
+    # message), Eve 0 (nothing in the mix). Dave and Eve, level on message
+    # count too, break on name asc.
     assert [r["name"] for r in rows] == [
+        "Alice Smith",
         "Bob Jones",
         "Carol",
-        "Alice Smith",
         "Dave",
         "Eve",
     ]
@@ -566,9 +568,9 @@ def test_sender_rows_sort_ai_asc(store):
     assert [r["name"] for r in rows] == [
         "Dave",
         "Eve",
-        "Alice Smith",
         "Carol",
         "Bob Jones",
+        "Alice Smith",
     ]
 
 
@@ -580,6 +582,13 @@ def test_ai_share_counts_gated_messages_and_empty_mixes():
     assert ai_share({}, 0) == 0.0
     assert ai_share(None) == 0.0
     assert ai_share({"AI": 2}) == 1.0
+
+
+def test_ai_count_sums_ai_and_mixed_only():
+    assert ai_count({"AI": 2, "Mixed": 3, "Human": 7}) == 5
+    assert ai_count({"Human": 3}) == 0
+    assert ai_count({}) == 0
+    assert ai_count(None) == 0
 
 
 def test_sender_rows_sort_name(store):

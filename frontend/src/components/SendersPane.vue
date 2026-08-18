@@ -410,7 +410,7 @@ function sortCount() {
   }
   refresh()
 }
-// By the AI share of the sender's mix (the API's `ai` sort), highest first.
+// By the sender's count of AI + Mixed messages (the API's `ai` sort), highest first.
 function sortAi() {
   if (sort.value === 'ai') order.value = order.value === 'desc' ? 'asc' : 'desc'
   else {
@@ -674,7 +674,7 @@ async function assignToExisting(row) {
         <span class="sortable" @click="sortName">Sender{{ nameInd }}</span>
         <span>Address</span>
         <span class="sortable" style="text-align: right;" @click="sortCount">Emails{{ countInd }}</span>
-        <span class="sortable" title="Sort by AI share" @click="sortAi"
+        <span class="sortable" title="Sort by AI + Mixed count" @click="sortAi"
           >Aggregate analysis{{ aiInd }}</span
         >
         <span style="text-align: right;">Link</span>

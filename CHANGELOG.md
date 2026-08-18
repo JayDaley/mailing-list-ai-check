@@ -37,6 +37,16 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.14.2] - 2026-08-19
+
+Summary: Sort the aggregate-analysis columns by the count of AI + Mixed messages instead of the AI share, and extend the Timelines screen's sort captions.
+
+- Add a Msgs sort caption to the Timelines screen; the initial count-descending order now shows its indicator and can be flipped.
+- Add an AI Count caption at the far left of the Timelines header, sorting the stack by the number of AI + Mixed messages.
+- Sort the lists-index aggregate analysis caption by the count of AI + Mixed messages instead of the AI share; ties still break on message count descending.
+- Sort GET /api/senders' ai order by the sender's count of AI + Mixed messages instead of the AI share; ties still break on message count descending.
+- The stats export's ai_share column is unchanged.
+
 ## [1.14.1] - 2026-08-19
 
 Summary: Add rug plots above the aggregate bars, fix every rug at gapless 2px columns, extend sorting across the tables and Timelines screen, and give the thread graph a month axis, handle-date hover and full-history default.
