@@ -145,6 +145,13 @@ The two combine as follows:
   that are new on the server, and registers a list whose folder is empty by
   seeding its cursor (counted as `cursors_seeded`), so a later `--incremental`
   run catches that list's first message.
+- Only a run whose completeness claim is true writes a cursor: an unfiltered
+  `--incremental` run, or the first unfiltered pull of a list (adoption — its
+  period defines the list's scope). A date- or count-based pull over a list
+  that already has a cursor, and any `--from`-filtered pull, leaves the cursor
+  untouched: their searches omit UIDs without naming them, so advancing would
+  claim unfetched messages as stored. The next `--incremental` run covers the
+  span such a pull left behind.
 
 Every fetched message is classified against the auto-generated-mail rules
 (`docs/findings/auto-generated.md`); flagged messages are stored with their

@@ -519,8 +519,19 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
     are kept. Count-based, incremental and explicit-UID pulls have no period
     and never discard.
 
-    Two cursor rules apply, both resting on what a ``pull_state`` row asserts:
+    Three cursor rules apply, all resting on what a ``pull_state`` row asserts:
     that the list is stored complete through ``last_uid``.
+
+    - Only a run whose completeness claim is true writes the cursor: an
+      unfiltered ``--incremental`` run (its ``UID n:*`` search enumerates every
+      UID above the cursor, and on a UIDVALIDITY change the documented resync
+      rewrite re-establishes tracking from the last sync date), or the first
+      unfiltered pull of a list, whose period defines the list's scope on
+      adoption. A date- or count-based pull over a list that already has a
+      cursor, or any ``--from``-filtered pull, leaves the cursor untouched —
+      their matched sets under-enumerate by construction, so advancing would
+      claim unfetched messages as stored. The next unfiltered incremental run
+      covers the span such a pull left behind.
 
     - With ``depth.require_cursor`` (an ``--all-lists --incremental`` run), a
       folder with no cursor is skipped and counted in ``untracked_skipped``,
@@ -604,13 +615,31 @@ def run_fetch(client: ImapClient, store: Store, request: FetchRequest) -> FetchS
         # search result — UIDs fetched this run or skipped as already stored.
         # Never past a UID the --limit cap left unfetched, or a later
         # --incremental pull would miss it.
+        #
+        # Only a run whose claim is true may write the cursor at all. An
+        # unfiltered --incremental search (`UID n:*`) enumerates every UID
+        # above the cursor, so its processed prefix is the literal truth; and
+        # the first unfiltered pull of a list adopts it, the run's period
+        # defining the list's scope — the claim every existing cursor was
+        # created under. Every other run under-enumerates by construction: a
+        # date or count search omits UIDs its criteria excluded without naming
+        # them, and a --from filter omits other senders, so advancing an
+        # existing cursor would mark messages stored that never were, hiding
+        # them from every later incremental run (late-arriving mail held in a
+        # moderation queue was lost exactly this way). Such runs leave the
+        # cursor alone; the next unfiltered --incremental run re-searches the
+        # span above it, skips what is stored as duplicates, and fetches what
+        # the filtered run passed by.
+        may_write_cursor = not request.from_filters and (
+            request.depth.incremental or cursor is None
+        )
         processed = stored_matched.union(uids)
         last_processed = None
         for uid in matched_uids:
             if uid not in processed:
                 break
             last_processed = uid
-        if last_processed is not None:
+        if may_write_cursor and last_processed is not None:
             store.set_pull_state(mlist.id, uidvalidity, last_processed)
         elif cursor is None and status.exists == 0 and status.uidnext:
             # A folder the server reports empty. "Complete through UIDNEXT - 1"

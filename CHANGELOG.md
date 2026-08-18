@@ -37,6 +37,15 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.13.0] - 2026-08-18
+
+Summary: Restrict cursor writes to runs whose completeness claim is true, so a date-, count- or sender-filtered pull can no longer advance a cursor past messages it never stored.
+
+- Advance or create a `pull_state` cursor only from an unfiltered `--incremental` run or the first unfiltered pull of a list; date- and count-based pulls over a tracked list leave the cursor untouched.
+- Never write a cursor from a `--from`-filtered pull, which omits every other sender and so can neither adopt an untracked list nor advance a tracked one.
+- Rely on the next unfiltered `--incremental` run to fetch what a filtered pull passed over, deduplicating already-stored UIDs; previously the advanced cursor hid such messages from every later run.
+- Keep the empty-folder cursor seeding and the UIDVALIDITY resync rewrite unchanged; both claims hold regardless of filters.
+
 ## [1.12.0] - 2026-08-18
 
 Summary: Stop `--all-lists --incremental` backfilling the full history of lists it has never pulled, and register empty folders so a later incremental run tracks them.

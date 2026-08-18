@@ -427,6 +427,120 @@ def test_parse_message_keeps_headers_verbatim_and_reparseable():
 # --- cursor rules: require_cursor and empty-folder seeding ---------------------
 
 
+def test_since_pull_does_not_advance_an_existing_cursor():
+    # A date search omits UIDs its criteria excluded without naming them, so a
+    # tracked list's cursor must not move — advancing it would claim messages
+    # as stored that never were (the late-arrival loss).
+    fd = _folder({u: (datetime(2026, 5, u), f"u{u}@example.org") for u in range(1, 4)})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    store.set_pull_state(mlist.id, 1000, 1)
+    summary = run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01")))
+    assert summary.fetched == 3  # uid 1 refetched: dates match, it isn't stored
+    assert store.get_pull_state(mlist.id).last_uid == 1
+    store.close()
+
+
+def test_incremental_self_heals_the_span_a_date_pull_left_behind():
+    # The recovery contract the no-advance rule rests on: a --since catch-up
+    # discards a late-arriving message (Date before the period) and leaves the
+    # cursor alone; the next incremental run fetches it by UID and stores it.
+    fd = _folder(
+        {
+            1: (datetime(2026, 5, 1), "a@example.org"),
+            2: (datetime(2026, 4, 1), "b@example.org"),  # held in moderation
+            3: (datetime(2026, 5, 3), "c@example.org"),
+        }
+    )
+    fd.dates = {u: datetime(2026, 5, u) for u in (1, 2, 3)}  # all ARRIVED in May
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    store.set_pull_state(mlist.id, 1000, 0)
+    first = run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01")))
+    assert first.fetched == 2 and first.discarded_early == 1
+    assert store.get_pull_state(mlist.id).last_uid == 0  # not advanced past uid 2
+    second = run_fetch(client, store, _request(depth=DepthMode(incremental=True)))
+    assert second.fetched == 1  # uid 2, recovered; 1 and 3 dedupe as stored
+    assert second.duplicates == 2
+    assert store.get_pull_state(mlist.id).last_uid == 3
+    store.close()
+
+
+def test_count_pull_does_not_advance_an_existing_cursor():
+    # A count slice takes the top N, skipping anything in between; the webapp's
+    # per-list pull uses this mode against tracked lists.
+    fd = _folder({u: (datetime(2026, 5, u), f"u{u}@example.org") for u in range(1, 6)})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    store.set_pull_state(mlist.id, 1000, 2)
+    summary = run_fetch(client, store, _request(depth=DepthMode(count=2)))
+    assert summary.fetched == 2  # uids 4 and 5; uid 3 skipped by the slice
+    assert store.get_pull_state(mlist.id).last_uid == 2
+    store.close()
+
+
+def test_from_filtered_pull_never_writes_a_cursor():
+    # A --from pull is a query, not a sync: it omits every other sender, so it
+    # may neither adopt an untracked list nor advance a tracked one.
+    fd = _folder(
+        {
+            1: (datetime(2026, 5, 1), "alice@example.org"),
+            2: (datetime(2026, 5, 2), "bob@example.org"),
+        }
+    )
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    summary = run_fetch(
+        client,
+        store,
+        _request(depth=DepthMode(since="2026-05-01"), from_filters=("alice@example.org",)),
+    )
+    assert summary.fetched == 1
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    assert store.get_pull_state(mlist.id) is None
+    store.close()
+
+
+def test_from_filtered_incremental_does_not_advance_the_cursor():
+    fd = _folder(
+        {
+            1: (datetime(2026, 5, 1), "alice@example.org"),
+            2: (datetime(2026, 5, 2), "bob@example.org"),
+            3: (datetime(2026, 5, 3), "alice@example.org"),
+        }
+    )
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    store.set_pull_state(mlist.id, 1000, 1)
+    summary = run_fetch(
+        client,
+        store,
+        _request(depth=DepthMode(incremental=True), from_filters=("alice@example.org",)),
+    )
+    assert summary.fetched == 1  # uid 3 only
+    # Advancing to 3 would bury bob's uid 2 forever; the cursor must hold.
+    assert store.get_pull_state(mlist.id).last_uid == 1
+    store.close()
+
+
+def test_date_pull_still_adopts_an_untracked_list():
+    # The first unfiltered pull of a list defines its scope — the claim every
+    # existing cursor was created under, and how a discovery sweep takes on a
+    # list that is new on the server.
+    fd = _folder({u: (datetime(2026, 5, u), f"u{u}@example.org") for u in range(1, 4)})
+    client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
+    store = Store(":memory:")
+    summary = run_fetch(client, store, _request(depth=DepthMode(since="2026-05-02")))
+    assert summary.fetched == 2  # uids 2 and 3
+    mlist = store.upsert_list("t", "Shared Folders/t")
+    assert store.get_pull_state(mlist.id).last_uid == 3
+    store.close()
+
+
 def test_run_fetch_incremental_requires_cursor_skips_untracked_folder():
     # The --all-lists --incremental case: no cursor means a list never asked
     # for, so its history must NOT be backfilled.
@@ -763,17 +877,18 @@ def test_run_fetch_refetches_stored_uids_after_uidvalidity_change():
 
 
 def test_run_fetch_limit_never_advances_cursor_past_unfetched_uids():
-    # First run stores uid 1 (limit 1). The second limited run skips stored
-    # uid 1, fetches uid 2, and must leave the cursor at 2 — not at any
-    # higher matched-but-unfetched uid.
+    # The adopting run stores uid 1 (limit 1) and must leave the cursor at 1 —
+    # not at any higher matched-but-unfetched uid. The incremental run that
+    # follows skips stored uid 1, fetches uid 2 under the same cap, and
+    # advances the cursor to exactly 2.
     fd = _folder({u: (datetime(2026, 5, 2 + u), "a@example.org") for u in range(1, 4)})
     client = ImapClient(FakeImapConn(folders={"Shared Folders/t": fd}))
     store = Store(":memory:")
     run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01"), limit=1))
-    second = run_fetch(client, store, _request(depth=DepthMode(since="2026-05-01"), limit=1))
-    assert second.fetched == 1
-    assert second.duplicates == 1
     mlist = store.upsert_list("t", "Shared Folders/t")
+    assert store.get_pull_state(mlist.id).last_uid == 1
+    second = run_fetch(client, store, _request(depth=DepthMode(incremental=True), limit=1))
+    assert second.fetched == 1
     assert store.get_pull_state(mlist.id).last_uid == 2
     store.close()
 
