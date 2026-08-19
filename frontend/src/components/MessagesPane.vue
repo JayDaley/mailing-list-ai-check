@@ -19,6 +19,7 @@ import {
 import { useFiltersStore } from '../stores/filters'
 import { useUiStore } from '../stores/ui'
 import { useMessagesStore } from '../stores/messages'
+import { useCapabilitiesStore } from '../stores/capabilities'
 import ExportModal from './ExportModal.vue'
 import MixBar from './MixBar.vue'
 import TimelineRug from './TimelineRug.vue'
@@ -29,6 +30,7 @@ const emit = defineEmits(['open'])
 const filters = useFiltersStore()
 const ui = useUiStore()
 const messages = useMessagesStore()
+const capabilities = useCapabilitiesStore()
 
 // --- reference data (lists / persons) ---
 const lists = ref([]) // [{name, message_count}] — only lists with messages
@@ -613,6 +615,7 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
         >{{ statusMsg }}</span
       >
       <button
+        v-if="capabilities.canExport"
         class="io-btn"
         :disabled="exporting"
         title="Export lists (whole messages, optionally within a date range)…"
@@ -640,6 +643,8 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
         :lists="lists"
         :preset="exportPreset"
         :busy="exporting"
+        :allow-full="capabilities.allowExport"
+        :allow-stats="capabilities.allowStatsExport"
         @close="exportOpen = false"
         @export="doExport"
       />

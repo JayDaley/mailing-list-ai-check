@@ -37,6 +37,16 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.15.2] - 2026-08-19
+
+Summary: Add a read-only mode that refuses every state-changing request, plus per-endpoint export switches, for exposing the dashboard on an untrusted network.
+
+- Added the `PUBLIC_READONLY` setting (env / `Config.public_readonly`); when enabled the web app rejects any non-GET/HEAD/OPTIONS request with a 403 before it reaches its view.
+- Added the `ALLOW_EXPORT` setting (env / `Config.allow_export`, default on); when off, `GET /api/export` returns a 403 before any database read.
+- Added the `ALLOW_STATS_EXPORT` setting (env / `Config.allow_stats_export`, default on); when off, `GET /api/export/stats` returns a 403 before any database read.
+- Added the `GET /api/capabilities` endpoint reporting the read-only and export flags, and had the dashboard read it to hide the export button (and, when only one export is offered, the format chooser) rather than surface a 403.
+- Added `PUBLIC_READONLY`, `ALLOW_EXPORT` and `ALLOW_STATS_EXPORT` to `.env.example`.
+
 ## [1.15.1] - 2026-08-19
 
 Summary: Show the app version and extraction generation in the documentation drawer.

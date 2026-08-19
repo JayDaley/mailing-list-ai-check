@@ -672,6 +672,27 @@ def _active_model(store: Store) -> str:
     return store.get_setting(SETTING_PANGRAM_MODEL) or DEFAULT_MODEL
 
 
+@api_bp.get("/capabilities")
+def capabilities() -> Any:
+    """Report the instance's capability flags so the frontend can adapt its UI.
+
+    These mirror the deployment settings the server enforces anyway (see
+    :func:`mailing_list_ai_check.webapp.create_app`): ``public_readonly`` is on
+    when every state-changing request is refused, and ``allow_export`` /
+    ``allow_stats_export`` say whether each export download is served. The client
+    reads them to hide controls that would only 403; the values are advisory to
+    the UI and never a substitute for the server-side checks.
+    """
+    cfg = current_app.config
+    return jsonify(
+        {
+            "public_readonly": bool(cfg.get("PUBLIC_READONLY", False)),
+            "allow_export": bool(cfg.get("ALLOW_EXPORT", True)),
+            "allow_stats_export": bool(cfg.get("ALLOW_STATS_EXPORT", True)),
+        }
+    )
+
+
 @api_bp.get("/settings")
 def get_settings() -> Any:
     """Return the persisted dashboard settings.
@@ -1985,7 +2006,13 @@ def export() -> Any:
 
     The finished file is streamed and cleaned up by :func:`_download_temp_file`,
     whose docstring covers the temp-file lifetime.
+
+    Served only when ``ALLOW_EXPORT`` is on (the default); a disabled instance
+    refuses it with a 403 before any database read.
     """
+    if not current_app.config.get("ALLOW_EXPORT", True):
+        raise ApiError("data export is disabled on this instance", 403)
+
     store = get_store()
     list_names = _selected_lists(request.args)
     date_from = _validate_iso("date_from", request.args.get("date_from"))
@@ -2050,7 +2077,13 @@ def export_stats_download() -> Any:
     full export and the same streaming and temp-file handling (see
     :func:`_download_temp_file`). It carries no message text and cannot be
     imported. A local database read only — no IMAP or Pangram calls.
+
+    Served only when ``ALLOW_STATS_EXPORT`` is on (the default); a disabled
+    instance refuses it with a 403 before any database read.
     """
+    if not current_app.config.get("ALLOW_STATS_EXPORT", True):
+        raise ApiError("stats export is disabled on this instance", 403)
+
     store = get_store()
     list_names = _selected_lists(request.args)
     date_from = _validate_iso("date_from", request.args.get("date_from"))

@@ -2898,3 +2898,126 @@ def test_staleness_check_rows_report_the_stored_generation(client, db_path):
     row = next(m for m in body["messages"] if m["extraction_version"] is not None)
     assert row["extraction_version"] == EXTRACTION_VERSION - 1
     assert row["pipeline_version"] == "1.0.5"
+
+
+# --- read-only mode (PUBLIC_READONLY) -----------------------------------------
+
+
+@pytest.fixture
+def readonly_client(db_path):
+    """A test client for an instance with PUBLIC_READONLY enabled."""
+    app = create_app(replace(_config(db_path), public_readonly=True), frontend_dist=None)
+    app.testing = True
+    return app.test_client()
+
+
+def test_readonly_allows_get_data(readonly_client):
+    """GET data endpoints keep working under read-only mode."""
+    for path in ("/api/messages", "/api/summary", "/api/lists", "/api/senders"):
+        resp = readonly_client.get(path)
+        assert resp.status_code == 200, path
+
+
+def test_readonly_rejects_every_write_method(readonly_client):
+    """POST/PUT/DELETE are refused with a 403 before reaching a view."""
+    cases = [
+        ("post", "/api/pull", {"list": "announce", "count": 1}),
+        ("post", "/api/extract", {"limit": 1}),
+        ("post", "/api/score", {"limit": 1}),
+        ("post", "/api/import", None),
+        ("put", "/api/settings", {"pangram_model": "default"}),
+        ("put", "/api/pangram/notice", {"state": "later"}),
+        ("post", "/api/persons", {"canonical_name": "X", "address_ids": []}),
+        ("delete", "/api/persons/1", None),
+    ]
+    for method, path, body in cases:
+        resp = getattr(readonly_client, method)(path, json=body)
+        assert resp.status_code == 403, f"{method} {path} -> {resp.status_code}"
+        assert resp.get_json() == {"error": "this instance is read-only"}
+
+
+def test_readonly_write_leaves_the_store_untouched(readonly_client, db_path):
+    """A refused write changes nothing: the setting keeps its prior value."""
+    before = readonly_client.get("/api/settings").get_json()
+    resp = readonly_client.put("/api/settings", json={"pangram_model": "default"})
+    assert resp.status_code == 403
+    after = readonly_client.get("/api/settings").get_json()
+    assert before == after
+
+
+def test_writes_allowed_when_readonly_off(client):
+    """The default instance is unchanged: writes still reach their view."""
+    resp = client.put("/api/settings", json={"pangram_model": "default"})
+    assert resp.status_code == 200
+
+
+# --- export switches (ALLOW_EXPORT / ALLOW_STATS_EXPORT) ----------------------
+
+
+def _export_client(db_path, **flags):
+    app = create_app(replace(_config(db_path), **flags), frontend_dist=None)
+    app.testing = True
+    return app.test_client()
+
+
+def test_exports_served_by_default(client):
+    """With both switches at their default, both exports download."""
+    assert client.get("/api/export").status_code == 200
+    assert client.get("/api/export/stats").status_code == 200
+
+
+def test_allow_export_off_refuses_full_export_only(db_path):
+    """Disabling ALLOW_EXPORT 403s the full export but leaves stats untouched."""
+    c = _export_client(db_path, allow_export=False)
+    resp = c.get("/api/export")
+    assert resp.status_code == 403
+    assert resp.get_json() == {"error": "data export is disabled on this instance"}
+    assert c.get("/api/export/stats").status_code == 200
+
+
+def test_allow_stats_export_off_refuses_stats_export_only(db_path):
+    """Disabling ALLOW_STATS_EXPORT 403s the stats export but leaves the full export."""
+    c = _export_client(db_path, allow_stats_export=False)
+    resp = c.get("/api/export/stats")
+    assert resp.status_code == 403
+    assert resp.get_json() == {"error": "stats export is disabled on this instance"}
+    assert c.get("/api/export").status_code == 200
+
+
+def test_both_export_switches_off(db_path):
+    """Both switches off 403 both exports; other GET data is unaffected."""
+    c = _export_client(db_path, allow_export=False, allow_stats_export=False)
+    assert c.get("/api/export").status_code == 403
+    assert c.get("/api/export/stats").status_code == 403
+    assert c.get("/api/summary").status_code == 200
+
+
+# --- capabilities endpoint ----------------------------------------------------
+
+
+def test_capabilities_defaults(client):
+    """The default instance reports full capability."""
+    body = client.get("/api/capabilities").get_json()
+    assert body == {
+        "public_readonly": False,
+        "allow_export": True,
+        "allow_stats_export": True,
+    }
+
+
+def test_capabilities_reflect_config(db_path):
+    """Each flag is echoed from the instance config."""
+    c = _export_client(
+        db_path, public_readonly=True, allow_export=False, allow_stats_export=True
+    )
+    body = c.get("/api/capabilities").get_json()
+    assert body == {
+        "public_readonly": True,
+        "allow_export": False,
+        "allow_stats_export": True,
+    }
+
+
+def test_capabilities_readable_under_readonly(readonly_client):
+    """The capabilities GET is not blocked by read-only mode."""
+    assert readonly_client.get("/api/capabilities").status_code == 200

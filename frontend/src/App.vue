@@ -12,6 +12,7 @@ import { fmtInt } from './lib/format'
 import { useUiStore } from './stores/ui'
 import { useFiltersStore } from './stores/filters'
 import { useSettingsStore } from './stores/settings'
+import { useCapabilitiesStore } from './stores/capabilities'
 import DocsDrawer from './components/DocsDrawer.vue'
 import StaleDataModal from './components/StaleDataModal.vue'
 import PangramUpgradeModal from './components/PangramUpgradeModal.vue'
@@ -19,6 +20,7 @@ import PangramUpgradeModal from './components/PangramUpgradeModal.vue'
 const ui = useUiStore()
 const filters = useFiltersStore()
 const settings = useSettingsStore()
+const capabilities = useCapabilitiesStore()
 
 // Unfiltered header stat, fetched once. `total`/`db_size_bytes` come from the
 // summary (with no filters); `nlists` from /api/lists.
@@ -122,7 +124,7 @@ onMounted(async () => {
   } catch {
     // The stat line is decorative; leave it blank if the fetch fails.
   }
-  await Promise.all([loadStaleness(), loadNotice(), settings.load()])
+  await Promise.all([loadStaleness(), loadNotice(), settings.load(), capabilities.load()])
   // At most one modal opens unprompted. The stale prompt takes precedence; an
   // unanswered Pangram notice then stays reachable through the alert icon.
   if (isStale.value) openWarning('stale')

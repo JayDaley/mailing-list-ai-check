@@ -13,10 +13,12 @@
 // per-list boxes rather than a fourth kind of selection.
 //
 // Props:
-//   - open    {boolean}  render the overlay + modal when true
-//   - lists   {Array}    [{name, message_count}] — the selectable lists
-//   - preset  {Array}    list names to tick when the dialog opens
-//   - busy    {boolean}  a download is in flight → controls disabled
+//   - open       {boolean}  render the overlay + modal when true
+//   - lists      {Array}    [{name, message_count}] — the selectable lists
+//   - preset     {Array}    list names to tick when the dialog opens
+//   - busy       {boolean}  a download is in flight → controls disabled
+//   - allowFull  {boolean}  the full export is offered on this instance
+//   - allowStats {boolean}  the stats export is offered on this instance
 // Emits:
 //   - close                                   Cancel, Escape or a backdrop click
 //   - export {format, lists, date_from, date_to}   the Export button;
@@ -30,8 +32,16 @@ const props = defineProps({
   lists: { type: Array, default: () => [] },
   preset: { type: Array, default: () => [] },
   busy: { type: Boolean, default: false },
+  allowFull: { type: Boolean, default: true },
+  allowStats: { type: Boolean, default: true },
 })
 const emit = defineEmits(['close', 'export'])
+
+// Whether the format is the user's to choose. When the instance offers only one
+// export, the Format section is hidden and that one format is used.
+const bothFormats = computed(() => props.allowFull && props.allowStats)
+// The format an opening starts on: 'full' when it is offered, else 'stats'.
+const defaultFormat = computed(() => (props.allowFull ? 'full' : 'stats'))
 
 const format = ref('full')
 const selected = ref([])
@@ -47,7 +57,7 @@ watch(
   (open) => {
     if (open) {
       selected.value = props.preset.filter((n) => props.lists.some((l) => l.name === n))
-      format.value = 'full'
+      format.value = defaultFormat.value
       search.value = ''
       dateFrom.value = ''
       dateTo.value = ''
@@ -142,19 +152,21 @@ function submit() {
         <div class="ex-title">Export</div>
         <div class="ex-intro">{{ intro }}</div>
 
-        <div class="ex-section-label">Format</div>
-        <div class="ex-formats">
-          <label class="ex-format">
-            <input v-model="format" type="radio" value="full" :disabled="busy" />
-            <span class="ex-format-name">Full</span>
-            <span class="ex-format-ext">.jsonl.zst</span>
-          </label>
-          <label class="ex-format">
-            <input v-model="format" type="radio" value="stats" :disabled="busy" />
-            <span class="ex-format-name">Stats</span>
-            <span class="ex-format-ext">.zip</span>
-          </label>
-        </div>
+        <template v-if="bothFormats">
+          <div class="ex-section-label">Format</div>
+          <div class="ex-formats">
+            <label class="ex-format">
+              <input v-model="format" type="radio" value="full" :disabled="busy" />
+              <span class="ex-format-name">Full</span>
+              <span class="ex-format-ext">.jsonl.zst</span>
+            </label>
+            <label class="ex-format">
+              <input v-model="format" type="radio" value="stats" :disabled="busy" />
+              <span class="ex-format-name">Stats</span>
+              <span class="ex-format-ext">.zip</span>
+            </label>
+          </div>
+        </template>
 
         <div class="ex-section-head">
           <span class="ex-section-label">Lists</span>

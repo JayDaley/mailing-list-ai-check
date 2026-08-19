@@ -32,7 +32,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, g, jsonify, send_from_directory
+from flask import Flask, g, jsonify, request, send_from_directory
 
 from ..config import Config
 from .api import ApiError, api_bp
@@ -91,8 +91,13 @@ def create_app(
     app.config["FRONTEND_DIST"] = str(dist) if dist is not None else None
     app.config["DEV_MODE"] = dev_mode
     app.config["DOCS_ROOT"] = str(_repo_root() if docs_root is _AUTODETECT else docs_root)
+    app.config["PUBLIC_READONLY"] = config.public_readonly
+    app.config["ALLOW_EXPORT"] = config.allow_export
+    app.config["ALLOW_STATS_EXPORT"] = config.allow_stats_export
 
     _register_teardown(app)
+    if config.public_readonly:
+        _register_readonly(app)
     if dev_mode:
         _register_cors(app)
     app.register_blueprint(api_bp)
@@ -107,6 +112,29 @@ def _register_teardown(app: Flask) -> None:
         store = g.pop("store", None)
         if store is not None:
             store.close()
+
+
+#: HTTP methods that never change server state; everything else is refused when
+#: the app runs read-only. HEAD/OPTIONS are the safe non-GET methods Flask may
+#: dispatch itself (auto-HEAD, CORS preflight).
+_READONLY_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _register_readonly(app: Flask) -> None:
+    """Refuse every state-changing request with a 403 (PUBLIC_READONLY mode).
+
+    The guard keys off the HTTP method alone, so it needs no per-route list and
+    cannot be out-run by a new endpoint: only GET/HEAD/OPTIONS pass, and every
+    POST/PUT/DELETE/PATCH — pull, extract, score, import, settings, the person
+    edits — is refused before it reaches its view, so no store write or outbound
+    IMAP/Pangram call happens. GET data and the dashboard are unaffected.
+    """
+
+    @app.before_request
+    def _reject_writes() -> Any:
+        if request.method not in _READONLY_SAFE_METHODS:
+            return jsonify({"error": "this instance is read-only"}), 403
+        return None
 
 
 def _register_cors(app: Flask) -> None:
