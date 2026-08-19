@@ -37,6 +37,13 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.15.1] - 2026-08-19
+
+Summary: Show the app version and extraction generation in the documentation drawer.
+
+- Added `app_version` and `extraction_version` to the `GET /api/docs` index response.
+- Added a footer at the bottom of the documentation drawer's index column showing the app version and the extraction generation.
+
 ## [1.15.0] - 2026-08-19
 
 Summary: Stop the HTML quote oracle deleting Gmail inline replies and remove re-wrapped quote remainders via parent-diff continuation matching (extraction generation 4).

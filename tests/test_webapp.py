@@ -2666,6 +2666,9 @@ def test_docs_index_order_and_titles(docs_client):
     assert titles["docs/zeta.md"] == "Zeta"
     # No level-1 heading → the path is the title.
     assert titles["docs/alpha.md"] == "docs/alpha.md"
+    # The index carries the version stamps for the drawer's footer.
+    assert body["app_version"] == __version__
+    assert body["extraction_version"] == EXTRACTION_VERSION
 
 
 def test_docs_index_excludes_subdirectories_and_non_markdown(docs_client):
@@ -2703,7 +2706,10 @@ def test_docs_index_tolerates_missing_files(db_path, tmp_path):
     empty.mkdir()
     app = create_app(_config(db_path), frontend_dist=None, docs_root=empty)
     app.testing = True
-    assert app.test_client().get("/api/docs").get_json() == {"docs": []}
+    body = app.test_client().get("/api/docs").get_json()
+    assert body["docs"] == []
+    assert body["app_version"] == __version__
+    assert body["extraction_version"] == EXTRACTION_VERSION
 
 
 def test_docs_index_covers_the_real_repository(db_path):

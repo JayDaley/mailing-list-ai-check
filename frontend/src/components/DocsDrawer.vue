@@ -35,11 +35,17 @@ const docs = ref([])
 const indexError = ref('')
 const indexLoaded = ref(false)
 
+// Version stamps shown at the bottom of the index column (from GET /api/docs).
+const appVersion = ref('')
+const extractionVersion = ref(null)
+
 async function loadIndex() {
   if (indexLoaded.value) return
   try {
     const data = await get('/docs')
     docs.value = data?.docs || []
+    appVersion.value = data?.app_version || ''
+    extractionVersion.value = data?.extraction_version ?? null
     indexLoaded.value = true
     if (docs.value.length) select(docs.value[0].path)
   } catch (err) {
@@ -201,6 +207,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           >
             <span class="docs-index-name mono">{{ indexLabel(d) }}</span>
           </button>
+          <div v-if="appVersion || extractionVersion !== null" class="docs-index-meta mono">
+            <span v-if="appVersion">app version {{ appVersion }}</span>
+            <span v-if="extractionVersion !== null">extraction generation {{ extractionVersion }}</span>
+          </div>
         </nav>
 
         <div ref="body" class="docs-view" @click="onBodyClick">
@@ -313,6 +323,17 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 .docs-index-name {
   font-size: 11px;
+}
+/* version stamps pinned to the bottom of the index column */
+.docs-index-meta {
+  margin-top: auto;
+  padding: 10px 12px 4px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
+  color: var(--text-muted);
 }
 
 .docs-view {

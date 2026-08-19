@@ -32,9 +32,11 @@ from typing import Any
 
 from flask import Blueprint, Response, current_app, g, jsonify, request
 
+from .. import __version__
 from ..cleaning import clean_for_scoring
 from ..cli import _PRICE_PER_100_WORDS, run_extract, run_score
 from ..export_import import ExportImportError, export_lists, import_file
+from ..extraction import EXTRACTION_VERSION
 from ..html_text import split_html_parts
 from ..fetcher import (
     DepthMode,
@@ -2185,9 +2187,17 @@ def list_docs() -> Any:
     """List the documentation files the dashboard can display.
 
     Returns ``{"docs": [{"path": "README.md", "title": "…"}, …]}`` in display
-    order. See :func:`_doc_index` for which files are included.
+    order, plus ``app_version`` (the running release) and ``extraction_version``
+    (the extraction generation) for the drawer's footer. See :func:`_doc_index`
+    for which files are included.
     """
-    return jsonify({"docs": _doc_index()})
+    return jsonify(
+        {
+            "docs": _doc_index(),
+            "app_version": __version__,
+            "extraction_version": EXTRACTION_VERSION,
+        }
+    )
 
 
 @api_bp.get("/docs/<path:doc_path>")
