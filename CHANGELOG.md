@@ -37,6 +37,16 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.15.0] - 2026-08-19
+
+Summary: Stop the HTML quote oracle deleting Gmail inline replies and remove re-wrapped quote remainders via parent-diff continuation matching (extraction generation 4).
+
+- Treat a Gmail `gmail_quote`/`gmail_quote_container` wrapper that holds a `<blockquote>` as transparent, so the author's inline replies written between the blockquotes are novel text instead of quoted; a wrapper with no blockquote (the forward shape) stays a quoted container.
+- Add Gmail's `gmail_attr` attribution line to the quoted-container class hooks.
+- Add a continuation rule to the parent-diff assist: an unmarked line joins the removal when an adjacent marked line and it appear contiguously in the parent's word-stream, removing the short remainder lines a re-wrapped quoted paragraph leaves behind.
+- Gate the continuation rule on at least 3 already-marked lines and enable it only for the thread-parent pass, not the HTML quote oracle, so inline citations and interleaved replies are never chained into.
+- Increment `EXTRACTION_VERSION` to 4; the fixture-corpus digest is unchanged because the affected shapes occur only in stored mail.
+
 ## [1.14.4] - 2026-08-19
 
 Summary: Show the "Too short to test" status in place of the Analysis dash rather than under it.

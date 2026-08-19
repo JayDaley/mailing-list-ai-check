@@ -83,6 +83,7 @@ def test_blockquote_is_quoted_rest_is_novel():
     [
         'class="gmail_quote"',
         'class="gmail_quote gmail_quote_container"',
+        'class="gmail_attr"',
         'class="moz-cite-prefix"',
         'class="OutlookMessageHeader"',
         'id="divRplyFwdMsg"',
@@ -132,6 +133,66 @@ def test_nested_quotes_all_count_as_quoted():
     assert parts.novel_text == ""
     for token in ("outer", "inner", "more outer"):
         assert token in parts.quoted_text
+
+
+def test_gmail_wrapper_with_blockquote_keeps_inline_replies_novel():
+    # Gmail's inline-reply shape: the author's paragraphs are direct children of
+    # the wrapper, between the blockquotes. Only the blockquotes and the
+    # attribution line are quoted.
+    html = (
+        '<div dir="ltr">'
+        '<div class="gmail_attr">On Mon, X wrote:</div>'
+        '<div class="gmail_quote gmail_quote_container">'
+        '<blockquote class="gmail_quote">their first point</blockquote>'
+        "<div>my inline answer</div>"
+        '<blockquote class="gmail_quote">their second point</blockquote>'
+        "<div>my other answer</div>"
+        "<div>-Me</div>"
+        "</div></div>"
+    )
+    parts = split_html_parts(html)
+    for token in ("my inline answer", "my other answer", "-Me"):
+        assert token in parts.novel_text
+    for token in ("their first point", "their second point", "On Mon, X wrote:"):
+        assert token in parts.quoted_text
+
+
+def test_gmail_wrapper_without_blockquote_stays_quoted():
+    # Gmail's forward shape: the forwarded body sits directly in the wrapper.
+    html = (
+        "<div>see below</div>"
+        '<div class="gmail_quote">---------- Forwarded message ---------'
+        "<br>From: someone<br>the forwarded body</div>"
+    )
+    parts = split_html_parts(html)
+    assert parts.novel_text == "see below"
+    assert "the forwarded body" in parts.quoted_text
+
+
+def test_gmail_wrapper_inside_a_blockquote_stays_quoted():
+    # A deeper reply's wrapper is inside this message's blockquote: all quoted.
+    html = (
+        "<div>mine</div>"
+        "<blockquote>"
+        '<div class="gmail_quote"><blockquote>deep</blockquote><div>theirs inline</div></div>'
+        "</blockquote>"
+    )
+    parts = split_html_parts(html)
+    assert parts.novel_text == "mine"
+    for token in ("deep", "theirs inline"):
+        assert token in parts.quoted_text
+
+
+def test_independent_gmail_wrappers_are_classified_per_instance():
+    # One interleaved wrapper (transparent) and one forward wrapper (quoted).
+    html = (
+        '<div class="gmail_quote"><blockquote>quoted</blockquote><div>inline reply</div></div>'
+        '<div class="gmail_quote">forwarded body</div>'
+    )
+    parts = split_html_parts(html)
+    assert "inline reply" in parts.novel_text
+    assert "quoted" in parts.quoted_text
+    assert "forwarded body" in parts.quoted_text
 
 
 # --- malformed markup ---------------------------------------------------------

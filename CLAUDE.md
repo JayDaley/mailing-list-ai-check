@@ -79,7 +79,7 @@ them, and what depends on them.
 ## Versioning
 
 The app uses [semantic versioning](https://semver.org/); the current version is
-**1.14.4**. The single source of truth is `mailing_list_ai_check.__version__`
+**1.15.0**. The single source of truth is `mailing_list_ai_check.__version__`
 (in `__init__.py`); `pyproject.toml` reads it dynamically, so the two never
 drift.
 
@@ -120,8 +120,8 @@ separately.
   corpus as a single SHA-256. An increment requires re-recording `EXPECTED_DIGEST`
   and `DIGEST_EXTRACTION_VERSION` in that file in the same commit; the test fails
   otherwise, and it also fails when the output moves without an increment.
-- Three generations exist: **1** (initial release), **2** (from v1.2.0) and
-  **3** (from v1.11.0).
+- Four generations exist: **1** (initial release), **2** (from v1.2.0),
+  **3** (from v1.11.0) and **4** (from v1.15.0).
 
 Version stamps in the database:
 

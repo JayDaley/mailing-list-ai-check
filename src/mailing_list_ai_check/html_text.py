@@ -110,12 +110,20 @@ _SKIP_TAGS = frozenset({"script", "style", "head"})
 #: ``class`` tokens that mark a quoted container.
 _QUOTED_CLASSES = frozenset(
     {
-        "gmail_quote",  # Gmail's quoted-message wrapper
-        "gmail_quote_container",  # newer Gmail wrapper
+        "gmail_attr",  # Gmail's "On <date> X wrote:" attribution line
         "moz-cite-prefix",  # Thunderbird "On <date> X wrote:" prefix
         "OutlookMessageHeader",  # Outlook forwarded/quoted header block
     }
 )
+#: ``class`` tokens for Gmail's quote wrapper ``<div>``. Unlike the containers
+#: above, what this wrapper holds depends on how the reply was written: a
+#: top-post or forward puts only quoted material inside it, but an inline reply
+#: interleaves the author's own paragraphs as direct children between the
+#: ``<blockquote>`` elements. A wrapper with at least one ``<blockquote>``
+#: descendant is therefore transparent (its direct-child text is novel; the
+#: blockquotes and the ``gmail_attr`` line inside it are still quoted); a
+#: wrapper with none (the forward shape) is a quoted container as before.
+_GMAIL_WRAPPER_CLASSES = frozenset({"gmail_quote", "gmail_quote_container"})
 #: ``id`` values that mark a quoted container (Outlook web reply/forward anchors).
 _QUOTED_IDS = frozenset({"divRplyFwdMsg", "appendonsend"})
 #: ``class`` tokens that mark a signature container.
@@ -162,13 +170,18 @@ class _Segmenter(HTMLParser):
     and stray tags so malformed markup cannot corrupt the depth counters.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, interleaved_wrappers: frozenset[int] = frozenset()) -> None:
         super().__init__(convert_charrefs=True)
         # Each entry: (tag, category-or-None, is_skip).
         self._stack: list[tuple[str, str | None, bool]] = []
         self._quoted_depth = 0
         self._signature_depth = 0
         self._skip_depth = 0
+        #: Gmail wrapper instances (document-order index) that hold a
+        #: ``<blockquote>`` and are therefore transparent (see
+        #: :data:`_GMAIL_WRAPPER_CLASSES`); computed by :func:`_interleaved_wrappers`.
+        self._interleaved_wrappers = interleaved_wrappers
+        self._wrapper_count = 0
         #: ``("nl",)`` or ``("text", category, string)``.
         self.segments: list[tuple[str, ...]] = []
 
@@ -181,8 +194,7 @@ class _Segmenter(HTMLParser):
             return _SIGNATURE
         return _NOVEL
 
-    @staticmethod
-    def _container_category(tag: str, attrs: list[tuple[str, str | None]]) -> str | None:
+    def _container_category(self, tag: str, attrs: list[tuple[str, str | None]]) -> str | None:
         d = dict(attrs)
         classes = (d.get("class") or "").split()
         el_id = d.get("id") or ""
@@ -192,6 +204,13 @@ class _Segmenter(HTMLParser):
             or el_id in _QUOTED_IDS
         ):
             return _QUOTED
+        if tag != "blockquote" and any(c in _GMAIL_WRAPPER_CLASSES for c in classes):
+            # A Gmail wrapper is quoted only in its blockquote-less (forward)
+            # shape; one holding blockquotes has the author's inline replies as
+            # direct children and contributes no category of its own.
+            index = self._wrapper_count
+            self._wrapper_count += 1
+            return None if index in self._interleaved_wrappers else _QUOTED
         if any(c in _SIGNATURE_CLASSES for c in classes) or el_id == _SIGNATURE_ID:
             return _SIGNATURE
         return None
@@ -286,9 +305,67 @@ def _render(segments: list[tuple[str, ...]], wanted: str | None) -> str:
     return "\n".join(collapsed)
 
 
+class _WrapperScanner(HTMLParser):
+    """First pass: which Gmail wrapper instances hold a ``<blockquote>``.
+
+    Instances are numbered in document order of their start tags with the same
+    branch logic as :meth:`_Segmenter._container_category`, so the two passes
+    agree on indices. A ``<blockquote>`` start marks every wrapper instance
+    currently open as interleaved. The open-wrapper stack mirrors the
+    segmenter's defended pop, so malformed markup cannot desynchronize them.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        #: (tag, wrapper-instance-index-or-None) for every open element.
+        self._stack: list[tuple[str, int | None]] = []
+        self._wrapper_count = 0
+        self.interleaved: set[int] = set()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if tag in _VOID_TAGS:
+            return
+        if tag == "blockquote":
+            for _tag, index in self._stack:
+                if index is not None:
+                    self.interleaved.add(index)
+            self._stack.append((tag, None))
+            return
+        d = dict(attrs)
+        classes = (d.get("class") or "").split()
+        el_id = d.get("id") or ""
+        index: int | None = None
+        is_quoted_hook = any(c in _QUOTED_CLASSES for c in classes) or el_id in _QUOTED_IDS
+        if not is_quoted_hook and any(c in _GMAIL_WRAPPER_CLASSES for c in classes):
+            index = self._wrapper_count
+            self._wrapper_count += 1
+        self._stack.append((tag, index))
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in _VOID_TAGS:
+            return
+        for i in range(len(self._stack) - 1, -1, -1):
+            if self._stack[i][0] == tag:
+                del self._stack[i:]
+                return
+
+
+def _interleaved_wrappers(html: str) -> frozenset[int]:
+    """Document-order indices of Gmail wrappers that contain a ``<blockquote>``."""
+    scanner = _WrapperScanner()
+    try:
+        scanner.feed(html)
+        scanner.close()
+    except Exception:  # noqa: BLE001 - html.parser is lenient, but stay defensive
+        pass
+    return frozenset(scanner.interleaved)
+
+
 def _segment(html: str) -> list[tuple[str, ...]]:
     """Parse ``html`` into category-tagged segments; never raise on bad markup."""
-    parser = _Segmenter()
+    parser = _Segmenter(interleaved_wrappers=_interleaved_wrappers(html))
     try:
         parser.feed(html)
         parser.close()
@@ -322,10 +399,15 @@ def split_html_parts(html: str) -> HtmlParts:
     kept in each stream, decided by the innermost enclosing container:
 
     - **Quoted** — everything inside a ``<blockquote>``; any element whose
-      ``class`` list contains one of ``gmail_quote``, ``gmail_quote_container``,
-      ``moz-cite-prefix``, ``OutlookMessageHeader``; or whose ``id`` is
-      ``divRplyFwdMsg`` or ``appendonsend``. Quoted containers nest: text inside
-      one is quoted even when a signature container sits between it and the text.
+      ``class`` list contains one of ``gmail_attr``, ``moz-cite-prefix``,
+      ``OutlookMessageHeader``; or whose ``id`` is ``divRplyFwdMsg`` or
+      ``appendonsend``. Quoted containers nest: text inside one is quoted even
+      when a signature container sits between it and the text. Gmail's
+      ``gmail_quote`` / ``gmail_quote_container`` wrapper is quoted only when it
+      holds no ``<blockquote>`` (the forward shape); a wrapper holding
+      blockquotes carries the author's inline replies as direct children, so
+      only its blockquotes and attribution line are quoted, not the wrapper
+      itself.
     - **Signature** — everything inside an element whose ``class`` list contains
       ``gmail_signature``, ``moz-signature`` or ``Signature`` (Outlook's
       ``<div id="Signature">`` matches on the id) — but only when it is **not**

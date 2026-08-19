@@ -122,7 +122,9 @@ offering to downgrade good text.
 Known generations: **1** initial release; **2** the localized quote-header and
 custom signature-block rules (v1.2.0); **3** quote-header truncation before ERP,
 with folded and double-spaced header tolerance and the transport-header
-pasted-evidence guard (v1.11.0).
+pasted-evidence guard (v1.11.0); **4** the parent-diff continuation rule for
+re-wrapped remainder lines, and Gmail quote wrappers holding blockquotes no
+longer classifying the author's inline replies as quoted (v1.15.0).
 """
 
 from __future__ import annotations
@@ -141,7 +143,7 @@ from .html_text import split_html_parts
 #: :mod:`html_text` together). Hand-incremented; see the module docstring for
 #: when and why. Stamped on every ``extractions`` row and compared with ``<`` by
 #: :mod:`staleness`, so it must only ever increase.
-EXTRACTION_VERSION: int = 3
+EXTRACTION_VERSION: int = 4
 
 # --- result -------------------------------------------------------------------
 
@@ -707,6 +709,11 @@ _PARENT_DIFF_MIN_BLOCK_WORDS = 10
 #: same per-line floor gates the rewrap rule (a single long line is strong
 #: evidence on its own).
 _PARENT_DIFF_MIN_LINE_WORDS = 8
+#: The continuation rule chains only off at least this many already-marked
+#: lines. Below the floor the marks may be an author's short inline citation
+#: (1-2 legitimately matching lines), and chaining would extend the deletion
+#: into the author's own text; a real re-wrapped quoted block seeds far more.
+_PARENT_DIFF_CONTINUATION_MIN_SEEDS = 3
 
 
 def _normalize_line_for_diff(line: str) -> str:
@@ -720,13 +727,13 @@ def _normalize_line_for_diff(line: str) -> str:
     return " ".join(_QUOTE_RE.sub("", line).split())
 
 
-def strip_parent_content(text: str, parent_body: str) -> str:
+def strip_parent_content(text: str, parent_body: str, *, continuation: bool = False) -> str:
     """Remove lines of ``text`` that provably came from ``parent_body``.
 
     Pure and I/O-free; never raises (empty or whitespace-only inputs yield a
     sensibly trimmed result). Both sides are run through :func:`normalize_body`
     and then :func:`_normalize_line_for_diff` per line; blank lines are ignored
-    when matching. A child line is marked as parent content by either rule:
+    when matching. A child line is marked as parent content by these rules:
 
     a) **Aligned-run rule** — over the normalized non-blank line sequences,
        :class:`difflib.SequenceMatcher` (``autojunk=False``) finds matching
@@ -740,6 +747,17 @@ def strip_parent_content(text: str, parent_body: str) -> str:
        of at least :data:`_PARENT_DIFF_MIN_LINE_WORDS` words whose normalized
        text is a substring of the parent's normalized word-stream (all parent
        lines joined by single spaces) is marked too.
+    c) **Continuation rule** (only with ``continuation=True``) — a re-wrapped
+       paragraph's short remainder line falls under rule (b)'s floor and leaks.
+       An unmarked line is marked when an adjacent non-blank line is already
+       marked and the two joined in reading order appear contiguously in the
+       parent's word-stream; iterated to a fixpoint so runs of short lines chain
+       off one long seed. Runs only when rules (a)+(b) marked at least
+       :data:`_PARENT_DIFF_CONTINUATION_MIN_SEEDS` lines — a real quoted block,
+       not an isolated inline-citation echo. Safe against the parent body (the
+       author's new text is never in it) but not against this message's own
+       HTML quote container, where a client may wrap the author's inline
+       replies (so the html-quote oracle call leaves it off).
 
     Marked lines are dropped; the survivors are ``rstrip``-ed, any run of 2+
     blank lines left by removals collapses to one, and leading/trailing blank
@@ -782,6 +800,25 @@ def strip_parent_content(text: str, parent_body: str) -> str:
             continue
         if len(norm.split()) >= _PARENT_DIFF_MIN_LINE_WORDS and norm in parent_stream:
             marked.add(orig_i)
+
+    # Rule (c): chain short remainder lines off marked neighbors, to a fixpoint.
+    changed = continuation and len(marked) >= _PARENT_DIFF_CONTINUATION_MIN_SEEDS
+    while changed:
+        changed = False
+        for k, (orig_i, norm) in enumerate(child_pairs):
+            if orig_i in marked:
+                continue
+            if k > 0:
+                prev_i, prev_norm = child_pairs[k - 1]
+                if prev_i in marked and (prev_norm + " " + norm) in parent_stream:
+                    marked.add(orig_i)
+                    changed = True
+                    continue
+            if k + 1 < len(child_pairs):
+                next_i, next_norm = child_pairs[k + 1]
+                if next_i in marked and (norm + " " + next_norm) in parent_stream:
+                    marked.add(orig_i)
+                    changed = True
 
     survivors = [line.rstrip() for i, line in enumerate(child_raw) if i not in marked]
 
@@ -857,7 +894,7 @@ def _core_extract(body: str, parent_body: str | None) -> tuple[str, str]:
     # string comparison would fire — mutating the text and mislabeling the
     # method — on a parent that removed nothing.
     if parent_body is not None and text.strip():
-        assisted = strip_parent_content(text, parent_body)
+        assisted = strip_parent_content(text, parent_body, continuation=True)
         if _nonblank_line_count(assisted) < _nonblank_line_count(text):
             text = assisted
             method += "+parent-diff"

@@ -908,6 +908,76 @@ def test_strip_parent_content_never_raises_on_empty_input():
     assert strip_parent_content("   \n\n", "anything at all here") == ""
 
 
+# One quoted message re-wrapped by the child at a narrower width: three long
+# lines seed rules (a)/(b), and each paragraph leaves a short remainder line
+# that only the continuation rule can attribute to the parent.
+_CONTINUATION_PARENT = (
+    "Address prefixes are orderable as a property of the objects so containment is mechanical.\n"
+    "Communities are the opposite by design with semantics that stay strictly bilateral throughout.\n"
+    "Both are useful and the protocol does not pretend the second case is the first.\n"
+)
+_CONTINUATION_CHILD = (
+    "Thanks for laying this out so clearly.\n"
+    "\n"
+    "Address prefixes are orderable as a property of the objects so containment\n"
+    "is mechanical.\n"
+    "Communities are the opposite by design with semantics that stay strictly\n"
+    "bilateral throughout.\n"
+    "Both are useful and the protocol does not pretend the second case is\n"
+    "the first.\n"
+)
+
+
+def test_continuation_removes_rewrapped_remainder_lines():
+    # The sub-8-word remainders ("is mechanical.", "bilateral throughout.",
+    # "the first.") continue the parent word-stream right after a marked line.
+    result = strip_parent_content(_CONTINUATION_CHILD, _CONTINUATION_PARENT, continuation=True)
+    assert result == "Thanks for laying this out so clearly."
+
+
+def test_continuation_is_off_by_default():
+    # Without the flag (the html-quote oracle call site) the remainders leak,
+    # exactly as before generation 4.
+    result = strip_parent_content(_CONTINUATION_CHILD, _CONTINUATION_PARENT)
+    assert "is mechanical." in result
+    assert "the first." in result
+
+
+def test_continuation_needs_a_seeded_block():
+    # Two matching lines are an inline citation, not a quoted block: below the
+    # seed floor the continuation rule stays off and the third short line (and
+    # everything else) survives.
+    parent = (
+        "The first cited sentence is long enough to match the rewrap rule cleanly "
+        "and the second cited sentence is also long enough to match that same rule. "
+        "A short tail."
+    )
+    text = (
+        "The first cited sentence is long enough to match the rewrap rule cleanly\n"
+        "and the second cited sentence is also long enough to match that same rule.\n"
+        "A short tail.\n"
+        "My own conclusion drawn from those two sentences follows here.\n"
+    )
+    result = strip_parent_content(text, parent, continuation=True)
+    assert "A short tail." in result
+    assert "My own conclusion" in result
+
+
+def test_continuation_keeps_the_authors_own_signoff():
+    # The live sign-off's neighbors are the author's new text, which is not in
+    # the parent stream, so no join can mark it even while the quoted block
+    # below is fully removed.
+    child = (
+        "My genuinely new answer to the thread goes right here in this line.\n"
+        "\n"
+        "Songbo\n"
+        "\n" + _CONTINUATION_CHILD.split("\n", 2)[2]  # the re-wrapped quote block
+    )
+    result = strip_parent_content(child, _CONTINUATION_PARENT, continuation=True)
+    assert "Songbo" in result
+    assert "is mechanical." not in result
+
+
 def test_parent_diff_no_removal_leaves_text_and_method_untouched():
     # A parent that shares no substantial content must not change the output.
     # strip_parent_content collapses internal blank runs, so a naive string
