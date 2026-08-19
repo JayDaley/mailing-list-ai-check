@@ -842,9 +842,10 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
             </div>
             <div class="cell cell-ellipsis" :style="{ padding: cellPad }">{{ m.subject }}</div>
             <!-- The prediction pill, a Humanizer pill to its right when any
-                 window is flagged, and the too-short status underneath. -->
+                 window is flagged; "Too short to test" replaces the pill row
+                 on gated rows. -->
             <div class="cell analysis-cell" :style="{ padding: cellPad }">
-              <span class="analysis-pills">
+              <span v-if="m.scored || !m.tooShort" class="analysis-pills">
                 <span v-if="m.scored" class="pred-pill" :style="{ background: m.pillColor }">{{
                   m.predShort
                 }}</span>

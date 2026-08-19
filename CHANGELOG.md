@@ -37,6 +37,12 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.14.4] - 2026-08-19
+
+Summary: Show the "Too short to test" status in place of the Analysis dash rather than under it.
+
+- Remove the dash above "Too short to test" in the Analysis column; the status replaces the pill row on gated rows.
+
 ## [1.14.3] - 2026-08-19
 
 Summary: Reduce the messages pane's Analysis column to verdict pills, flag humanized messages, and colour the per-window scores by verdict.
