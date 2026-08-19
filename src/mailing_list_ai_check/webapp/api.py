@@ -225,6 +225,9 @@ def _window_scores(raw: dict[str, Any] | None) -> list[dict[str, Any]]:
     place of a single scalar, since Pangram emits no document-level score. The
     window text and offsets are deliberately left out: the list only needs the
     numbers, and the full response is available from the detail endpoint.
+    ``label`` colours each entry by the window's verdict; ``is_humanized``
+    rides along so the list can flag messages with a humanized window (null on
+    rows scored under detector v3).
     """
     windows = (raw or {}).get("windows")
     if not isinstance(windows, list):
@@ -237,6 +240,8 @@ def _window_scores(raw: dict[str, Any] | None) -> list[dict[str, Any]]:
             {
                 "ai_assistance_score": window.get("ai_assistance_score"),
                 "confidence": window.get("confidence"),
+                "label": window.get("label"),
+                "is_humanized": window.get("is_humanized"),
             }
         )
     return out

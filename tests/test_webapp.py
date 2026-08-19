@@ -462,9 +462,16 @@ def test_message_row_carries_per_window_scores(client, db_path):
     assert window["end"] == {"line": 0, "col": len("Body of Re: Intro to draft")}
 
     row = next(r for r in client.get("/api/messages").get_json()["messages"] if r["id"] == m2_id)
-    # The list endpoint carries the numbers only, not the positions.
+    # The list endpoint carries the numbers and the verdict label, not the
+    # positions. The seeded response predates the humanizer fields, so
+    # is_humanized is null.
     assert row["score"]["windows"] == [
-        {"ai_assistance_score": pytest.approx(0.02), "confidence": "High"}
+        {
+            "ai_assistance_score": pytest.approx(0.02),
+            "confidence": "High",
+            "label": "Human Written",
+            "is_humanized": None,
+        }
     ]
 
 

@@ -11,6 +11,7 @@ import { fmtDate, fmtInt } from '../lib/format'
 import {
   LABEL_SHORT,
   LABEL_COLORS,
+  OBSERVABLE_10,
   PRED_ORDER,
   TIMELINE_BUCKETS,
   foldToPrediction,
@@ -211,15 +212,19 @@ const ACTIVE = '#2f6feb'
 const IDLE = '#dfe3e8'
 const b = (v) => (v !== '' && v != null ? ACTIVE : IDLE)
 
+// The Humanizer pill's fill: the one Observable 10 colour the label vocabulary
+// does not use (the same purple as the detail drawer's humanized swatch).
+const HUMANIZED_COLOR = OBSERVABLE_10.purple
+
 // --- grid columns (From collapses to 0 in anonymous mode) ---
-// Date · List · From · Subject · Analysis (prediction pill + headline) ·
+// Date · List · From · Subject · Analysis (prediction + Humanizer pills) ·
 // AI Score (per-window scores) · Chars · Chars/min (the reply-timing rate).
 // The filter row stacks its controls two deep, so Date needs room for only one
 // date input and List gains the rest.
 const gridCols = computed(() =>
   ui.anonymous
-    ? '120px 156px 0px minmax(200px, 1fr) 230px 220px 64px 92px'
-    : '120px 156px 170px minmax(200px, 1fr) 230px 220px 64px 92px',
+    ? '120px 156px 0px minmax(200px, 1fr) 160px 220px 64px 92px'
+    : '120px 156px 170px minmax(200px, 1fr) 160px 220px 64px 92px',
 )
 const cellPad = computed(() => (ui.density === 'comfortable' ? '6px 10px' : '2px 10px'))
 const fromCellPad = computed(() => (ui.anonymous ? '0' : cellPad.value))
@@ -503,6 +508,7 @@ const rows = computed(() =>
     // Analysis pill: the prediction_short bucket (the stored label holds the
     // same value verbatim), coloured like the score badges.
     const predShort = scored ? sc.prediction_short || sc.label : ''
+    const windows = scored ? sc.windows || [] : []
     // Chars/min: the rate behind the timing band, as whole chars/minute. It is
     // absent exactly where the band is (non-replies, missing parent or dates,
     // no extraction), and from 100 up the cell is tinted by the rate.
@@ -517,13 +523,15 @@ const rows = computed(() =>
       scored,
       predShort,
       pillColor: scored ? LABEL_COLORS[predShort] || LABEL_COLORS.unscored : '',
-      headline: scored ? sc.headline || '' : '',
+      // Detector v4 flags AI output passed through a humanizer tool per
+      // window; any flagged window earns the row a Humanizer pill.
+      humanized: windows.some((w) => w.is_humanized),
       // Under the 50-word reliability floor: gated before Pangram, so the
       // Analysis column says so rather than leaving the row blank.
       tooShort: ext != null && ext.status === 'too_short',
       // Pangram's per-window scores, in document order. Pangram emits no
       // document-level score, so the column lists one entry per window.
-      windows: scored ? sc.windows || [] : [],
+      windows,
       timingTitle: TIMING_TITLES[m.timing] || '',
       cpmText: cpm == null ? '—' : fmtInt(cpm),
       cpmBg: rateTint(cpm),
@@ -639,7 +647,7 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
 
     <!-- scroll region -->
     <div class="messages-scroll" @scroll="onScroll">
-      <div style="min-width: 1320px;">
+      <div style="min-width: 1250px;">
         <div class="messages-sticky">
           <!-- header row -->
           <div class="messages-grid messages-head" :style="{ gridTemplateColumns: gridCols }">
@@ -833,18 +841,24 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
               >
             </div>
             <div class="cell cell-ellipsis" :style="{ padding: cellPad }">{{ m.subject }}</div>
-            <!-- Pill and headline sit in fixed sub-columns, so every headline
-                 starts at the same x however wide its pill is. -->
+            <!-- The prediction pill, a Humanizer pill to its right when any
+                 window is flagged, and the too-short status underneath. -->
             <div class="cell analysis-cell" :style="{ padding: cellPad }">
-              <span class="analysis-pill-slot">
+              <span class="analysis-pills">
                 <span v-if="m.scored" class="pred-pill" :style="{ background: m.pillColor }">{{
                   m.predShort
                 }}</span>
                 <span v-else class="cell-dash">—</span>
+                <span
+                  v-if="m.humanized"
+                  class="pred-pill"
+                  :style="{ background: HUMANIZED_COLOR }"
+                  title="At least one window reads as AI output passed through a humanizer tool"
+                  >Humanizer</span
+                >
               </span>
-              <span v-if="m.scored" class="headline-text" :title="m.headline">{{ m.headline }}</span>
               <span
-                v-else-if="m.tooShort"
+                v-if="m.tooShort"
                 class="too-short-text"
                 title="Under the 50-word reliability floor — not sent to Pangram"
                 >Too short to test</span
@@ -1101,22 +1115,23 @@ select.fctl {
 .cell-link-mono {
   font-family: var(--mono);
 }
-/* Analysis column: the prediction pill in a fixed slot, then the headline, so
-   the headlines line up down the column. */
+/* Analysis column: the pill row on top, the too-short status underneath. */
 .analysis-cell {
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
   min-width: 0;
 }
-.analysis-pill-slot {
+.analysis-pills {
   display: flex;
   align-items: center;
+  gap: 6px;
   min-width: 0;
 }
-/* The prediction_short bucket as a pill (Human / Mixed / AI), followed by
-   Pangram's free-text headline as plain, uncoloured text. */
+/* The prediction_short bucket as a pill (Human / Mixed / AI), and the purple
+   Humanizer pill beside it when any window is flagged. */
 .pred-pill {
   flex: none;
   padding: 0 7px;
@@ -1125,13 +1140,6 @@ select.fctl {
   font-weight: 700;
   line-height: 16px;
   color: #ffffff;
-}
-.headline-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: #1c2024;
 }
 /* Gated as too short to score: set in the monospace face, unlike the
    proportional headline, so it reads as a status rather than a verdict. */

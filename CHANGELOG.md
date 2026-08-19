@@ -37,6 +37,18 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.14.3] - 2026-08-19
+
+Summary: Reduce the messages pane's Analysis column to verdict pills, flag humanized messages, and colour the per-window scores by verdict.
+
+- Remove the Pangram headline text from the Analysis column; the column shows the prediction pill alone.
+- Move the "Too short to test" status under the Analysis pill slot instead of beside it.
+- Add a purple Humanizer pill to the right of the prediction pill when any window of the message's score is flagged is_humanized.
+- Add is_humanized to each window entry in GET /api/messages' score payload; null on rows scored under detector v3.
+- Narrow the Analysis column from 230px to 160px.
+- Frame each score/confidence pair in the AI Score column with a 2px border in the window's verdict colour.
+- Add label to each window entry in GET /api/messages' score payload.
+
 ## [1.14.2] - 2026-08-19
 
 Summary: Sort the aggregate-analysis columns by the count of AI + Mixed messages instead of the AI share, and extend the Timelines screen's sort captions.
