@@ -53,60 +53,90 @@ async function loadRefData() {
   }
 }
 
-// --- From dropdown: every sender (linked person or unlinked address) with
-// messages in the displayed list(s), alphabetical. Reloads when the list
-// filter changes; /api/senders is paged, so accumulate until `total`.
-const senderOptions = ref([]) // [{value: 'p:<person_id>'|'a:<email>', label}]
-let sendersToken = 0
-async function loadSenderOptions() {
-  const token = ++sendersToken
+// --- From combobox: type-ahead over /api/senders?q=… The store holds more
+// senders than a preloaded <select> can carry, so each keystroke is a
+// server-side substring search (over name or any email), scoped to the list
+// filter, alphabetical, capped at one page of results.
+const FROM_PER_PAGE = 50
+const fromInput = ref('')
+const fromDdOpen = ref(false)
+const fromLoading = ref(false)
+const fromResults = ref([]) // [{value: 'p:<person_id>'|'a:<email>', label, count}]
+const fromTotal = ref(0) // server-side match count, before the page cap
+let fromToken = 0
+let fromTimer = null
+
+async function searchSenders() {
+  const token = ++fromToken
+  fromLoading.value = true
   try {
-    const all = []
-    let pageNo = 1
-    let total = Infinity
-    while (all.length < total && pageNo <= 10) {
-      const data = await get('/senders', {
-        list: filters.list || undefined,
-        sort: 'name',
-        order: 'asc',
-        page: pageNo,
-        per_page: 200,
-      })
-      if (token !== sendersToken) return
-      const batch = data?.senders || []
-      if (!batch.length) break
-      all.push(...batch)
-      total = data?.total ?? all.length
-      pageNo += 1
-    }
-    senderOptions.value = all
+    const data = await get('/senders', {
+      q: fromInput.value.trim() || undefined,
+      list: filters.list || undefined,
+      sort: 'name',
+      order: 'asc',
+      per_page: FROM_PER_PAGE,
+    })
+    if (token !== fromToken) return
+    const batch = data?.senders || []
+    fromResults.value = batch
       .filter((s) => s.message_count > 0)
-      .map((s) =>
-        s.type === 'person'
-          ? { value: 'p:' + s.person_id, label: s.name }
-          : { value: 'a:' + (s.emails?.[0] || ''), label: s.name },
-      )
+      .map((s) => ({
+        value: s.type === 'person' ? 'p:' + s.person_id : 'a:' + (s.emails?.[0] || ''),
+        label: s.name,
+        count: `${fmtInt(s.message_count)} msgs`,
+      }))
+    fromTotal.value = data?.total ?? batch.length
   } catch {
-    if (token === sendersToken) senderOptions.value = []
+    if (token === fromToken) {
+      fromResults.value = []
+      fromTotal.value = 0
+    }
+  } finally {
+    if (token === fromToken) fromLoading.value = false
   }
 }
 
-// Keep the active person selectable even when the list scope excludes them.
+// The closed input shows the active sender; while open it is the search box.
+const fromDisplay = computed(() => {
+  if (filters.person) return personsById.value[filters.person]?.name || filters.person
+  return filters.address
+})
+const fromInputVal = computed(() => (fromDdOpen.value ? fromInput.value : fromDisplay.value))
+
+// "(anyone)" clears the sender filter, like the list combobox's "(all lists)".
 const fromOptions = computed(() => {
-  const opts = senderOptions.value
-  if (filters.person && !opts.some((o) => o.value === 'p:' + filters.person)) {
-    const name = personsById.value[filters.person]?.name || filters.person
-    return [{ value: 'p:' + filters.person, label: name }, ...opts]
+  const opts = fromResults.value.slice()
+  if (!fromInput.value.trim()) {
+    opts.unshift({ value: '', label: '(anyone)', count: null, all: true })
   }
   return opts
 })
+// Matches the page cap hid; narrowing the search brings them into view.
+const fromHidden = computed(() => Math.max(0, fromTotal.value - fromResults.value.length))
 
-const fromValue = computed(() => {
-  if (filters.person) return 'p:' + filters.person
-  const av = 'a:' + filters.address
-  if (filters.address && senderOptions.value.some((o) => o.value === av)) return av
-  return ''
-})
+function openFromDd() {
+  fromDdOpen.value = true
+  fromInput.value = fromDisplay.value
+  searchSenders()
+}
+function onFromInput(e) {
+  fromInput.value = e.target.value
+  fromDdOpen.value = true
+  clearTimeout(fromTimer)
+  fromTimer = setTimeout(searchSenders, 250)
+}
+function blurFromDd() {
+  setTimeout(() => {
+    fromDdOpen.value = false
+  }, 120)
+}
+function pickFrom(opt) {
+  if (opt.all) filters.patch({ person: '', address: '' })
+  else if (opt.value.startsWith('p:')) filters.setFilter('person', opt.value.slice(2))
+  else filters.setFilter('address', opt.value.slice(2))
+  fromDdOpen.value = false
+}
 
 // --- detection-mix (filtered summary) ---
 const mixCounts = ref({})
@@ -196,14 +226,8 @@ watch(filterKey, () => {
   loadTimeline()
 })
 
-watch(
-  () => filters.list,
-  () => loadSenderOptions(),
-)
-
 onMounted(() => {
   loadRefData()
-  loadSenderOptions()
   messages.refresh()
   loadMix()
   loadTimeline()
@@ -280,13 +304,7 @@ function pickList(opt) {
   listInput.value = opt.all ? '' : opt.name
 }
 
-// --- person / address / subject controls ---
-function setFrom(e) {
-  const v = e.target.value
-  if (!v) filters.patch({ person: '', address: '' })
-  else if (v.startsWith('p:')) filters.setFilter('person', v.slice(2))
-  else filters.setFilter('address', v.slice(2))
-}
+// --- address / subject controls ---
 function setAddress(e) {
   filters.setFilter('address', e.target.value.trim())
 }
@@ -469,7 +487,6 @@ async function onImportFile(e) {
     showStatus(parts.join(' · '), false)
     // Bring the pane in sync with the freshly imported data.
     loadRefData()
-    loadSenderOptions()
     messages.refresh()
     loadMix()
     loadTimeline()
@@ -723,21 +740,45 @@ const isEmpty = computed(() => !messages.loading && messages.total === 0)
                 <div v-if="listNoMatch" class="list-dropdown-empty">no matching lists</div>
               </div>
             </div>
-            <div class="fcell" :style="{ padding: fromFilterPad, overflow: 'hidden' }">
+            <div
+              class="fcell"
+              :style="{
+                padding: fromFilterPad,
+                overflow: ui.anonymous ? 'hidden' : 'visible',
+                position: 'relative',
+              }"
+            >
               <template v-if="!ui.anonymous">
-                <select
-                  :value="fromValue"
-                  title="Sender"
+                <input
+                  type="text"
+                  placeholder="anyone…"
+                  :value="fromInputVal"
+                  title="Sender (type to search)"
                   class="fctl"
                   style="width: 100%;"
                   :style="{ border: `1px solid ${b(filters.person || filters.address)}` }"
-                  @change="setFrom"
-                >
-                  <option value="">anyone</option>
-                  <option v-for="o in fromOptions" :key="o.value" :value="o.value">
-                    {{ o.label }}
-                  </option>
-                </select>
+                  @input="onFromInput"
+                  @focus="openFromDd"
+                  @blur="blurFromDd"
+                />
+                <div v-if="fromDdOpen" class="list-dropdown from-dropdown">
+                  <div
+                    v-for="o in fromOptions"
+                    :key="o.value"
+                    class="list-dropdown-item"
+                    @mousedown="pickFrom(o)"
+                  >
+                    <span class="from-option-name">{{ o.label }}</span>
+                    <span v-if="o.count" style="color: #8a929b;">{{ o.count }}</span>
+                  </div>
+                  <div v-if="fromLoading" class="list-dropdown-empty">searching…</div>
+                  <div v-else-if="!fromResults.length" class="list-dropdown-empty">
+                    no matching senders
+                  </div>
+                  <div v-else-if="fromHidden > 0" class="list-dropdown-empty">
+                    {{ fmtInt(fromHidden) }} more — keep typing to narrow
+                  </div>
+                </div>
                 <input
                   type="text"
                   placeholder="exact email"
@@ -1087,6 +1128,19 @@ select.fctl {
   padding: 4px 8px;
   font-size: 10.5px;
   color: #8a929b;
+}
+/* The From column is narrower than sender names + counts, so its dropdown
+   escapes the column width instead of stretching between the cell paddings. */
+.from-dropdown {
+  right: auto;
+  width: 300px;
+}
+.from-option-name {
+  font-weight: 600;
+  color: #1f52bf;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .messages-row {
   border-bottom: 1px solid #f2f4f6;

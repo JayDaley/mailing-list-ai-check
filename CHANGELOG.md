@@ -37,6 +37,13 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.15.3] - 2026-08-21
+
+Summary: Replace the messages pane's preloaded From dropdown with a server-side type-ahead search.
+
+- Replace the From filter's preloaded select, which was capped at 2,000 senders, with a combobox that searches /api/senders?q= per keystroke.
+- Show per-sender message counts, an "(anyone)" clear entry and a remaining-match count in the From combobox's results.
+
 ## [1.15.2] - 2026-08-19
 
 Summary: Add a read-only mode that refuses every state-changing request, plus per-endpoint export switches, for exposing the dashboard on an untrusted network.
