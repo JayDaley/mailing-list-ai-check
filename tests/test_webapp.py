@@ -3007,9 +3007,7 @@ def test_capabilities_defaults(client):
 
 def test_capabilities_reflect_config(db_path):
     """Each flag is echoed from the instance config."""
-    c = _export_client(
-        db_path, public_readonly=True, allow_export=False, allow_stats_export=True
-    )
+    c = _export_client(db_path, public_readonly=True, allow_export=False, allow_stats_export=True)
     body = c.get("/api/capabilities").get_json()
     assert body == {
         "public_readonly": True,
