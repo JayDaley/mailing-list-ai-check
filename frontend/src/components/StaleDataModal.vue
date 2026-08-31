@@ -48,12 +48,14 @@ const affectedCount = computed(() => rows.value.length)
 
 // What the "($)" refers to: the affected messages that would go to the detector
 // after re-extraction — those whose re-derived text is scoreable ('ok') and
-// either has no verdict yet or has one reached on text that changed. A message
-// whose extracted text moved but whose scored text did not keeps its verdict and
-// costs nothing.
+// either has no verdict yet or has one reached on text that changed in
+// substance. A message whose extracted text moved but whose scored text did
+// not — or moved only in whitespace — keeps its verdict and costs nothing.
 const costCount = computed(
   () =>
-    rows.value.filter((r) => r.new_status === 'ok' && (!r.scored || r.scored_text_changed)).length,
+    rows.value.filter(
+      (r) => r.new_status === 'ok' && (!r.scored || r.scored_text_changed_in_substance),
+    ).length,
 )
 
 const staleCount = computed(() => props.info?.stale_count ?? 0)
@@ -77,11 +79,13 @@ function senderTitle(row) {
   return (row.from || {}).address || ''
 }
 
-// What moved, for the table's last column. A changed scored text is the
-// consequential one (it invalidates the stored verdict), so it is named first.
+// What moved, for the table's last column. A scored text changed in substance
+// is the consequential one (it invalidates the stored verdict), so it is named
+// first; one that moved only in whitespace keeps its verdict and is labeled so.
 function changeLabel(row) {
   const parts = []
-  if (row.scored_text_changed) parts.push('scored text')
+  if (row.scored_text_changed_in_substance) parts.push('scored text')
+  else if (row.scored_text_changed) parts.push('scored text (whitespace only)')
   if (row.text_changed) parts.push('extracted text')
   if (row.old_status !== row.new_status) parts.push(`${row.old_status} → ${row.new_status}`)
   return parts.join(', ')

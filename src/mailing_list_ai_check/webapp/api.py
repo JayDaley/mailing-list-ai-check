@@ -947,6 +947,7 @@ def _serialize_diff(diff: ExtractionDiff) -> dict[str, Any]:
         "new_status": diff.new_status,
         "text_changed": diff.text_changed,
         "scored_text_changed": diff.scored_text_changed,
+        "scored_text_changed_in_substance": diff.scored_text_changed_in_substance,
         "scored": diff.scored,
     }
 
@@ -988,6 +989,9 @@ def staleness_check() -> Any:
             "unchanged": report.unchanged,
             "stamped": report.stamped,
             "differing": len(report.differing),
+            "rescore_needed": sum(
+                1 for d in report.differing if d.scored and d.scored_text_changed_in_substance
+            ),
             "messages": [_serialize_diff(d) for d in report.differing],
         }
     )
@@ -999,9 +1003,11 @@ def staleness_reextract() -> Any:
 
     Body: ``{"ids": [<message id>, …]}`` — 1 to 1000 ids, as returned by
     :func:`staleness_check`. Rewrites each changed extraction in place and drops
-    the score of any whose cleaned (scored) text changed, since that verdict was
-    reached on text that no longer exists. Local work only; the re-scoring it
-    makes necessary is the separate, paid :func:`staleness_rescore` call.
+    the score of any whose cleaned (scored) text changed **in substance**, since
+    that verdict was reached on text that no longer exists; a cleaned text that
+    moved only in whitespace keeps its verdict, re-keyed to the new text's hash
+    (counted in ``scores_carried``). Local work only; the re-scoring it makes
+    necessary is the separate, paid :func:`staleness_rescore` call.
     ``rescore_ids`` lists the messages worth passing to it.
     """
     data = _json_body()
@@ -1015,6 +1021,7 @@ def staleness_reextract() -> Any:
             "unchanged": summary.unchanged,
             "not_ok": summary.not_ok,
             "scores_invalidated": summary.scores_invalidated,
+            "scores_carried": summary.scores_carried,
             "rescore_ids": summary.rescore_message_ids,
         }
     )

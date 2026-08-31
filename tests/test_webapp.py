@@ -2868,6 +2868,7 @@ def test_serialize_diff_carries_both_version_stamps():
         new_status="ok",
         text_changed=True,
         scored_text_changed=False,
+        scored_text_changed_in_substance=False,
         scored=True,
     )
     row = webapp_api._serialize_diff(diff)

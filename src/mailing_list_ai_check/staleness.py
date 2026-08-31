@@ -27,10 +27,14 @@ Two texts are compared per message, because either can move independently:
 - the cleaned text (:func:`~email_reply_extractor.cleaning.clean_for_scoring`),
   which is what a score is a verdict on.
 
-A changed cleaned text is what invalidates a score, so :func:`reextract` deletes
-the score row in that case and reports the message as needing a re-score. A
-message whose extracted text changed but whose cleaned text did not keeps its
-verdict, and costs nothing.
+A cleaned text changed *in substance* is what invalidates a score: the
+comparison is :func:`email_reply_extractor.texts_equivalent`, so a cleaned text
+whose bytes moved but whose non-blank, edge-stripped lines are identical (the
+usual effect of a generation whose changes are mostly whitespace, such as
+generation 5) keeps its verdict, re-keyed to the new text's hash. Only a
+substantive change makes :func:`reextract` delete the score row and report the
+message as needing a re-score. A message whose extracted text changed but whose
+cleaned text did not keeps its verdict untouched, and costs nothing.
 
 Nothing in this module calls IMAP or Pangram: it re-runs local extraction and
 cleaning only. Re-scoring the rewritten rows is the caller's separate, paid step
@@ -45,8 +49,8 @@ from dataclasses import dataclass, field
 from . import __version__
 from email_reply_extractor import clean_for_scoring
 from email_reply_extractor import EXTRACTION_VERSION, extract_new_text
-from email_reply_extractor import split_html_parts
-from .store import Extraction, Message, Store
+from email_reply_extractor import split_html_parts, texts_equivalent
+from .store import Extraction, Message, Store, sha256_text
 
 # --- reports ------------------------------------------------------------------
 
@@ -92,6 +96,7 @@ class ExtractionDiff:
     new_status: str
     text_changed: bool
     scored_text_changed: bool
+    scored_text_changed_in_substance: bool
     scored: bool
 
 
@@ -112,6 +117,8 @@ class ReextractSummary:
 
     ``rescore_message_ids`` are the messages whose extraction now has no score
     and an ``ok`` status — the set worth handing to the scoring stage.
+    ``scores_carried`` counts verdicts kept because the cleaned text moved only
+    in whitespace, each re-keyed to the new text's hash.
     """
 
     processed: int = 0
@@ -119,6 +126,7 @@ class ReextractSummary:
     unchanged: int = 0
     not_ok: int = 0
     scores_invalidated: int = 0
+    scores_carried: int = 0
     rescore_message_ids: list[int] = field(default_factory=list)
 
 
@@ -143,6 +151,13 @@ class _Rederived:
     @property
     def scored_text_changed(self) -> bool:
         return self.scored_text != self.stored_scored_text
+
+    @property
+    def scored_text_changed_in_substance(self) -> bool:
+        """True when the cleaned text moved beyond whitespace — the rescore test."""
+        return self.scored_text_changed and not texts_equivalent(
+            self.scored_text, self.stored_scored_text
+        )
 
     @property
     def changed(self) -> bool:
@@ -267,6 +282,7 @@ def diff(store: Store) -> DiffReport:
                 new_status=rederived.status,
                 text_changed=rederived.text_changed,
                 scored_text_changed=rederived.scored_text_changed,
+                scored_text_changed_in_substance=rederived.scored_text_changed_in_substance,
                 scored=store.score_for_extraction(extraction.id) is not None,
             )
         )
@@ -288,9 +304,12 @@ def reextract(store: Store, message_ids: Sequence[int]) -> ReextractSummary:
     - if neither the extracted nor the cleaned text changed, only stamp the
       generation (counted in ``unchanged``);
     - otherwise rewrite the extraction in place
-      (:meth:`~mailing_list_ai_check.store.Store.replace_extraction`), and when
-      the cleaned text changed, delete any score for it — that verdict was
-      reached on text that no longer exists.
+      (:meth:`~mailing_list_ai_check.store.Store.replace_extraction`). A score
+      is deleted only when the cleaned text changed **in substance**
+      (:func:`email_reply_extractor.texts_equivalent`) — that verdict was
+      reached on text that no longer exists. A cleaned text that moved only in
+      whitespace keeps its verdict, re-keyed to the new text's hash
+      (:meth:`~mailing_list_ai_check.store.Store.rekey_score_for_extraction`).
 
     Messages without an extraction row are skipped. Nothing is re-scored here:
     ``rescore_message_ids`` lists the messages whose extraction is now ``ok`` and
@@ -322,8 +341,14 @@ def reextract(store: Store, message_ids: Sequence[int]) -> ReextractSummary:
         if rederived.status != "ok":
             summary.not_ok += 1
 
-        if rederived.scored_text_changed and store.delete_score_for_extraction(extraction.id):
-            summary.scores_invalidated += 1
+        if rederived.scored_text_changed:
+            if rederived.scored_text_changed_in_substance:
+                if store.delete_score_for_extraction(extraction.id):
+                    summary.scores_invalidated += 1
+            elif store.rekey_score_for_extraction(
+                extraction.id, sha256_text(rederived.scored_text)
+            ):
+                summary.scores_carried += 1
 
         if rederived.status == "ok" and store.score_for_extraction(extraction.id) is None:
             summary.rescore_message_ids.append(message_pk)

@@ -2014,6 +2014,21 @@ class Store:
         self.conn.commit()
         return cur.rowcount > 0
 
+    def rekey_score_for_extraction(self, extraction_id: int, text_sha256: str) -> bool:
+        """Re-key the score for ``extraction_id`` to a new cleaned-text hash.
+
+        Used when re-extraction moves the scored text's bytes without changing
+        its substance (see :func:`~mailing_list_ai_check.staleness.reextract`):
+        the verdict is kept and adopted for the new text, so the score cache
+        serves the new hash from now on. Returns whether a row was updated.
+        """
+        cur = self.conn.execute(
+            "UPDATE scores SET text_sha256 = ? WHERE extraction_id = ?",
+            (text_sha256, extraction_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
     # -- settings -------------------------------------------------------------
 
     def get_setting(self, key: str) -> str | None:

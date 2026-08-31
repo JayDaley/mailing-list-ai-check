@@ -18,6 +18,7 @@ import pytest
 from mailing_list_ai_check import __version__
 from mailing_list_ai_check.cli import ScoreSummary, run_extract, run_score
 from mailing_list_ai_check.config import Config
+from email_reply_extractor import clean_for_scoring
 from email_reply_extractor.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.staleness import check, diff, reextract
 from mailing_list_ai_check.store import Store, sha256_text
@@ -250,6 +251,19 @@ def test_delete_score_for_extraction(store):
 # --- check() ------------------------------------------------------------------
 
 
+def test_rekey_score_for_extraction(store):
+    message = extracted(store)
+    extraction = store.extraction_for_message(message.id)
+    score(store, extraction.id, "old cleaned text")
+
+    assert store.rekey_score_for_extraction(extraction.id, sha256_text("new cleaned text"))
+    after = store.score_for_extraction(extraction.id)
+    assert after.text_sha256 == sha256_text("new cleaned text")
+    assert after.label == "AI"
+
+    assert not store.rekey_score_for_extraction(4242, sha256_text("x"))
+
+
 def test_check_on_an_empty_store_is_not_stale(store):
     report = check(store)
     assert report.stale is False
@@ -442,6 +456,39 @@ def test_reextract_keeps_the_score_when_only_the_extracted_text_changed(store):
     assert summary.rescore_message_ids == []
     assert store.extraction_for_message(message.id).extracted_text == BODY
     assert store.score_for_extraction(extraction.id) is not None
+
+
+def test_reextract_carries_the_score_when_the_cleaned_text_moved_only_in_whitespace(store):
+    # The stored text differs from a fresh derivation only in blank-line
+    # placement (the usual effect of a whitespace-heavy generation change).
+    # The verdict is a verdict on the same substance, so it is kept — re-keyed
+    # to the new cleaned text's hash so the score cache serves the new bytes.
+    body = (
+        "First paragraph about the retransmission section.\n\nSecond paragraph with the decision."
+    )
+    message = extracted(store, body=body)
+    extraction = store.extraction_for_message(message.id)
+    stored_text = body.replace("\n\n", "\n")
+    store.replace_extraction(
+        extraction.id,
+        extracted_text=stored_text,
+        method="m",
+        status="ok",
+        pipeline_version=OLD_VERSION,
+    )
+    score(store, extraction.id, clean_for_scoring(stored_text).text)
+
+    summary = reextract(store, [message.id])
+    assert summary.rewritten == 1
+    assert summary.scores_invalidated == 0
+    assert summary.scores_carried == 1
+    assert summary.rescore_message_ids == []
+
+    after = store.extraction_for_message(message.id)
+    assert after.extracted_text == body
+    kept = store.score_for_extraction(extraction.id)
+    assert kept is not None
+    assert kept.text_sha256 == sha256_text(clean_for_scoring(body).text)
 
 
 def test_reextract_only_stamps_an_unchanged_extraction(store):

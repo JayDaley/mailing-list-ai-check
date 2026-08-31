@@ -37,6 +37,16 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.16.0] - 2026-09-01
+
+Summary: Extraction generation 5 via email-reply-extractor v1.1.0, with substance-aware re-derivation that rescores only extractions whose cleaned text changed beyond whitespace.
+
+- Upgrade email-reply-extractor to v1.1.0 (extraction generation 5: fragment edges kept, Outlook-boundary fix uncapped); stored extractions now read as stale and the dashboard offers re-derivation.
+- Delete a score during re-extraction only when the cleaned text changed in substance (email_reply_extractor.texts_equivalent); a whitespace-only movement keeps the verdict, re-keyed to the new cleaned text's hash.
+- Add Store.rekey_score_for_extraction and a scores_carried tally to the re-extract summary and the POST /api/staleness/reextract response.
+- Add scored_text_changed_in_substance to affected-message rows and a rescore_needed count to the POST /api/staleness/check response.
+- Base the stale-data dialog's paid-rescore estimate and change labels on the substance flag; whitespace-only movements are labeled and cost nothing.
+
 ## [1.15.5] - 2026-09-01
 
 Summary: Extraction moves to the email-reply-extractor library; stored data is unaffected.
