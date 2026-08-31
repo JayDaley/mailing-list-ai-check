@@ -37,6 +37,16 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.15.5] - 2026-09-01
+
+Summary: Extraction moves to the email-reply-extractor library; stored data is unaffected.
+
+- Replace the in-tree extraction, cleaning and HTML-text modules with the email-reply-extractor library (v1.0.0), extracted from this codebase.
+- Remove the email-reply-parser dependency; the library vendors the fragment scanner it used.
+- Move the extraction, cleaning, HTML-text and extraction-version test suites and the hand-labeled fixture corpus to the library repository.
+- Add tests/test_extract_pipeline.py covering the store-facing extract stage (status recording, idempotence, limit, parent resolution).
+- Extraction generation stays 4; a differential run over all 110,725 stored messages confirmed byte-identical output, so no stored text or score is affected.
+
 ## [1.15.4] - 2026-08-27
 
 Summary: Container images for development and deployment, from one Dockerfile with a dev target and a Kubernetes-ready production target.

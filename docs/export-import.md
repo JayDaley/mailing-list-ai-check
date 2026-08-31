@@ -60,10 +60,12 @@ derived — and **patch** for every other change, however large. No condition
 currently bumps the major version. No component of the app version is reserved
 for extraction changes.
 
-The routine that derives extracted text carries its own integer generation,
-`extraction.EXTRACTION_VERSION`, incremented by hand whenever a change to
-`extraction.py`, `cleaning.py` or `html_text.py` could alter the derived text or
-an extraction's status. Every `extractions` row records the generation that
+The routine that derives extracted text lives in the
+[email-reply-extractor](https://github.com/JayDaley/email-reply-extractor)
+library and carries its own integer generation, `EXTRACTION_VERSION`,
+incremented there whenever a change could alter the derived text or an
+extraction's status; upgrading the pinned library version is a minor app bump
+when the generation moved and a patch bump otherwise. Every `extractions` row records the generation that
 produced its text (`extractions.extraction_version`, migration 011), and that is
 the value the staleness check compares. `extractions.pipeline_version` remains as
 provenance: the app version that wrote the row.

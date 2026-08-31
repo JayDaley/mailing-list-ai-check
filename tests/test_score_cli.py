@@ -11,8 +11,8 @@ from __future__ import annotations
 import pytest
 
 from mailing_list_ai_check import cli
-from mailing_list_ai_check.cleaning import clean_for_scoring
-from mailing_list_ai_check.html_text import split_html_parts
+from email_reply_extractor.cleaning import clean_for_scoring
+from email_reply_extractor.html_text import split_html_parts
 from mailing_list_ai_check.pangram import PangramBulkOutcome, PangramError, PangramResult
 from mailing_list_ai_check.store import Store, sha256_text
 

@@ -18,7 +18,7 @@ import pytest
 from mailing_list_ai_check import __version__
 from mailing_list_ai_check.cli import ScoreSummary, run_extract, run_score
 from mailing_list_ai_check.config import Config
-from mailing_list_ai_check.extraction import EXTRACTION_VERSION
+from email_reply_extractor.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.staleness import check, diff, reextract
 from mailing_list_ai_check.store import Store, sha256_text
 from mailing_list_ai_check.webapp import create_app

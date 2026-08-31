@@ -8,7 +8,7 @@ import sqlite3
 import pytest
 
 from mailing_list_ai_check import __version__
-from mailing_list_ai_check.extraction import EXTRACTION_VERSION
+from email_reply_extractor.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.store import (
     EXTRACTION_STATUSES,
     Store,

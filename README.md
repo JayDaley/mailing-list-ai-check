@@ -192,7 +192,9 @@ mail-ai-extract              # process every message without an extraction
 mail-ai-extract --limit 50   # stop after 50 messages
 ```
 
-Runs email-reply-parser plus a custom cleanup pass (normalization, attribution
+Runs the extraction routine from the
+[email-reply-extractor](https://github.com/JayDaley/email-reply-extractor)
+library (a fragment scan plus a custom cleanup pass: normalization, attribution
 lines, indented quotes, signatures, digest over-strip guard). No credentials or
 network needed.
 
@@ -338,9 +340,11 @@ and import.
 
 ### Re-processing text derived by an older extraction routine
 
-The routine that derives an author's new text carries its own version number,
-separate from the app's, incremented whenever a change could alter the extracted
-text, the text sent to Pangram, or an extraction's status. Every extraction
+The routine that derives an author's new text lives in the
+[email-reply-extractor](https://github.com/JayDaley/email-reply-extractor)
+library and carries its own version number, separate from the app's,
+incremented whenever a change could alter the extracted text, the text sent to
+Pangram, or an extraction's status. Every extraction
 records the routine number that produced its text, so one recorded against a
 lower number may hold text the current routine would not produce. A release that
 does not change the routine leaves the number alone, so upgrading the app does
@@ -502,12 +506,13 @@ Layout:
 
 - `src/mailing_list_ai_check/` — package (src layout): `config.py`, `store.py`
   (SQLite schema + typed API), `imap_client.py` / `fetcher.py` (pull),
-  `extraction.py`, `pangram.py`, `cli.py` (the three CLI entry points), and
-  `webapp/` (Flask API + SPA serving).
+  `pangram.py`, `cli.py` (the CLI entry points), and `webapp/` (Flask API + SPA
+  serving). New-text extraction comes from the
+  [email-reply-extractor](https://github.com/JayDaley/email-reply-extractor)
+  library.
 - `frontend/` — Vue 3 + Vite dashboard; `make build` emits `frontend/dist`.
-- `tests/` — pytest suite, including `tests/fixtures/` (a hand-labeled corpus of
-  real public-archive messages with expected extractions, used to grade the
-  extractor).
+- `tests/` — pytest suite. The hand-labeled extraction corpus lives in the
+  email-reply-extractor repository with the extractor it grades.
 - `docs/findings/` — the Phase 0 spike findings (IMAP, extraction, Pangram) that
   the design is built on, including the rationale for the main design decisions
   (email-reply-parser over Talon, stdlib `sqlite3` over an ORM, the Pangram

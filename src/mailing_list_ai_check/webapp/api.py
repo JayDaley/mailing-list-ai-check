@@ -33,11 +33,11 @@ from typing import Any
 from flask import Blueprint, Response, current_app, g, jsonify, request
 
 from .. import __version__
-from ..cleaning import clean_for_scoring
+from email_reply_extractor import clean_for_scoring
 from ..cli import _PRICE_PER_100_WORDS, run_extract, run_score
 from ..export_import import ExportImportError, export_lists, import_file
-from ..extraction import EXTRACTION_VERSION
-from ..html_text import split_html_parts
+from email_reply_extractor import EXTRACTION_VERSION
+from email_reply_extractor import split_html_parts
 from ..fetcher import (
     DepthMode,
     FetchRequest,

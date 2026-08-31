@@ -16,7 +16,7 @@ When a message has no ``text/plain`` part (HTML only), we **store the row with a
 empty ``raw_body``** (``raw_body = None``) — but we now also capture the decoded
 ``text/html`` part into ``raw_html`` whenever one is present (HTML-only or
 alongside a plain part). The HTML gives the extraction pipeline a structural
-oracle (see :mod:`mailing_list_ai_check.html_text`): it can recover novel text from
+oracle (see :mod:`email_reply_extractor.html_text`): it can recover novel text from
 HTML-only messages and use ``<blockquote>``/Gmail/Outlook quote containers as
 evidence for what is quoted. HTML-only rows are still counted separately
 (``html_only``) in the run summary so they are visible, not silently dropped.

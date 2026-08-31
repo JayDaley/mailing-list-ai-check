@@ -28,7 +28,7 @@ from conftest import FakeFolder, FakeImapConn, make_raw
 from mailing_list_ai_check import __version__, codec
 from mailing_list_ai_check.cli import ScoreSummary
 from mailing_list_ai_check.config import Config
-from mailing_list_ai_check.extraction import EXTRACTION_VERSION
+from email_reply_extractor.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.fetcher import FetchSummary
 from mailing_list_ai_check.imap_client import ImapClient
 from mailing_list_ai_check.staleness import ExtractionDiff

@@ -74,6 +74,11 @@ WORKDIR /app
 # and immediately removed: that resolves the dependency list without restating
 # it here, and the real (editable) install happens against the full tree later.
 FROM base AS deps
+# The email-reply-extractor dependency is a git URL, so resolving it needs the
+# git executable and CA certificates, which the slim base image does not carry.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml ./
 COPY src/mailing_list_ai_check/__init__.py src/mailing_list_ai_check/__init__.py
 

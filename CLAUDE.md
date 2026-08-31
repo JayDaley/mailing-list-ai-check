@@ -12,12 +12,14 @@ Guidance for Claude Code when working in this repository.
   - `config.py` — loads credentials/settings from environment
   - `store.py` — SQLite schema, migrations, and typed storage API
   - `imap_client.py` / `fetcher.py` — IMAP connection and the pull pipeline
-  - `extraction.py` — new-text extraction (email-reply-parser + custom pass)
+  - new-text extraction comes from the `email-reply-extractor` library
+    (<https://github.com/JayDaley/email-reply-extractor>), extracted from this
+    codebase in v1.15.5 — see "Extraction version" below
   - `pangram.py` — Pangram AI-detection API client
   - `cli.py` — the CLI entry points (pull / extract / score)
   - `webapp/` — Flask API and built-dashboard serving
 - `frontend/` — Vue 3 + Vite dashboard (`make build` emits `frontend/dist`)
-- `tests/` — pytest suite, including `fixtures/` (hand-labeled extraction corpus)
+- `tests/` — pytest suite (the hand-labeled extraction corpus lives in the email-reply-extractor repo)
 - `docs/findings/` — Phase 0 spike findings (IMAP, extraction, Pangram)
 - `pyproject.toml` — project metadata, dependencies, tooling config
 - `Makefile` — dev/build/test/lint targets
@@ -79,7 +81,7 @@ them, and what depends on them.
 ## Versioning
 
 The app uses [semantic versioning](https://semver.org/); the current version is
-**1.15.4**. The single source of truth is `mailing_list_ai_check.__version__`
+**1.15.5**. The single source of truth is `mailing_list_ai_check.__version__`
 (in `__init__.py`); `pyproject.toml` reads it dynamically, so the two never
 drift.
 
@@ -102,26 +104,24 @@ Extraction changes are not tied to the app version; they carry their own number
 
 ## Extraction version
 
-`EXTRACTION_VERSION` (an `int` in `extraction.py`) identifies the routine that
-derives an extraction's text: `extraction.py`, `cleaning.py` and `html_text.py`
-taken together. It is independent of the app version and is incremented
-separately.
+The routine that derives an extraction's text lives in the
+`email-reply-extractor` library, and `EXTRACTION_VERSION` (an `int`) is
+imported from it. The full contract — when the constant is bumped, the corpus
+digest test that enforces it — is maintained in that repository
+(`CONTRIBUTING.md` and `docs/versioning.md` there). What still matters in this
+repo:
 
-- Increment it by one, by hand, in the same commit as any change to those three
-  modules that could alter the extracted text, the cleaned text sent to Pangram,
-  or an extraction's status — a whitespace-only difference included. Do not
-  increment it for comments, docstrings, type annotations or refactors that keep
-  every output byte identical.
 - It only ever increases. `staleness.check()` compares a stored stamp with the
   running value using `<`, so an older app opening a store written by a newer
   routine reads that store as current instead of offering to re-derive text it
   cannot reproduce.
-- `tests/test_extraction_version.py` pins the routine's output over the fixture
-  corpus as a single SHA-256. An increment requires re-recording `EXPECTED_DIGEST`
-  and `DIGEST_EXTRACTION_VERSION` in that file in the same commit; the test fails
-  otherwise, and it also fails when the output moves without an increment.
-- Four generations exist: **1** (initial release), **2** (from v1.2.0),
-  **3** (from v1.11.0) and **4** (from v1.15.0).
+- Upgrading the pinned library version in `pyproject.toml` is a **minor** app
+  bump when the new library release changed extraction output (its
+  `EXTRACTION_VERSION` moved — stored data is affected on re-extraction), and a
+  **patch** bump otherwise.
+- Four generations exist, all produced in this codebase before the library was
+  extracted: **1** (initial release), **2** (from v1.2.0), **3** (from v1.11.0)
+  and **4** (from v1.15.0, carried unchanged into the library's v1.0.0).
 
 Version stamps in the database:
 

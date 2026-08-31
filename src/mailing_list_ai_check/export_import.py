@@ -54,7 +54,7 @@ from typing import Any
 
 from . import __version__
 from .codec import CodecError, compressed_path, open_read_text, open_write_text
-from .extraction import EXTRACTION_VERSION
+from email_reply_extractor import EXTRACTION_VERSION
 from .store import (
     EXTRACTION_STATUSES,
     Store,

@@ -17,10 +17,10 @@ from collections import Counter
 from collections.abc import Container, Sequence
 from dataclasses import dataclass
 
-from .cleaning import clean_for_scoring
+from email_reply_extractor import clean_for_scoring
 from .config import Config
 from .export_import import ExportImportError, export_lists, import_file
-from .extraction import extract_new_text
+from email_reply_extractor import extract_new_text
 from .fetcher import (
     DepthMode,
     FetchRequest,
@@ -30,7 +30,7 @@ from .fetcher import (
     resolve_folders,
     run_fetch,
 )
-from .html_text import split_html_parts
+from email_reply_extractor import split_html_parts
 from .imap_client import ImapClient
 from .pangram import (
     DEFAULT_MODEL,
@@ -515,7 +515,7 @@ def build_extract_parser() -> argparse.ArgumentParser:
         prog="mail-ai-extract",
         description=(
             "Extract each author's newly written text from stored messages "
-            "(email-reply-parser + custom cleanup). Idempotent: only messages "
+            "(the email-reply-extractor library). Idempotent: only messages "
             "without an extraction row are processed."
         ),
     )

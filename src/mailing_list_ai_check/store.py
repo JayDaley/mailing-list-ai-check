@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .extraction import EXTRACTION_VERSION
+from email_reply_extractor import EXTRACTION_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -211,7 +211,7 @@ WHERE label = 'Mixed'
 
 # The decoded ``text/html`` part, captured alongside ``raw_body`` from Phase 8
 # onward so the HTML structure can serve as an extraction oracle (see
-# :mod:`mailing_list_ai_check.html_text`). NULL for rows fetched before this column
+# :mod:`email_reply_extractor.html_text`). NULL for rows fetched before this column
 # existed and backfilled by the ``--backfill-html`` pull mode.
 _MIGRATION_004 = """
 ALTER TABLE messages ADD COLUMN raw_html TEXT;
@@ -289,7 +289,7 @@ CREATE INDEX idx_messages_timing_cpm ON messages(timing_cpm);
 """
 
 # The generation of the routine that derived this extraction's text
-# (:data:`mailing_list_ai_check.extraction.EXTRACTION_VERSION`), stamped on
+# (:data:`email_reply_extractor.extraction.EXTRACTION_VERSION`), stamped on
 # insert and on re-extraction. It replaces ``pipeline_version`` as the input to
 # the staleness check, which frees the app's semantic version from having to
 # encode extraction changes; ``pipeline_version`` stays as provenance ("which
@@ -677,7 +677,7 @@ class Extraction:
 
     ``extraction_version`` is the generation of the routine that produced
     ``extracted_text``
-    (:data:`~mailing_list_ai_check.extraction.EXTRACTION_VERSION`): the value the
+    (:data:`~email_reply_extractor.extraction.EXTRACTION_VERSION`): the value the
     staleness check compares against. NULL only where the migration backfill had
     no ``pipeline_version`` to map, which reads as older than every generation.
 
@@ -1709,7 +1709,7 @@ class Store:
         one of :data:`EXTRACTION_STATUSES` (also enforced by a CHECK constraint).
 
         Stamps the new row's ``extraction_version`` with the running routine's
-        generation (:data:`~mailing_list_ai_check.extraction.EXTRACTION_VERSION`)
+        generation (:data:`~email_reply_extractor.extraction.EXTRACTION_VERSION`)
         and its ``pipeline_version`` — which is also re-stamped on the owning
         message — with the current package version (:data:`__version__`); tests
         may pass explicit values.
@@ -1839,7 +1839,7 @@ class Store:
         Used when a re-derivation proves the stored text is what the current
         routine produces: the row is up to date whatever its old stamps said.
         ``extraction_version`` defaults to the running routine's generation
-        (:data:`~mailing_list_ai_check.extraction.EXTRACTION_VERSION`) and
+        (:data:`~email_reply_extractor.extraction.EXTRACTION_VERSION`) and
         ``pipeline_version`` to the current package version
         (:data:`__version__`).
         """

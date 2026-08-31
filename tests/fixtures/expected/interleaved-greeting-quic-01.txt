@@ -1,1 +1,0 @@
-You might also be interested in Marco and Marten's draft https://datatracker.ietf.org/doc/draft-munizaga-quic-alternative-server-address/

@@ -1,7 +1,7 @@
 """Detection and repair of extractions derived by an older extraction routine.
 
 The routine that derives an extraction's text carries its own generation number,
-:data:`~mailing_list_ai_check.extraction.EXTRACTION_VERSION`, incremented by hand
+:data:`~email_reply_extractor.extraction.EXTRACTION_VERSION`, incremented by hand
 whenever that routine changes; every ``extractions`` row records the generation
 that produced its text (``extractions.extraction_version``). A row whose stamp is
 lower than the running value may therefore hold text the current routine would
@@ -24,7 +24,7 @@ only the rows the caller passes in.
 Two texts are compared per message, because either can move independently:
 
 - the extracted text, which is what the dashboard displays; and
-- the cleaned text (:func:`~mailing_list_ai_check.cleaning.clean_for_scoring`),
+- the cleaned text (:func:`~email_reply_extractor.cleaning.clean_for_scoring`),
   which is what a score is a verdict on.
 
 A changed cleaned text is what invalidates a score, so :func:`reextract` deletes
@@ -43,9 +43,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from . import __version__
-from .cleaning import clean_for_scoring
-from .extraction import EXTRACTION_VERSION, extract_new_text
-from .html_text import split_html_parts
+from email_reply_extractor import clean_for_scoring
+from email_reply_extractor import EXTRACTION_VERSION, extract_new_text
+from email_reply_extractor import split_html_parts
 from .store import Extraction, Message, Store
 
 # --- reports ------------------------------------------------------------------
@@ -194,7 +194,7 @@ def check(store: Store) -> StalenessReport:
     A generation comparison over one grouped query — no message is read and no
     text is re-derived, so this is cheap enough to run on every dashboard load.
     An extraction is counted stale when its ``extraction_version`` is lower than
-    the running :data:`~mailing_list_ai_check.extraction.EXTRACTION_VERSION`
+    the running :data:`~email_reply_extractor.extraction.EXTRACTION_VERSION`
     (NULL counts as 0, older than every generation, and a stamp *above* the
     running value is not stale — see the module docstring); a store with no
     extractions at all is never stale.

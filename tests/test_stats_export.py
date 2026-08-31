@@ -37,7 +37,7 @@ import pytest
 
 from mailing_list_ai_check import __version__, codec, export_import
 from mailing_list_ai_check.cli import stats_export_main
-from mailing_list_ai_check.extraction import EXTRACTION_VERSION
+from email_reply_extractor.extraction import EXTRACTION_VERSION
 from mailing_list_ai_check.stats_export import (
     DATAPACKAGE_MEMBER,
     DATAPACKAGE_PROFILE,
