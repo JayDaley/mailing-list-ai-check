@@ -37,6 +37,13 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.16.1] - 2026-09-01
+
+Summary: The email-reply-extractor dependency is installed from PyPI instead of a git URL.
+
+- Pin email-reply-extractor==1.1.0 from PyPI, replacing the git-URL dependency.
+- Remove the git and CA-certificate install from the Dockerfile deps stage, needed only for the git-URL dependency.
+
 ## [1.16.0] - 2026-09-01
 
 Summary: Extraction generation 5 via email-reply-extractor v1.1.0, with substance-aware re-derivation that rescores only extractions whose cleaned text changed beyond whitespace.
