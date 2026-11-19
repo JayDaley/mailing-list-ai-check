@@ -41,7 +41,7 @@ No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
 Summary: Add optional Stylome scoring with separate storage, export and message-detail cards.
 
-- Add `mail-ai-score-stylome`, with capped calls, input gates, contract checks and deterministic idempotency keys.
+- Add `mail-ai-score-stylome`, using the maintained Stylome Python SDK with capped calls, input gates, contract checks and deterministic idempotency keys.
 - Store native Stylome labels and confidence separately, keyed by text, model, operating point and evaluation identity.
 - Export exact scored text and source keys, and show current Stylome results in message detail without changing Pangram aggregates or scoring.
 

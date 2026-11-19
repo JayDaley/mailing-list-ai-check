@@ -5,8 +5,8 @@ import json
 from dataclasses import replace
 from unittest.mock import Mock
 
+import httpx
 import pytest
-import requests
 
 from mailing_list_ai_check.config import Config
 from mailing_list_ai_check.store import Store
@@ -34,17 +34,50 @@ def response(point="0.01%", evaluation="eval_12_002", label="ai_edited"):
         "confidence": "medium",
         "content_hash": "0" * 64,
         "created_at": "2026-11-19T00:00:00Z",
-        "receipt": {"id": "fixture", "share_token": "private capability"},
+        "usage": {
+            "input_characters": len(TEXT),
+            "cost_usd": "0.002045",
+            "currency": "USD",
+            "pricing_version": "fixture",
+        },
+        "receipt": {"id": "fixture", "share_token": "private capability", "public_share": False},
     }
 
 
 def client(point="0.01%", evaluation="eval_12_002"):
-    session = Mock()
-    session.post.return_value.status_code = 200
-    session.post.return_value.json.return_value = response(point, evaluation)
-    return StylomeClient(
+    state = Mock()
+    state.status = 200
+    state.data = response(point, evaluation)
+    state.error = None
+
+    def handle(request):
+        if state.error is not None:
+            raise state.error
+        body = (
+            state.data
+            if state.status == 200
+            else {
+                "error": {
+                    "code": "fixture_error",
+                    "message": "fixture",
+                    "request_id": "req_fixture",
+                    "retryable": False,
+                }
+            }
+        )
+        return httpx.Response(state.status, json=body)
+
+    state.transport = Mock(side_effect=handle)
+    session = httpx.Client(
+        base_url="https://stylome.io",
+        transport=httpx.MockTransport(state.transport),
+        follow_redirects=False,
+    )
+    api = StylomeClient(
         "fixture", operating_point=point, evaluation_version=evaluation, session=session
     )
+    api.fixture = state
+    return api
 
 
 def seed(store, text=TEXT, mid="<fixture@example.invalid>"):
@@ -84,17 +117,16 @@ def run(store, api=None, **kwargs):
 def test_public_contract_and_receipt_removal():
     api = client()
     result = api.predict("  " + TEXT + "\n\t")
-    args = api.session.post.call_args
-    assert args.args == ("https://stylome.io/api/v1/score",)
-    assert args.kwargs["json"] == {"text": TEXT, "model": MODEL, "operating_point": "0.01%"}
-    assert args.kwargs["allow_redirects"] is False
+    request = api.fixture.transport.call_args.args[0]
+    assert str(request.url) == "https://stylome.io/api/v1/score"
+    assert json.loads(request.content) == {"text": TEXT, "model": MODEL, "operating_point": "0.01%"}
     assert result.any_ai and "receipt" not in result.raw
-    key = args.kwargs["headers"]["Idempotency-Key"]
+    key = request.headers["Idempotency-Key"]
     api.predict(TEXT)
-    assert api.session.post.call_args.kwargs["headers"]["Idempotency-Key"] == key
+    assert api.fixture.transport.call_args.args[0].headers["Idempotency-Key"] == key
     other = client("0.1%")
     other.predict(TEXT)
-    assert other.session.post.call_args.kwargs["headers"]["Idempotency-Key"] != key
+    assert other.fixture.transport.call_args.args[0].headers["Idempotency-Key"] != key
 
 
 @pytest.mark.parametrize(
@@ -111,27 +143,27 @@ def test_public_contract_and_receipt_removal():
 )
 def test_contract_mismatch_fails_closed(field, value):
     api = client()
-    api.session.post.return_value.json.return_value[field] = value
+    api.fixture.data[field] = value
     with pytest.raises(StylomeError, match="contract mismatch"):
         api.predict(TEXT)
 
 
 def test_transport_error_has_no_retry_or_credential_text():
     api = client()
-    api.session.post.side_effect = requests.ReadTimeout("secret body and credential")
+    api.fixture.error = httpx.ReadTimeout("secret body and credential")
     with pytest.raises(StylomeError) as exc:
         api.predict(TEXT)
     assert "secret" not in str(exc.value)
-    assert api.session.post.call_count == 1
+    assert api.fixture.transport.call_count == 1
 
 
 @pytest.mark.parametrize("status", [302, 400, 401, 402, 409, 429, 500])
 def test_http_error_not_retried(status):
     api = client()
-    api.session.post.return_value.status_code = status
+    api.fixture.status = status
     with pytest.raises(StylomeError, match=f"HTTP {status}"):
         api.predict(TEXT)
-    assert api.session.post.call_count == 1
+    assert api.fixture.transport.call_count == 1
 
 
 @pytest.mark.parametrize("text", ["x" * 199, "x" * 10_001])
@@ -139,7 +171,7 @@ def test_client_length_gate(text):
     api = client()
     with pytest.raises(StylomeError):
         api.predict(text)
-    api.session.post.assert_not_called()
+    api.fixture.transport.assert_not_called()
 
 
 def test_queue_cap_cache_rerun_and_pangram_isolation(store):
@@ -164,7 +196,7 @@ def test_queue_cap_cache_rerun_and_pangram_isolation(store):
     summary = run(store, api, limit=1)
     assert (summary.scored, summary.already_scored, summary.api_calls) == (1, 2, 1)
     assert run(store, api).api_calls == 0
-    assert api.session.post.call_count == 2
+    assert api.fixture.transport.call_count == 2
 
 
 def test_cache_separates_points_and_evaluation_versions(store):
@@ -200,7 +232,7 @@ def test_gates_no_truncation_no_status_mutation_and_failure_stops(store):
     seed(store, mid="<ok@example.invalid>")
     seed(store, text=TEXT + " other", mid="<other@example.invalid>")
     api = client()
-    api.session.post.return_value.status_code = 402
+    api.fixture.status = 402
     summary = run(store, api)
     assert (summary.too_short, summary.too_long, summary.failed, summary.api_calls) == (1, 1, 1, 1)
     assert store.get_extraction(short.id).status == store.get_extraction(long.id).status == "ok"

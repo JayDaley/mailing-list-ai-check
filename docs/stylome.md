@@ -1,7 +1,10 @@
 # Stylome scoring
 
 `mail-ai-score-stylome` scores stored extractions through the Stylome 1.2
-developer API. It is an optional command alongside `mail-ai-score` (Pangram).
+developer API. It uses the maintained [Stylome Python SDK](https://github.com/trentmkelly/stylome-python),
+pinned to the tested 0.3.0 release commit. This app adapter owns mail selection,
+normalization, evaluation-identity checks and result storage; the SDK owns HTTP,
+authentication, typed responses and API errors. It is an optional command alongside `mail-ai-score` (Pangram).
 Pull and extraction commands are shared. No Pangram key is needed for Stylome.
 
 ## Configuration and use

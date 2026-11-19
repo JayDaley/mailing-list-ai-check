@@ -6,6 +6,7 @@ requires-python = ">=3.14"
 dependencies = [
     "python-dotenv>=1.0",
     "requests>=2.31",
+    "stylome-client @ git+https://github.com/trentmkelly/stylome-python.git@9b7a0750ff62f6d2f1562024f1e3376c6da50804",
     "email-reply-extractor==1.6.0",
     "flask>=3.0",
 ]

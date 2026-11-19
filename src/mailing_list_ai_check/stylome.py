@@ -1,4 +1,4 @@
-"""Stylome 1.2 public API client. No Pangram fraction conversion is applied."""
+"""Mail-app policy adapter over the maintained Stylome Python SDK."""
 
 from __future__ import annotations
 
@@ -6,7 +6,16 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any
 
-import requests
+import httpx
+from stylome_client import AuthenticatedClient
+from stylome_client.api.default import score_text
+from stylome_client.errors import UnexpectedStatus
+from stylome_client.models import (
+    ApiScore12,
+    ApiScoreRequest,
+    ApiScoreRequestModel,
+    ApiScoreRequestOperatingPointType0,
+)
 
 API_URL = "https://stylome.io/api/v1/score"
 MODEL = "stylome-1.2-large"
@@ -52,7 +61,7 @@ class StylomeClient:
         *,
         operating_point: str = "0.01%",
         evaluation_version: str = DEFAULT_EVALUATION,
-        session: requests.Session | None = None,
+        session: httpx.Client | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("STYLOME_API_KEY is required")
@@ -62,11 +71,18 @@ class StylomeClient:
             raise ValueError("an explicit evaluation version is required")
         self.operating_point = operating_point
         self.evaluation_version = evaluation_version
-        self.session = session if session is not None else requests.Session()
-        self._headers = {"Authorization": f"Bearer {api_key}"}
+        self.sdk = AuthenticatedClient(
+            base_url="https://stylome.io",
+            token=api_key,
+            timeout=httpx.Timeout(150, connect=10),
+            follow_redirects=False,
+            raise_on_unexpected_status=True,
+        )
+        if session is not None:
+            self.sdk.set_httpx_client(session)
 
     def close(self) -> None:
-        self.session.close()
+        self.sdk.get_httpx_client().close()
 
     def predict(self, text: str) -> StylomeResult:
         text = normalize_text(text)
@@ -75,25 +91,31 @@ class StylomeClient:
         identity = f"{MODEL}\0{self.operating_point}\0{self.evaluation_version}\0{text}"
         key = "mlac-stylome-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
         try:
-            response = self.session.post(
-                API_URL,
-                headers={**self._headers, "Idempotency-Key": key},
-                json={"text": text, "model": MODEL, "operating_point": self.operating_point},
-                timeout=(10, 120),
-                allow_redirects=False,
+            response = score_text.sync_detailed(
+                client=self.sdk,
+                body=ApiScoreRequest(
+                    text=text,
+                    model=ApiScoreRequestModel(MODEL),
+                    operating_point=ApiScoreRequestOperatingPointType0(self.operating_point),
+                ),
+                idempotency_key=key,
             )
-        except requests.RequestException:
-            # Exception strings and error bodies can contain credentials or text.
+        except UnexpectedStatus as exc:
+            raise StylomeError(f"Stylome HTTP {exc.status_code}; no retry was sent") from None
+        except httpx.RequestError:
             raise StylomeError(
                 "Stylome transport failure; completion/billing is unknown. "
                 "No retry was sent; retain this database before a manual rerun."
             ) from None
+        except ValueError, TypeError, KeyError, AttributeError:
+            raise StylomeError(
+                "Stylome response contract mismatch; response was not stored"
+            ) from None
         if response.status_code != 200:
             raise StylomeError(f"Stylome HTTP {response.status_code}; no retry was sent")
-        try:
-            data = response.json()
-        except ValueError:
-            raise StylomeError("Stylome returned invalid JSON") from None
+        if not isinstance(response.parsed, ApiScore12):
+            raise StylomeError("Stylome response contract mismatch; response was not stored")
+        data = response.parsed.to_dict()
         if not isinstance(data, dict) or (
             data.get("mock") is not False
             or data.get("model_version") != MODEL
