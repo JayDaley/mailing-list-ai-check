@@ -122,6 +122,7 @@ def test_migration_backfills_extraction_version_from_message(tmp_path):
         s.conn.execute("DROP INDEX idx_messages_timing_cpm")
         s.conn.execute("ALTER TABLE messages DROP COLUMN timing_cpm")
         s.conn.execute("DROP TABLE app_settings")
+        s.conn.execute("DROP TABLE stylome_scores")
         s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_list_autogen")
         s.conn.execute("DROP INDEX IF EXISTS idx_messages_address_from_name")
         s.conn.execute("ALTER TABLE messages DROP COLUMN auto_generated")

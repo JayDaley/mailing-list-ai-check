@@ -14,6 +14,7 @@ dependencies = [
 mail-ai-pull = "mailing_list_ai_check.cli:main"
 mail-ai-extract = "mailing_list_ai_check.cli:extract_main"
 mail-ai-score = "mailing_list_ai_check.cli:score_main"
+mail-ai-score-stylome = "mailing_list_ai_check.stylome_pipeline:main"
 mail-ai-export = "mailing_list_ai_check.cli:export_main"
 mail-ai-export-stats = "mailing_list_ai_check.cli:stats_export_main"
 mail-ai-import = "mailing_list_ai_check.cli:import_main"

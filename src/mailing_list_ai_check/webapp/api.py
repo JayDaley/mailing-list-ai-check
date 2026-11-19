@@ -61,6 +61,7 @@ from ..staleness import (
     reextract,
 )
 from ..stats_export import export_stats
+from ..stylome_pipeline import current_scores
 from ..store import (
     DEFAULT_PER_PAGE,
     MAX_PER_PAGE,
@@ -724,6 +725,7 @@ def message_detail(message_id: int) -> Any:
             "person": person,
             "extraction": extraction_json,
             "score": score_json,
+            "stylome_scores": current_scores(store, extraction) if extraction else [],
         }
     )
 

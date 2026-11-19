@@ -91,6 +91,10 @@ class Config:
     #: Largest request body accepted by ``POST /api/import``, in MiB. Every
     #: other endpoint is limited to 1 MiB regardless. Larger requests get a 413.
     max_upload_mb: int = 1024
+    #: Used only by mail-ai-score-stylome; Pangram configuration is independent.
+    stylome_api_key: str = ""
+    stylome_operating_point: str = "0.01%"
+    stylome_evaluation_version: str = "eval_12_002"
 
     @classmethod
     def load(cls) -> "Config":
@@ -113,4 +117,7 @@ class Config:
             allow_stats_export=_env_bool("ALLOW_STATS_EXPORT", True),
             allowed_hosts=_env_list("ALLOWED_HOSTS"),
             max_upload_mb=_env_positive_int("MAX_UPLOAD_MB", 1024),
+            stylome_api_key=os.environ.get("STYLOME_API_KEY", ""),
+            stylome_operating_point=os.environ.get("STYLOME_OPERATING_POINT") or "0.01%",
+            stylome_evaluation_version=os.environ.get("STYLOME_EVALUATION_VERSION") or "eval_12_002",
         )

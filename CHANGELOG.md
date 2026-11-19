@@ -37,6 +37,14 @@ code blocks, no release section appears before the first `## [` header.
 
 No 1.1.0 release exists: the version went from 1.0.5 to 1.2.0.
 
+## [1.26.0] - unreleased
+
+Summary: Add optional Stylome scoring with separate storage, export and message-detail cards.
+
+- Add `mail-ai-score-stylome`, with capped calls, input gates, contract checks and deterministic idempotency keys.
+- Store native Stylome labels and confidence separately, keyed by text, model, operating point and evaluation identity.
+- Export exact scored text and source keys, and show current Stylome results in message detail without changing Pangram aggregates or scoring.
+
 ## [1.25.0] - 2026-11-17
 
 Summary: Adopt extraction generation 10 from email-reply-extractor 1.6.0 without the optional stage-2 evidence arguments.

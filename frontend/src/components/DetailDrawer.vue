@@ -456,10 +456,22 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             >
           </div>
 
-          <!-- Analysis card -->
+          <div v-for="result in detail.stylome_scores || []"
+            :key="`${result.model}:${result.operating_point}:${result.evaluation_version}`"
+            class="drawer-card">
+            <div class="analysis-head">
+              <strong>Stylome</strong>
+              <span>{{ result.label }}</span>
+              <span class="analysis-meta">{{ result.model }} · {{ result.evaluation_version }}</span>
+            </div>
+            <p>Relative confidence: {{ result.confidence }} · Calibration FPR target: {{ result.operating_point }}</p>
+            <p class="analysis-meta">{{ result.scored_at }} · This target does not guarantee the FPR on these messages.</p>
+          </div>
+
+          <!-- Pangram analysis card -->
           <div class="drawer-card">
             <div class="analysis-head">
-              <span style="font-size: 11.5px; font-weight: 700;">Analysis</span>
+              <span style="font-size: 11.5px; font-weight: 700;">Pangram analysis</span>
               <span v-if="scored" class="pred-pill" :style="{ background: predBg }">{{
                 predShort
               }}</span>

@@ -82,6 +82,10 @@ cp .env.example .env
   <https://www.pangram.com/>.
 - **`DATABASE_PATH`** — SQLite file, defaults to `./data/mail.db`.
 
+The optional `mail-ai-score-stylome` command uses `STYLOME_API_KEY` and stores
+results separately from Pangram. See [Stylome scoring](docs/stylome.md) for
+configuration, limits, export and dashboard scope.
+
 `.env` is gitignored; never commit it. See `.env.example` for the full list of
 keys and defaults.
 
