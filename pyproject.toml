@@ -6,6 +6,7 @@ requires-python = ">=3.14"
 dependencies = [
     "python-dotenv>=1.0",
     "requests>=2.31",
+    "stylome-client @ git+https://github.com/trentmkelly/stylome-python.git@9b7a0750ff62f6d2f1562024f1e3376c6da50804",
     "email-reply-extractor==1.6.0",
     "flask>=3.0",
 ]
@@ -14,6 +15,7 @@ dependencies = [
 mail-ai-pull = "mailing_list_ai_check.cli:main"
 mail-ai-extract = "mailing_list_ai_check.cli:extract_main"
 mail-ai-score = "mailing_list_ai_check.cli:score_main"
+mail-ai-score-stylome = "mailing_list_ai_check.stylome_pipeline:main"
 mail-ai-export = "mailing_list_ai_check.cli:export_main"
 mail-ai-export-stats = "mailing_list_ai_check.cli:stats_export_main"
 mail-ai-import = "mailing_list_ai_check.cli:import_main"

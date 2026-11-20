@@ -473,6 +473,26 @@ ALTER TABLE scores ADD COLUMN part_check_status TEXT
 ALTER TABLE scores ADD COLUMN part_check TEXT;
 """
 
+_MIGRATION_020 = """
+CREATE TABLE stylome_scores (
+    id INTEGER PRIMARY KEY,
+    extraction_id INTEGER NOT NULL REFERENCES extractions(id) ON DELETE CASCADE,
+    model TEXT NOT NULL,
+    operating_point TEXT NOT NULL CHECK (operating_point IN ('0.01%', '0.1%')),
+    evaluation_version TEXT NOT NULL,
+    text_sha256 TEXT NOT NULL,
+    input_text TEXT NOT NULL,
+    label TEXT NOT NULL CHECK (label IN ('human_written', 'ai_edited', 'ai_generated')),
+    confidence TEXT NOT NULL CHECK (confidence IN ('low', 'medium', 'high')),
+    response_json TEXT NOT NULL,
+    scored_at TEXT NOT NULL,
+    UNIQUE(extraction_id, model, operating_point, evaluation_version, text_sha256)
+);
+CREATE INDEX idx_stylome_cache ON stylome_scores(
+    model, operating_point, evaluation_version, text_sha256
+);
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
@@ -493,6 +513,7 @@ MIGRATIONS: list[tuple[int, str]] = [
     (17, _MIGRATION_017),
     (18, _MIGRATION_018),
     (19, _MIGRATION_019),
+    (20, _MIGRATION_020),
 ]
 
 #: The migrations whose backfill runs in Python (see :meth:`Store.__init__`).
